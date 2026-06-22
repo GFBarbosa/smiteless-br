@@ -33,6 +33,49 @@ LANE_MACRO = {
     "adc": "Lane: farm safe, trade on cooldowns, ward for ganks.   After: take objectives, position back-line, scale to carry.",
     "support": "Lane: enable your ADC, ward river, track the enemy jungler.   After: roam for vision + picks, peel or engage by your kit.",
 }
+
+# Champion archetype from Riot's tags, with a small override where tags mislead
+# (e.g. Yasuo is tagged Fighter/Assassin but plays as a skirmisher).
+ARCH_OVERRIDE = {
+    "Yasuo": "skirmisher", "Yone": "skirmisher", "Sylas": "skirmisher", "Akshan": "skirmisher",
+    "Katarina": "assassin", "Akali": "assassin", "Fizz": "assassin", "Diana": "assassin",
+    "Ekko": "assassin", "Qiyana": "assassin", "Pyke": "assassin",
+    "Kassadin": "scaling", "Vladimir": "scaling", "Kayle": "scaling", "Veigar": "scaling",
+    "Cassiopeia": "scaling", "AurelionSol": "scaling", "Azir": "scaling", "Ryze": "scaling",
+    "Smolder": "scaling", "Nasus": "scaling",
+}
+ARCHETYPE_MACRO = {
+    "mage": "Lane: shove for prio + poke, respect all-ins (you're squishy).   After: group, zone with range from the back, win the 5v5.",
+    "assassin": "Lane: shove and roam for picks, get a lead before they scale.   After: hunt isolated carries/supports - don't 5v5 front-to-back.",
+    "skirmisher": "Lane: shove for tempo, look for side-lane 1v1s.   After: take a side lane, flank fights, fight around a knockup/engage.",
+    "scaling": "Lane: farm safe, survive your weak early.   After: hit your spikes then take over - group, zone, force objectives.",
+    "marksman": "Lane: farm safe, trade on cooldowns, respect ganks.   After: stay back-line, take objectives, scale to carry the 5v5.",
+    "bruiser": "Lane: trade with your sustain/durability, manage the wave.   After: front-line or splitpush a side lane, draw pressure.",
+    "tank": "Lane: soak XP, set up your jungler's ganks, scale.   After: front-line, start fights with your CC, peel the carry.",
+}
+VS_NOTE = {
+    "assassin": "vs an assassin: respect the lvl-6 all-in, ward your flanks.",
+    "mage": "vs a mage: dodge poke, trade when their key spell is down.",
+    "skirmisher": "vs a skirmisher: avoid extended 1v1s, play for picks/collapse.",
+    "scaling": "vs a scaling pick: punish early - shove, roam, deny farm.",
+    "marksman": "vs a marksman: all-in early before they get items online.",
+    "bruiser": "vs a bruiser: kite, don't extended-trade into their sustain.",
+    "tank": "vs a tank: they out-sustain - play for objectives/roams, not the 1v1.",
+    "enchanter": "vs an enchanter: dive the carry they peel, or burst through them.",
+}
+
+
+def archetype(dd, cid):
+    if not cid:
+        return ""
+    if dd.get("id2key", {}).get(cid, "") in ARCH_OVERRIDE:
+        return ARCH_OVERRIDE[dd["id2key"][cid]]
+    tags = dd.get("id2tags", {}).get(cid, [])
+    for t, a in (("Assassin", "assassin"), ("Marksman", "marksman"), ("Mage", "mage"),
+                 ("Support", "enchanter"), ("Tank", "tank"), ("Fighter", "bruiser")):
+        if t in tags:
+            return a
+    return ""
 W = 920; ROWH = 66; TOP = 96
 ICONCACHE = os.path.expanduser("~/.claude/cache/icons")
 _FONTS = {}
@@ -181,35 +224,41 @@ def draw_badge(d, cx, y, rating):
 
 
 def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc):
-    d.rectangle([x, y, x + w, y + 80], fill=(26, 28, 38))
-    d.rectangle([x, y, x + 3, y + 80], fill=GOLD)
+    PH = 100
+    d.rectangle([x, y, x + w, y + PH], fill=(26, 28, 38))
+    d.rectangle([x, y, x + 3, y + PH], fill=GOLD)
     myn = dd["id2name"].get(my_cid, "?")
-    d.text((x + 14, y + 9), "YOUR LANE", font=font(11, 1), fill=GOLD)
+    arch = archetype(dd, my_cid)
+    d.text((x + 14, y + 8), "YOUR LANE" + (f"   ·   {arch}" if arch else ""), font=font(11, 1), fill=GOLD)
     if opp_cid:
         oppn = dd["id2name"].get(opp_cid, "?")
         head = f"{myn} vs {oppn}"
-        d.text((x + 14, y + 26), head, font=font(15, 1), fill=TEXT)
+        d.text((x + 14, y + 25), head, font=font(15, 1), fill=TEXT)
         hx = x + 14 + d.textlength(head, font=font(15, 1)) + 12
         if my_wr is not None:
-            d.text((hx, y + 28), f"{my_wr:.0f}%", font=font(14, 1), fill=_wr_color(my_wr))
+            d.text((hx, y + 27), f"{my_wr:.0f}%", font=font(14, 1), fill=_wr_color(my_wr))
         else:
-            d.text((hx, y + 29), "no op.gg sample", font=font(12), fill=MUTED)
+            d.text((hx, y + 28), "no op.gg sample", font=font(12), fill=MUTED)
         if opp_sc and opp_sc["n"]:
             ofw = opp_sc["w"] / opp_sc["n"] * 100
             ct = (f"{opp_sc['cw']}/{opp_sc['cg']} on {oppn}" if opp_sc["cg"] else "off-champ")
-            d.text((x + 14, y + 48),
-                   f"{oppn}: last 10  {opp_sc['w']}-{opp_sc['n'] - opp_sc['w']} ({ofw:.0f}%)   ·   {ct}",
+            d.text((x + 14, y + 46),
+                   f"{oppn} last 10: {opp_sc['w']}-{opp_sc['n'] - opp_sc['w']} ({ofw:.0f}%)   ·   {ct}",
                    font=font(11), fill=MUTED)
     else:
-        d.text((x + 14, y + 27), f"{myn} — lane opponent fills in once the match starts", font=font(12), fill=MUTED)
-    m = LANE_MACRO.get(my_role)
-    if m:
-        d.text((x + 14, y + 64), m, font=font(11), fill=(168, 184, 206))
+        d.text((x + 14, y + 26), f"{myn} — lane opponent fills in once the match starts", font=font(12), fill=MUTED)
+    macro = (LANE_MACRO["support"] if my_role == "support"
+             else (ARCHETYPE_MACRO.get(arch) or LANE_MACRO.get(my_role)))
+    if macro:
+        d.text((x + 14, y + 64), macro, font=font(11), fill=(168, 184, 206))
+    vs = VS_NOTE.get(archetype(dd, opp_cid)) if opp_cid else None
+    if vs:
+        d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
 
 
 def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True):
     panel = bool(roles_known and my_role and my_role != "jungle" and my_role in dict(ROLES))
-    H = TOP + 5 * ROWH + 46 + (90 if panel else 0)
+    H = TOP + 5 * ROWH + 46 + (116 if panel else 0)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     # header
@@ -244,7 +293,7 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         opp = enemy_role.get(my_role)
         draw_lane_panel(d, img, dd, 16, ly, W - 32, my_cid, my_role, opp,
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None)
-        ly += 90
+        ly += 108
     d.text((16, ly), "gank = your lane wins + enemy struggling   |   green/red = last-10 W/L   |   N/M on = win rate on this champ",
            font=font(11), fill=(120, 118, 110))
     if note:
