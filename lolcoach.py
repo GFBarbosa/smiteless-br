@@ -226,15 +226,18 @@ def _find_claude():
     return shutil.which("claude")
 
 
-def call_claude(prompt):
+def call_claude(prompt, allow_tools=None, timeout=None):
     """Return (text, error). Uses the logged-in claude CLI; no API key needed.
 
     Runs from a neutral temp cwd so claude does NOT load the heavy C:\\ project
-    memory (that was adding 30-60s). Hard timeout kills the whole process tree."""
+    memory (that was adding 30-60s). Hard timeout kills the whole process tree.
+    Pass allow_tools="WebSearch,WebFetch" to let it pull up-to-date info."""
     claude = _find_claude()
     if not claude:
         return None, "claude CLI not found"
     args = [claude, "-p", "--model", CLAUDE_MODEL, "--strict-mcp-config"]
+    if allow_tools:
+        args += ["--allowedTools", allow_tools]
     try:
         p = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -243,7 +246,7 @@ def call_claude(prompt):
     except (FileNotFoundError, OSError) as e:
         return None, f"couldn't launch claude ({e})"
     try:
-        out, err = p.communicate(input=prompt, timeout=CLAUDE_TIMEOUT)
+        out, err = p.communicate(input=prompt, timeout=(timeout or CLAUDE_TIMEOUT))
     except subprocess.TimeoutExpired:
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
                        capture_output=True)

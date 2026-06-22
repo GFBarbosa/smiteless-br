@@ -16,6 +16,7 @@ import lolbuild as lb
 import lolgame as lg
 import lolcoach as lc
 import lolscout as ls
+import lolmatchup as lm
 
 # ---- theme ----
 BG = (17, 19, 26); TEXT = (232, 230, 223); MUTED = (155, 152, 142); GOLD = (200, 170, 110)
@@ -223,13 +224,29 @@ def draw_badge(d, cx, y, rating):
     d.text((cx, y + 8), label, font=f, fill=fg, anchor="mm")
 
 
-def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc):
-    PH = 100
+def _wrap(d, text, fnt, max_w):
+    lines, cur = [], ""
+    for word in text.split():
+        t = (cur + " " + word).strip()
+        if d.textlength(t, font=fnt) <= max_w:
+            cur = t
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip=None):
+    PH = 122
     d.rectangle([x, y, x + w, y + PH], fill=(26, 28, 38))
     d.rectangle([x, y, x + 3, y + PH], fill=GOLD)
     myn = dd["id2name"].get(my_cid, "?")
     arch = archetype(dd, my_cid)
-    d.text((x + 14, y + 8), "YOUR LANE" + (f"   ·   {arch}" if arch else ""), font=font(11, 1), fill=GOLD)
+    label = "YOUR LANE" + (f"   ·   {arch}" if arch else "") + ("   ·   live tip" if tip else "")
+    d.text((x + 14, y + 8), label, font=font(11, 1), fill=GOLD)
     if opp_cid:
         oppn = dd["id2name"].get(opp_cid, "?")
         head = f"{myn} vs {oppn}"
@@ -247,18 +264,24 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
                    font=font(11), fill=MUTED)
     else:
         d.text((x + 14, y + 26), f"{myn} — lane opponent fills in once the match starts", font=font(12), fill=MUTED)
-    macro = (LANE_MACRO["support"] if my_role == "support"
-             else (ARCHETYPE_MACRO.get(arch) or LANE_MACRO.get(my_role)))
-    if macro:
-        d.text((x + 14, y + 64), macro, font=font(11), fill=(168, 184, 206))
-    vs = VS_NOTE.get(archetype(dd, opp_cid)) if opp_cid else None
-    if vs:
-        d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
+    if tip:
+        ty = y + 65
+        for ln in _wrap(d, tip, font(12), w - 30)[:3]:
+            d.text((x + 14, ty), ln, font=font(12), fill=(216, 202, 168))
+            ty += 18
+    else:
+        macro = (LANE_MACRO["support"] if my_role == "support"
+                 else (ARCHETYPE_MACRO.get(arch) or LANE_MACRO.get(my_role)))
+        if macro:
+            d.text((x + 14, y + 64), macro, font=font(11), fill=(168, 184, 206))
+        vs = VS_NOTE.get(archetype(dd, opp_cid)) if opp_cid else None
+        if vs:
+            d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
 
 
-def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True):
+def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None):
     panel = bool(roles_known and my_role and my_role != "jungle" and my_role in dict(ROLES))
-    H = TOP + 5 * ROWH + 46 + (116 if panel else 0)
+    H = TOP + 5 * ROWH + 46 + (140 if panel else 0)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     # header
@@ -292,8 +315,8 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     if panel:
         opp = enemy_role.get(my_role)
         draw_lane_panel(d, img, dd, 16, ly, W - 32, my_cid, my_role, opp,
-                        lanes.get(my_role), scout_map.get((opp, False)) if opp else None)
-        ly += 108
+                        lanes.get(my_role), scout_map.get((opp, False)) if opp else None, lane_tip)
+        ly += 132
     d.text((16, ly), "gank = your lane wins + enemy struggling   |   green/red = last-10 W/L   |   N/M on = win rate on this champ",
            font=font(11), fill=(120, 118, 110))
     if note:
@@ -360,17 +383,33 @@ def main():
                        roles_known=False, live=False)
                 time.sleep(4)
                 continue
-            # in-game: full board, then progressive player scout
+            # in-game: full board + matchup tip + progressive player scout
             lanes = {r: wr for a, r, e, wr, g in lc.gather_lane_matchups(dd, allies, enemies)}
             scout_map = {}
-            render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, src, "")
+            patch = lm.patch_of(dd["ver"])
+            opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
+            lane_tip = (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                   my_role, patch) if opp_cid else None)
+
+            def paint(note=""):
+                render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
+                       src, note, lane_tip=lane_tip)
+
+            paint()
+            # generate + cache the matchup tip once per patch (web search; ~60-120s) if new
+            if opp_cid and not lane_tip:
+                t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
+                                        dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                        my_role, patch)
+                if t:
+                    lane_tip = t
+                    paint()
             for r in ls.iter_scout_struct(dd, count):
                 if "error" in r:
-                    render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes,
-                           scout_map, src, r["error"])
+                    paint(r["error"])
                     break
                 scout_map[(r["cid"], r["is_ally"])] = r
-                render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, src, "")
+                paint()
             break
     finally:
         if fm:

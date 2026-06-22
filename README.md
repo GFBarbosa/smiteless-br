@@ -19,7 +19,11 @@ The overlay has:
 4. **Per-player form bar** — each player's last-10 W/L from the Riot API (the "are they
    on a heater / tilted" read). Always current, unlike cached profile sites.
 5. **Lane panel** — when you lock a **lane** (not jungle), a panel with your matchup, the
-   opponent's recent form, and a lane / post-lane macro line (what to play for).
+   opponent's recent form, and a **specific, current matchup tip** ("dodge her E, hold Wind
+   Wall for her R, all-in at 6…"). Tips are generated once per patch by the LLM **with web
+   search** (so they're up to date, not stale recall) and cached to disk — instant every
+   game after, and the cache files are plain text you can hand-edit. Before a tip is cached
+   it falls back to an archetype-based macro line.
 
 Everything that states a number traces to a real source (op.gg or the Riot API).
 
@@ -67,6 +71,8 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `lolcoach.py` — verified per-lane op.gg win rates, **paired strictly by role slot**.
 - `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
   rate-limit aware, permanent match caching.
+- `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
+  search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
 - `smitecard.py` — composites the scoreboard PNG; renders progressively and waits for the
   match to come up so auto-open works from the loading screen.
 
