@@ -57,12 +57,12 @@ def ddragon():
     spells = {int(v["key"]): v["name"] for v in load("summoner")["data"].values()}
     champ = load("champion")["data"]
     def norm(x): return "".join(c for c in x.lower() if c.isalnum())
-    name2id = {}; id2name = {}
+    name2id = {}; id2name = {}; id2key = {}
     for c in champ.values():
-        cid = int(c["key"]); id2name[cid] = c["name"]
+        cid = int(c["key"]); id2name[cid] = c["name"]; id2key[cid] = c["id"]
         name2id[norm(c["name"])] = cid; name2id[norm(c["id"])] = cid
     return dict(ver=ver, items=items, runes=runes, trees=trees, spells=spells,
-                name2id=name2id, id2name=id2name, norm=norm)
+                name2id=name2id, id2name=id2name, id2key=id2key, norm=norm)
 
 # ---------- LCU champ-select auto-detect ----------
 def lcu_champ_select():

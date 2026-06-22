@@ -125,9 +125,11 @@ def match_results(mid, key):
 
 
 def scout(dd, puuid, champ_id, key, count):
-    """Return (games, wins, champ_games, champ_wins) over the last `count` ranked."""
+    """Return (games, wins, champ_games, champ_wins, form) over the last `count`
+    ranked. `form` is a list of bool (True=win) in recent-first order."""
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
+    form = []
     for mid in ids:
         res = match_results(mid, key)
         if not res or puuid not in res:
@@ -135,10 +137,11 @@ def scout(dd, puuid, champ_id, key, count):
         win, cname = res[puuid]
         n += 1
         w += 1 if win else 0
+        form.append(bool(win))
         if dd["name2id"].get(dd["norm"](cname)) == champ_id:
             cg += 1
             cw += 1 if win else 0
-    return n, w, cg, cw
+    return n, w, cg, cw, form
 
 
 def _safe(s):
@@ -195,7 +198,8 @@ def roster(dd, key):
             if not puuid:
                 continue
             cid = dd["name2id"].get(dd["norm"](p.get("championName", ""))) or 0
-            out.append((puuid, cid, p.get("team") == myteam, p is me))
+            role = lb.ROLE.get((p.get("position") or "").lower(), "")
+            out.append((puuid, cid, role, p.get("team") == myteam, p is me))
         if out:
             return out, None
     # --- fallback: gameflow, ONLY if it carries real (encrypted) puuids ---
@@ -220,7 +224,7 @@ def roster(dd, key):
                 for team in (mine, t2 if mine is t1 else t1):
                     for p in team:
                         if p.get("puuid"):
-                            out.append((p["puuid"], p.get("championId", 0),
+                            out.append((p["puuid"], p.get("championId", 0), "",
                                         team is mine, p.get("puuid") == mypuuid))
                 return out, None
         except Exception:
@@ -243,25 +247,39 @@ def fmt_row(dd, champ_id, is_ally, is_me, n, w, cg, cw):
     return f"{side} {champ:13} last{n}: {acct:15} | {champ_wr}"
 
 
-def iter_scout(dd, count=10):
-    """Yield ('header'|'row'|'error', text) progressively so callers can stream it."""
+def iter_scout_struct(dd, count=10):
+    """Yield structured per-player dicts as each resolves (drives the image renderer):
+    {cid, role, is_ally, is_me, n, w, cg, cw, form} — or a single {'error': ...}."""
     key = read_key()
     if not key:
-        yield ("error", "No Riot API key file (~/.riot_api_key).")
+        yield {"error": "No Riot API key file (~/.riot_api_key)."}
         return
     players, err = roster(dd, key)
     if err:
-        yield ("error", err)
+        yield {"error": err}
         return
-    # enemies first (most valuable), then allies; you last
-    players.sort(key=lambda x: (x[2], x[3]))  # ally False first, me last
-    yield ("header", f"PLAYER SCOUT (Riot API, live - last {count} ranked each):")
+    players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me): enemies first, you last
     try:
-        for puuid, champ_id, is_ally, is_me in players:
-            n, w, cg, cw = scout(dd, puuid, champ_id, key, count)
-            yield ("row", fmt_row(dd, champ_id, is_ally, is_me, n, w, cg, cw))
+        for puuid, cid, role, is_ally, is_me in players:
+            n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
+            yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
+                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form}
     except KeyStale:
-        yield ("error", "Riot key is stale (401/403) — regenerate at developer.riotgames.com.")
+        yield {"error": "Riot key is stale (401/403) - regenerate at developer.riotgames.com."}
+
+
+def iter_scout(dd, count=10):
+    """Yield ('header'|'row'|'error', text) progressively so callers can stream it."""
+    header_done = False
+    for r in iter_scout_struct(dd, count):
+        if "error" in r:
+            yield ("error", r["error"])
+            return
+        if not header_done:
+            yield ("header", f"PLAYER SCOUT (Riot API, live - last {count} ranked each):")
+            header_done = True
+        yield ("row", fmt_row(dd, r["cid"], r["is_ally"], r["is_me"],
+                              r["n"], r["w"], r["cg"], r["cw"]))
 
 
 def _takeflag(argv, name, default=None):

@@ -4,99 +4,117 @@
 ; ============================================================
 ; Smiteless - League of Legends champ-select & in-game companion.
 ;
-; Win+B opens one always-on-top window with three sections that fill in
-; progressively (window stays responsive; Esc or the X closes it):
-;   1) build card   - runes/build for your champ, live from op.gg   (lolbuild.py)
-;   2) coach guide   - VERIFIED op.gg lane winrates + a strong/weak-side call
-;                      computed from those numbers; optional AI commentary (lolcoach.py)
-;   3) player scout  - LIVE Riot match data per player: account WR over the last
-;                      10 ranked + their current-champ WR (lolscout.py). In-game only.
+; A scoreboard-style overlay rendered as an image by smitecard.py:
+;   - build/runes header for your champ (op.gg)
+;   - both teams aligned by role, matchups paired by the REAL champ in each slot
+;   - a data-only gank rating per enemy lane (your lane WR + enemy recent form)
+;   - a last-10 W/L form bar per player (live Riot match history)
+;   - a lane matchup + macro panel when you lock a lane (not jungle)
+; The image renders progressively (build/lanes first, player scout fills in over
+; ~2 min in-game) and reloads as it updates.
 ;
-; Works in champ select, on the loading screen, and in-game (each section uses
-; whatever data the current phase exposes). For the overlay to render over the
-; game, run League in Borderless (fullscreen-exclusive hides all overlays).
+;   - Auto-opens when a match starts (loading screen onward).
+;   - Win+B reopens it after you close it.
+;   - Opens on a second monitor if you have one.
+;
+; Player scouting is in-game only. Run League in Borderless so it shows over the
+; game. Esc / X closes.
 ; ============================================================
 
 ; --- CONFIG -------------------------------------------------
-; Path to a Python 3 interpreter. The scripts use only the standard library,
-; so any python3 works. Use "python" if it's on PATH, or an absolute path.
+; Python 3 with Pillow installed (pip install Pillow). "python" if on PATH.
 PY := "python"
-; The .py scripts live next to this file by default.
-SCRIPTS := A_ScriptDir
+SCRIPTS := A_ScriptDir          ; the .py files live next to this script
 ; ------------------------------------------------------------
 
-#b:: {
+#b::OpenSmiteless()
+
+OpenSmiteless() {
+    global PY, SCRIPTS
     static lastGui := 0
     if lastGui {
         try lastGui.Destroy()
         lastGui := 0
     }
-    buildScript := SCRIPTS "\lolbuild.py"
-    coachScript := SCRIPTS "\lolcoach.py"
-    scoutScript := SCRIPTS "\lolscout.py"
-    buildOut := A_Temp "\smiteless_build.txt"
+    cardScript := SCRIPTS "\smitecard.py"
     stamp := A_TickCount
-    coachOut := A_Temp "\smiteless_coach_" stamp ".txt"
-    coachDone := A_Temp "\smiteless_coach_" stamp ".done"
-    scoutOut := A_Temp "\smiteless_scout_" stamp ".txt"
-    scoutDone := A_Temp "\smiteless_scout_" stamp ".done"
+    img := A_Temp "\smitecard_" stamp ".png"
+    done := A_Temp "\smitecard_" stamp ".done"
 
-    ; --- Phase 1: build card (fast, blocking ~1-2s) ---
-    ToolTip("Smiteless: pulling build card...")
-    RunWait(A_ComSpec ' /c ""' PY '" "' buildScript '" > "' buildOut '" 2>&1"', , "Hide")
-    ToolTip()
-    buildText := ""
-    try buildText := FileRead(buildOut, "UTF-8")
-    if (Trim(buildText) = "")
-        buildText := "No build card. Is the League client in champ select / a game running?"
-
-    sepC := "`r`n`r`n------------ matchup & macro guide ------------`r`n`r`n"
-    sepS := "`r`n`r`n------------ player scout (live Riot data) ------------`r`n`r`n"
-    coachWait := "Reading the game... quick read in a few seconds, AI commentary upgrades it (~30-90s)."
-    scoutWait := "Scouting players (live, in-game only; ~2 min first run, instant once cached)..."
-
-    g := Gui("+AlwaysOnTop +Resize", "Smiteless")
-    g.SetFont("s10", "Consolas")
-    ctrl := g.Add("Edit", "ReadOnly -Wrap +HScroll w900 r40", buildText sepC coachWait sepS scoutWait)
-    g.OnEvent("Escape", (*) => g.Destroy())
-    g.OnEvent("Close", (*) => g.Destroy())
-    g.Show("AutoSize")
-    lastGui := g
-
-    ; --- Phases 2 & 3: coach + scout run async, each streaming to its own file.
-    ;     The poller re-reads both every tick and concatenates. ---
-    Run(A_ComSpec ' /c ""' PY '" "' coachScript '" --out "' coachOut '" --fm "' coachDone '" 2>nul"', , "Hide")
-    Run(A_ComSpec ' /c ""' PY '" "' scoutScript '" --out "' scoutOut '" --fm "' scoutDone '" 2>nul"', , "Hide")
+    ToolTip("Smiteless: reading game...")
+    Run(A_ComSpec ' /c ""' PY '" "' cardScript '" --out "' img '" --fm "' done '" --count 10 2>nul"', , "Hide")
     startTick := A_TickCount
-    lastShown := ""
+    g := 0
+    pic := 0
+    lastMod := ""
 
     Poll() {
-        hwnd := 0
-        try hwnd := g.Hwnd
-        if (!hwnd || !WinExist("ahk_id " hwnd))
-            return
-        coachTxt := coachWait
-        if FileExist(coachOut) {
-            t := ""
-            try t := FileRead(coachOut, "UTF-8")
-            if (Trim(t) != "")
-                coachTxt := t
+        if (!g) {
+            if (!FileExist(img)) {
+                if (A_TickCount - startTick > 30000) {
+                    ToolTip()
+                    return
+                }
+                SetTimer(Poll, -400)
+                return
+            }
+            ToolTip()
+            g := Gui("+AlwaysOnTop +Resize", "Smiteless")
+            g.MarginX := 0, g.MarginY := 0
+            pic := g.Add("Picture", "w920", img)
+            g.OnEvent("Escape", (*) => g.Destroy())
+            g.OnEvent("Close", (*) => g.Destroy())
+            g.Show("AutoSize")
+            SmitePlaceWindow(g)
+            lastGui := g
+            lastMod := FileGetTime(img, "M")
+        } else {
+            hwnd := 0
+            try hwnd := g.Hwnd
+            if (!hwnd || !WinExist("ahk_id " hwnd))
+                return
+            m := FileGetTime(img, "M")
+            if (m != lastMod) {
+                try pic.Value := img
+                lastMod := m
+            }
         }
-        scoutTxt := scoutWait
-        if FileExist(scoutOut) {
-            t := ""
-            try t := FileRead(scoutOut, "UTF-8")
-            if (Trim(t) != "")
-                scoutTxt := t
-        }
-        content := buildText sepC coachTxt sepS scoutTxt
-        if (content != lastShown) {
-            try ctrl.Value := content
-            lastShown := content
-        }
-        if ((FileExist(coachDone) && FileExist(scoutDone)) || (A_TickCount - startTick > 190000))
+        if (FileExist(done) || (A_TickCount - startTick > 420000))
             return
         SetTimer(Poll, -500)
     }
     SetTimer(Poll, -500)
 }
+
+SmitePlaceWindow(g) {
+    if (MonitorGetCount() <= 1)
+        return
+    prim := MonitorGetPrimary()
+    target := 0
+    loop MonitorGetCount() {
+        if (A_Index != prim) {
+            target := A_Index
+            break
+        }
+    }
+    if (!target)
+        return
+    MonitorGetWorkArea(target, &L, &T, &R, &B)
+    WinGetPos(, , &w, &h, "ahk_id " g.Hwnd)
+    WinMove(L + ((R - L) - w) // 2, T + ((B - T) - h) // 2, , , "ahk_id " g.Hwnd)
+}
+
+; Auto-open once per game. The in-game client is "League of Legends.exe"
+; (distinct from the launcher "LeagueClient.exe").
+g_smiteGamePid := 0
+SmiteWatch() {
+    global g_smiteGamePid
+    pid := ProcessExist("League of Legends.exe")
+    if (pid && pid != g_smiteGamePid) {
+        g_smiteGamePid := pid
+        OpenSmiteless()
+    } else if (!pid) {
+        g_smiteGamePid := 0
+    }
+}
+SetTimer(SmiteWatch, 4000)
