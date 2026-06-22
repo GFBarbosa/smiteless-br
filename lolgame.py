@@ -91,7 +91,8 @@ def _from_champ_select(dd):
     pos = ROLE.get((mine.get("assignedPosition") or "").lower(), "")
     allies = [(m.get("championId", 0), ROLE.get((m.get("assignedPosition") or "").lower(), ""))
               for m in s.get("myTeam", [])]
-    enemies = [e.get("championId", 0) for e in s.get("theirTeam", []) if e.get("championId", 0) > 0]
+    enemies = [(e.get("championId", 0), ROLE.get((e.get("assignedPosition") or "").lower(), ""))
+               for e in s.get("theirTeam", []) if e.get("championId", 0) > 0]
     if not my:
         return dict(my=0, pos=pos, allies=allies, enemies=enemies,
                     phase="ChampSelect", source="champ select", err="not_locked")
@@ -133,7 +134,7 @@ def _from_live_client(dd):
     pos = pos_of(me) or load_role(my)
     allies = [(_cid(dd, p.get("championName", "")), pos_of(p))
               for p in players if p.get("team") == myteam]
-    enemies = [_cid(dd, p.get("championName", ""))
+    enemies = [(_cid(dd, p.get("championName", "")), pos_of(p))
                for p in players if p.get("team") != myteam and _cid(dd, p.get("championName", ""))]
     save_role(my, pos)
     return dict(my=my, pos=pos, allies=allies, enemies=enemies,
@@ -177,7 +178,7 @@ def _from_gameflow(dd):
     my = me.get("championId", 0)
     pos = load_role(my)  # gameflow exposes no role; recover from cache if we have it
     allies = [(p.get("championId", 0), "") for p in myteam]
-    enemies = [p.get("championId", 0) for p in other if p.get("championId", 0) > 0]
+    enemies = [(p.get("championId", 0), "") for p in other if p.get("championId", 0) > 0]
     if pos:
         save_role(my, pos)
     return dict(my=my, pos=pos, allies=allies, enemies=enemies,

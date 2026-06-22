@@ -49,41 +49,51 @@ def gather_matchups(dd, my_cid, role, enemy_ids):
     return out, tier
 
 
-def gather_lane_matchups(dd, allies, enemy_ids):
-    """For each ally WITH A KNOWN ROLE, pull op.gg same-role counters and find which
-    ENEMY champ they lane against -> a VERIFIED matchup WR. This both identifies the
-    lane opponent and gives a real number, so nothing is guessed. Needs ally roles
-    (available in champ select + in-game; not on the loading screen).
-    Returns [(ally_name, role, enemy_name, wr, games), ...]."""
-    enemy_set = {e for e in enemy_ids if e}
+def gather_lane_matchups(dd, allies, enemies):
+    """Pair each lane STRICTLY BY ROLE using the real champion in that slot - no
+    guessing. ally[role] is matched against enemy[role] (the actual enemy who plays
+    that role, read from the live game), and the WR is op.gg's number for THAT exact
+    pair, or None if op.gg has no sample for it. We never substitute a different
+    enemy. Both `allies` and `enemies` are lists of (champ_id, role); a lane is only
+    returned when BOTH the ally's and the enemy's role for it are known (i.e. in-game;
+    in champ select enemy roles are hidden, so no pairings are produced).
+    Returns [(ally_name, role, enemy_name, wr_or_None, games_or_None), ...]."""
+    enemy_by_role = {}
+    for cid, role in enemies:
+        if cid and role and role not in enemy_by_role:
+            enemy_by_role[role] = cid
     out = []
     for cid, role in allies:
         if not cid or not role:
             continue
+        opp = enemy_by_role.get(role)
+        if not opp:
+            continue  # enemy role for this lane unknown -> do NOT fabricate a pairing
+        wr = games = None
         try:
             d = lb.opgg(cid, role)
         except Exception:
-            continue
-        best = None
-        for c in (d.get("counters", []) if isinstance(d, dict) else []):
-            if c.get("champion_id") in enemy_set and c.get("play", 0) >= 20:
-                if best is None or c["play"] > best["play"]:
-                    best = c
-        if best:
-            out.append((dd["id2name"].get(cid, cid), role,
-                        dd["id2name"].get(best["champion_id"], best["champion_id"]),
-                        best["win"] / best["play"] * 100, best["play"]))
-        time.sleep(0.15)  # rapid op.gg calls get throttled; space them out
+            d = None
+        if isinstance(d, dict):
+            for c in d.get("counters", []):
+                if c.get("champion_id") == opp and c.get("play", 0) >= 20:
+                    wr, games = c["win"] / c["play"] * 100, c["play"]
+                    break
+        out.append((dd["id2name"].get(cid, cid), role,
+                    dd["id2name"].get(opp, opp), wr, games))
+        time.sleep(0.1)  # rapid op.gg calls get throttled; space them out
     return out
 
 
 def deterministic_analysis(lane_mu, role):
     """Strong/weak side computed PURELY from the verified lane winrates - no LLM,
     nothing invented. Returns '' if we have no per-lane data."""
-    if not lane_mu:
+    rated = [x for x in lane_mu if x[3] is not None]
+    nodata = [x for x in lane_mu if x[3] is None]
+    if not rated and not nodata:
         return ""
     fmt = lambda x: f"{x[1]} {x[0]} vs {x[2]} {x[3]:.0f}% ({x[4]}g)"
-    ranked = sorted(lane_mu, key=lambda x: x[3], reverse=True)
+    ranked = sorted(rated, key=lambda x: x[3], reverse=True)
     strong = [x for x in ranked if x[3] >= 52]
     weak = [x for x in ranked if x[3] < 48]
     even = [x for x in ranked if 48 <= x[3] < 52]
@@ -97,6 +107,9 @@ def deterministic_analysis(lane_mu, role):
         out.append("WEAK (data): " + "; ".join(fmt(x) for x in weak) + tail)
     if even:
         out.append("EVEN (data): " + "; ".join(fmt(x) for x in even))
+    if nodata:
+        out.append("NO OP.GG SAMPLE (pairing known, WR not): "
+                   + "; ".join(f"{x[1]} {x[0]} vs {x[2]}" for x in nodata))
     return "\n".join(out)
 
 
@@ -104,10 +117,12 @@ def matchup_text(lane_mu, my_matchups, myname, role, ver):
     """One verified-data string for the prompt + quick read. Prefers full per-lane
     data; falls back to the user's own matchups; else says so plainly."""
     if lane_mu:
+        parts = []
+        for a, r, e, wr, g in lane_mu:
+            parts.append(f"{r} {a} vs {e} (no op.gg sample)" if wr is None
+                         else f"{r} {a} vs {e} {wr:.1f}% ({g}g)")
         return ("VERIFIED LANE WINRATES (op.gg Emerald+, patch %s) - your team vs the "
-                "enemy in that lane: " % ver
-                + "; ".join(f"{r} {a} vs {e} {wr:.1f}% ({g}g)"
-                            for a, r, e, wr, g in lane_mu))
+                "enemy in that lane (paired by role): " % ver + "; ".join(parts))
     if my_matchups:
         return (f"VERIFIED op.gg winrates for {myname} {role}: "
                 + "; ".join(f"vs {n} {wr:.1f}% ({g}g)" for n, wr, g in my_matchups))
@@ -314,7 +329,7 @@ def main():
             return
         role = lb.ROLE.get((args[1].lower() if len(args) > 1 else "jungle"), "jungle")
         allies = []
-        enemy_ids = [cid for cid in (dd["name2id"].get(dd["norm"](a)) for a in args[2:]) if cid]
+        enemies = [(cid, "") for cid in (dd["name2id"].get(dd["norm"](a)) for a in args[2:]) if cid]
         source = "manual"
     else:  # AUTO: champ select / loading screen / in-game
         info, errmsg = lg.resolve(dd)
@@ -326,15 +341,16 @@ def main():
             return
         my_cid, role = info["my"], info["pos"]   # role may be "" on the loading screen
         allies = info["allies"]
-        enemy_ids = info["enemies"]
+        enemies = info["enemies"]                 # [(champ_id, role)] — roles known in-game
         source = info.get("source", "auto")
 
     myname = dd["id2name"].get(my_cid, str(my_cid))
-    enemy_names = [dd["id2name"].get(e, str(e)) for e in enemy_ids]
-    # Verified per-lane winrates when ally roles are known (champ select / in-game);
-    # else just the user's own matchups (loading screen has no roles).
-    lane_mu = gather_lane_matchups(dd, allies, enemy_ids) if any(r for _, r in allies) else []
-    my_mu = gather_matchups(dd, my_cid, role, enemy_ids)[0] if (role and not lane_mu) else []
+    enemy_names = [dd["id2name"].get(c, str(c)) for c, _ in enemies]
+    enemy_cids = [c for c, _ in enemies]
+    # Per-lane winrates need BOTH teams' roles (in-game). gather_lane_matchups pairs
+    # strictly by role and returns only the lanes it could pair; else fall back.
+    lane_mu = gather_lane_matchups(dd, allies, enemies) if (allies and enemies) else []
+    my_mu = gather_matchups(dd, my_cid, role, enemy_cids)[0] if (role and not lane_mu) else []
     mu_text = matchup_text(lane_mu, my_mu, myname, role, ver)
     analysis = deterministic_analysis(lane_mu, role)
 

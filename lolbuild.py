@@ -155,7 +155,7 @@ def main():
             print(err); return
         cid, role = info["my"], info["pos"]
         src = info.get("source", "auto")
-        enemies = ", ".join(dd["id2name"].get(e, e) for e in info["enemies"]) or "none yet"
+        enemies = ", ".join(dd["id2name"].get(c, c) for c, _ in info["enemies"]) or "none yet"
         if not role:  # loading screen with no cached role
             print(f"[{src}] you: {dd['id2name'].get(cid)} - role not cached "
                   f"(press Win+B during champ select to cache it; it's auto-detected in-game).\n"
