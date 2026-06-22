@@ -10,10 +10,9 @@
 ;   - a data-only gank rating per enemy lane (your lane WR + enemy recent form)
 ;   - a last-10 W/L form bar per player (live Riot match history)
 ;   - a lane matchup + macro panel when you lock a lane (not jungle)
-; The image renders progressively (build/lanes first, player scout fills in over
-; ~2 min in-game) and reloads as it updates.
+; The image renders progressively and reloads as it updates.
 ;
-;   - Auto-opens when a match starts (loading screen onward).
+;   - Auto-opens when a match starts, holding until the loading screen has champs.
 ;   - Win+B reopens it after you close it.
 ;   - Opens on a second monitor if you have one.
 ;
@@ -27,9 +26,9 @@ PY := "python"
 SCRIPTS := A_ScriptDir          ; the .py files live next to this script
 ; ------------------------------------------------------------
 
-#b::OpenSmiteless()
+#b::OpenSmiteless(false)
 
-OpenSmiteless() {
+OpenSmiteless(autoMode := false) {
     global PY, SCRIPTS
     static lastGui := 0
     if lastGui {
@@ -40,9 +39,11 @@ OpenSmiteless() {
     stamp := A_TickCount
     img := A_Temp "\smitecard_" stamp ".png"
     done := A_Temp "\smitecard_" stamp ".done"
+    waitFlag := autoMode ? " --wait" : ""       ; auto-open waits for the champs to load
 
-    ToolTip("Smiteless: reading game...")
-    Run(A_ComSpec ' /c ""' PY '" "' cardScript '" --out "' img '" --fm "' done '" --count 10 2>nul"', , "Hide")
+    if (!autoMode)
+        ToolTip("Smiteless: reading game...")
+    Run(A_ComSpec ' /c ""' PY '" "' cardScript '" --out "' img '" --fm "' done '" --count 10' waitFlag ' 2>nul"', , "Hide")
     startTick := A_TickCount
     g := 0
     pic := 0
@@ -51,7 +52,7 @@ OpenSmiteless() {
     Poll() {
         if (!g) {
             if (!FileExist(img)) {
-                if (A_TickCount - startTick > 30000) {
+                if (A_TickCount - startTick > 90000) {
                     ToolTip()
                     return
                 }
@@ -112,7 +113,7 @@ SmiteWatch() {
     pid := ProcessExist("League of Legends.exe")
     if (pid && pid != g_smiteGamePid) {
         g_smiteGamePid := pid
-        OpenSmiteless()
+        OpenSmiteless(true)
     } else if (!pid) {
         g_smiteGamePid := 0
     }

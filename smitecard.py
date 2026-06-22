@@ -125,7 +125,7 @@ def draw_form(d, x, y, form):
         d.rectangle([cx, y, cx + sq, y + sq], fill=WSQ if win else LSQ)
 
 
-def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg):
+def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=True):
     if not cid:
         return
     name = dd["id2name"].get(cid, "?")
@@ -139,7 +139,7 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg):
             img.paste(icon, (ix, y + 13), icon)
         tx = ix + 46
         d.text((tx, y + 13), name + ("  YOU" if is_me else ""), font=font(14, 1), fill=GOLD if is_me else TEXT)
-        _wr_line(d, tx, y + 35, sc, "la")
+        _wr_line(d, tx, y + 35, sc, "la", live)
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
     else:
@@ -150,14 +150,15 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg):
             img.paste(icon, (ix, y + 13), icon)
         tx = ix - 8
         d.text((tx, y + 13), name, font=font(14, 1), fill=TEXT, anchor="ra")
-        _wr_line(d, tx, y + 35, sc, "ra")
+        _wr_line(d, tx, y + 35, sc, "ra", live)
         if sc and sc.get("form"):
             draw_form(d, x - cw + 6, y + 38, sc["form"])
 
 
-def _wr_line(d, x, y, sc, anchor):
+def _wr_line(d, x, y, sc, anchor, live=True):
     if sc is None:
-        d.text((x, y), "scouting...", font=font(11), fill=MUTED, anchor=anchor)
+        if live:
+            d.text((x, y), "scouting...", font=font(11), fill=MUTED, anchor=anchor)
         return
     n, w, cg, cw = sc["n"], sc["w"], sc["cg"], sc["cw"]
     if n:
@@ -206,8 +207,8 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
         d.text((x + 14, y + 64), m, font=font(11), fill=(168, 184, 206))
 
 
-def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note=""):
-    panel = bool(my_role and my_role != "jungle" and my_role in dict(ROLES))
+def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True):
+    panel = bool(roles_known and my_role and my_role != "jungle" and my_role in dict(ROLES))
     H = TOP + 5 * ROWH + 46 + (90 if panel else 0)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
@@ -228,15 +229,16 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
-        draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG)
-        draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG)
-        d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
-        if role == my_role or not e_cid:
-            d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
-        else:
-            es = scout_map.get((e_cid, False))
-            a = (es["n"], es["w"], es["cg"], es["cw"]) if es else (0, 0, 0, 0)
-            draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a)))
+        draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
+        draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
+        if roles_known:
+            d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
+            if role == my_role or not e_cid:
+                d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
+            else:
+                es = scout_map.get((e_cid, False))
+                a = (es["n"], es["w"], es["cg"], es["cw"]) if es else (0, 0, 0, 0)
+                draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a)))
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)
@@ -269,6 +271,9 @@ def _takeflag(argv, name, default=None):
 
 def main():
     argv = sys.argv[1:]
+    wait = "--wait" in argv          # auto-open: don't draw anything until champs are present
+    if wait:
+        argv.remove("--wait")
     outp = _takeflag(argv, "--out") or os.path.expanduser("~/.claude/cache/smitecard.png")
     fm = _takeflag(argv, "--fm")
     try:
@@ -282,7 +287,8 @@ def main():
         while time.time() < deadline:
             info, err = lg.resolve(dd)
             if err:                        # not in champ select / a game yet
-                _info_card(outp, err)
+                if not wait:               # manual press shows status; auto-open stays hidden
+                    _info_card(outp, err)
                 time.sleep(3)
                 continue
             my_cid, my_role = info["my"], info["pos"]
@@ -293,8 +299,16 @@ def main():
                 build = build_data(dd, my_cid, my_role)
             src = info.get("source", "")
             if not enemy_role:             # champ select / loading: roles + scout not live yet
-                render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, {}, {}, src,
-                       "enemy roles + live player scout fill in once the match starts...")
+                champs_ready = bool(allies) and bool(enemies)
+                if wait and not champs_ready:
+                    time.sleep(3)          # auto-open: hold the window until the champs are there
+                    continue
+                # show the champs we have (loading screen has no roles yet -> positional)
+                ar = ally_role or {ROLES[i][0]: c for i, (c, _r) in enumerate(allies[:5]) if c}
+                er = {ROLES[i][0]: c for i, (c, _r) in enumerate(enemies[:5]) if c}
+                render(outp, dd, my_cid, my_role, ar, er, build, {}, {}, src,
+                       "roles + live player scout load once the match starts...",
+                       roles_known=False, live=False)
                 time.sleep(4)
                 continue
             # in-game: full board, then progressive player scout
