@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets / local state — NEVER commit these
+.riot_api_key
+.riot_api_key.txt
+*.key
+*.token
+
+# Local cache + scratch
+cache/
+*.tmp
+*.out
+*.log

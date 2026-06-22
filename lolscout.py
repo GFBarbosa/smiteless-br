@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""lolscout.py — fresh per-player scouting via the Riot API (never stale, unlike
+op.gg's cached profile). For every player in the current game it computes, from
+their real recent ranked matches: account winrate over the last N games + their
+winrate on the champ they're playing THIS game.
+
+Data source for the roster: LCU gameflow session (gives puuid + championId for
+all 10 players once a game is forming — loading screen / in-game). Enemies are
+anonymized in champ select, so this is a loading/in-game feature.
+
+Rate-limit aware (dev key: 100 req / 2 min, 20 req/s) and caches match results
+permanently (a match never changes) so repeat presses are instant.
+
+Usage:
+  python lolscout.py                 # auto from the running client, print scout
+  python lolscout.py --count 10      # last N games (default 10)
+"""
+import sys, os, json, time, urllib.request, urllib.error
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lolbuild as lb
+import lolgame as lg
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+REGIONAL = "americas"
+PLATFORM = "na1"
+CACHE = os.path.expanduser("~/.claude/cache/riot")
+IDS_TTL = 600          # re-pull a player's match-id list at most every 10 min
+_CALLS = []            # sliding-window call timestamps for rate limiting
+
+
+def read_key():
+    for p in (os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")):
+        if os.path.exists(p):
+            return open(p).read().strip()
+    return None
+
+
+def _throttle():
+    now = time.time()
+    while _CALLS and now - _CALLS[0] > 120:
+        _CALLS.pop(0)
+    if len(_CALLS) >= 95:                       # stay under 100/2min
+        time.sleep(max(0.0, 120 - (now - _CALLS[0]) + 0.5))
+    elif _CALLS and now - _CALLS[-1] < 0.06:    # stay under 20/s
+        time.sleep(0.06)
+    _CALLS.append(time.time())
+
+
+class KeyStale(Exception):
+    pass
+
+
+def _get(url, key, timeout=8):
+    for _ in range(3):
+        _throttle()
+        req = urllib.request.Request(url, headers={"X-Riot-Token": key, "User-Agent": lb.UA})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                try:
+                    ra = int(e.headers.get("Retry-After", "2"))
+                except Exception:
+                    ra = 2
+                time.sleep(ra + 0.5)
+                continue
+            if e.code in (401, 403):
+                raise KeyStale()
+            return None
+        except Exception:
+            return None
+    return None
+
+
+def _cache_path(kind, name):
+    d = os.path.join(CACHE, kind)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, name + ".json")
+
+
+def recent_ids(puuid, key, count):
+    fp = _cache_path("ids", puuid)
+    if os.path.exists(fp):
+        try:
+            c = json.load(open(fp))
+            if time.time() - c.get("ts", 0) < IDS_TTL and len(c.get("ids", [])) >= count:
+                return c["ids"][:count]
+        except Exception:
+            pass
+    d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
+             f"{puuid}/ids?queue=420&type=ranked&start=0&count={count}", key)
+    if d is None:
+        return []
+    try:
+        json.dump({"ids": d, "ts": time.time()}, open(fp, "w"))
+    except Exception:
+        pass
+    return d
+
+
+def match_results(mid, key):
+    """{puuid: [win, championName]} for all 10 participants. Cached forever."""
+    fp = _cache_path("match", mid)
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp))
+        except Exception:
+            pass
+    d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/{mid}", key)
+    if not d or "info" not in d:
+        return None
+    res = {p["puuid"]: [bool(p["win"]), p.get("championName", "")]
+           for p in d["info"]["participants"]}
+    try:
+        json.dump(res, open(fp, "w"))
+    except Exception:
+        pass
+    return res
+
+
+def scout(dd, puuid, champ_id, key, count):
+    """Return (games, wins, champ_games, champ_wins) over the last `count` ranked."""
+    ids = recent_ids(puuid, key, count)
+    n = w = cg = cw = 0
+    for mid in ids:
+        res = match_results(mid, key)
+        if not res or puuid not in res:
+            continue
+        win, cname = res[puuid]
+        n += 1
+        w += 1 if win else 0
+        if dd["name2id"].get(dd["norm"](cname)) == champ_id:
+            cg += 1
+            cw += 1 if win else 0
+    return n, w, cg, cw
+
+
+def _safe(s):
+    return "".join(c if c.isalnum() else "_" for c in s)
+
+
+def resolve_puuid(riot_id, key):
+    """riotId 'Name#TAG' -> encrypted Match-V5 puuid (cached permanently; ids are stable)."""
+    if not riot_id or "#" not in riot_id:
+        return None
+    fp = _cache_path("puuid", _safe(riot_id))
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp))
+        except Exception:
+            pass
+    import urllib.parse
+    name, tag = riot_id.rsplit("#", 1)
+    d = _get(f"https://{REGIONAL}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+             f"{urllib.parse.quote(name)}/{urllib.parse.quote(tag)}", key)
+    if isinstance(d, dict) and d.get("puuid"):
+        try:
+            json.dump(d["puuid"], open(fp, "w"))
+        except Exception:
+            pass
+        return d["puuid"]
+    return None
+
+
+def roster(dd, key):
+    """[(puuid, champ_id, is_ally, is_me)] for all 10. Primary source is the Live
+    Client API (in-game): it exposes riotIds we can resolve to real puuids. The
+    gameflow session hands back placeholder UUIDs that Match-V5 rejects, so we only
+    use it if it happens to carry encrypted (78-char) puuids."""
+    # --- primary: live client (in-game) ---
+    try:
+        d = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata", timeout=3, insecure=True)
+    except Exception:
+        d = None
+    if d and d.get("allPlayers"):
+        players = d["allPlayers"]
+        ap = d.get("activePlayer") or {}
+        me_name = ap.get("riotId") or ""
+        if not me_name:
+            gn, tl = ap.get("riotIdGameName", ""), ap.get("riotIdTagLine", "")
+            me_name = f"{gn}#{tl}" if tl else gn
+        myg = lg._gname(me_name)
+        rid = lambda p: p.get("riotId") or p.get("summonerName") or ""
+        me = next((p for p in players if lg._gname(rid(p)) == myg), None)
+        myteam = me.get("team") if me else None
+        out = []
+        for p in players:
+            puuid = resolve_puuid(rid(p), key)
+            if not puuid:
+                continue
+            cid = dd["name2id"].get(dd["norm"](p.get("championName", ""))) or 0
+            out.append((puuid, cid, p.get("team") == myteam, p is me))
+        if out:
+            return out, None
+    # --- fallback: gameflow, ONLY if it carries real (encrypted) puuids ---
+    lc = lg._lcu()
+    if lc:
+        port, hdr = lc
+        try:
+            s = lb.http(f"https://127.0.0.1:{port}/lol-gameflow/v1/session",
+                        headers=hdr, timeout=4, insecure=True)
+            gd = s.get("gameData") or {}
+            t1, t2 = gd.get("teamOne") or [], gd.get("teamTwo") or []
+            allp = [p for p in t1 + t2 if p.get("puuid")]
+            if allp and all(len(p["puuid"]) > 70 for p in allp):  # encrypted puuids
+                mypuuid = ""
+                try:
+                    mypuuid = lb.http(f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
+                                      headers=hdr, timeout=4, insecure=True).get("puuid", "")
+                except Exception:
+                    pass
+                mine = t1 if any(p.get("puuid") == mypuuid for p in t1) else t2
+                out = []
+                for team in (mine, t2 if mine is t1 else t1):
+                    for p in team:
+                        if p.get("puuid"):
+                            out.append((p["puuid"], p.get("championId", 0),
+                                        team is mine, p.get("puuid") == mypuuid))
+                return out, None
+        except Exception:
+            pass
+    return None, ("Scouting needs the live game running (be in-game) - the loading "
+                  "screen only exposes placeholder IDs that can't be looked up.")
+
+
+def fmt_row(dd, champ_id, is_ally, is_me, n, w, cg, cw):
+    champ = dd["id2name"].get(champ_id, str(champ_id))
+    side = "YOU  " if is_me else ("ALLY " if is_ally else "ENEMY")
+    if n:
+        acct = f"{w}-{n - w} ({w / n * 100:.0f}%)"
+    else:
+        acct = "no recent ranked"
+    if cg:
+        champ_wr = f"{cw}-{cg - cw} ({cw / cg * 100:.0f}%) on {champ}"
+    else:
+        champ_wr = f"{champ}: not in last games"
+    return f"{side} {champ:13} last{n}: {acct:15} | {champ_wr}"
+
+
+def iter_scout(dd, count=10):
+    """Yield ('header'|'row'|'error', text) progressively so callers can stream it."""
+    key = read_key()
+    if not key:
+        yield ("error", "No Riot API key file (~/.riot_api_key).")
+        return
+    players, err = roster(dd, key)
+    if err:
+        yield ("error", err)
+        return
+    # enemies first (most valuable), then allies; you last
+    players.sort(key=lambda x: (x[2], x[3]))  # ally False first, me last
+    yield ("header", f"PLAYER SCOUT (Riot API, live - last {count} ranked each):")
+    try:
+        for puuid, champ_id, is_ally, is_me in players:
+            n, w, cg, cw = scout(dd, puuid, champ_id, key, count)
+            yield ("row", fmt_row(dd, champ_id, is_ally, is_me, n, w, cg, cw))
+    except KeyStale:
+        yield ("error", "Riot key is stale (401/403) — regenerate at developer.riotgames.com.")
+
+
+def _takeflag(argv, name, default=None):
+    if name in argv:
+        i = argv.index(name)
+        v = argv[i + 1] if i + 1 < len(argv) else None
+        del argv[i:i + 2]
+        return v
+    return default
+
+
+def _write(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", errors="replace") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def _touch(path):
+    if path:
+        try:
+            open(path, "w").close()
+        except Exception:
+            pass
+
+
+def main():
+    argv = sys.argv[1:]
+    outp = _takeflag(argv, "--out")
+    fm = _takeflag(argv, "--fm")
+    try:
+        count = int(_takeflag(argv, "--count", "10"))
+    except Exception:
+        count = 10
+    dd = lb.ddragon()
+    if outp:                                  # file mode: stream rows as they resolve
+        lines = []
+        for _kind, text in iter_scout(dd, count):
+            lines.append(text)
+            _write(outp, "\n".join(lines))
+        _touch(fm)
+    else:                                     # console mode
+        t0 = time.time()
+        for _kind, text in iter_scout(dd, count):
+            print(text)
+        print(f"\n(scouted in {time.time() - t0:.0f}s)")
+
+
+if __name__ == "__main__":
+    main()
