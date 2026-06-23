@@ -171,8 +171,26 @@ def resolve_puuid(riot_id, key):
     return None
 
 
+def _prune_match_cache(cap=4000):
+    """Cap the permanent match cache (a match never changes, so it grows forever).
+    Keeps the most-recently-used `cap` files, drops the oldest."""
+    d = os.path.join(CACHE, "match")
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d)]
+    except Exception:
+        return
+    if len(files) <= cap:
+        return
+    files.sort(key=lambda f: os.path.getmtime(f))
+    for f in files[:len(files) - cap]:
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+
+
 def roster(dd, key):
-    """[(puuid, champ_id, is_ally, is_me)] for all 10. Primary source is the Live
+    """[(puuid, champ_id, role, is_ally, is_me)] for all 10. Primary source is the Live
     Client API (in-game): it exposes riotIds we can resolve to real puuids. The
     gameflow session hands back placeholder UUIDs that Match-V5 rejects, so we only
     use it if it happens to carry encrypted (78-char) puuids."""

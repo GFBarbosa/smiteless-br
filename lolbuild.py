@@ -12,7 +12,7 @@ Usage:
   python lolbuild.py "Kha'Zix" jungle --tier gold
 Roles: top jungle mid adc support
 """
-import sys, os, json, time, ssl, base64, urllib.request, urllib.error
+import sys, os, json, time, ssl, urllib.request
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -37,16 +37,56 @@ def http(url, headers=None, timeout=8, insecure=False, data=None):
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
         return json.load(r)
 
+
+def _atomic_json(fp, data):
+    """Write JSON atomically so an interrupted run can't leave a corrupt cache file."""
+    tmp = f"{fp}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(tmp, fp)
+
+
+def _ddragon_version():
+    """Latest patch, cached ~6h so we skip the network call on every run, and fall
+    back to the newest locally cached patch if we're offline."""
+    vf = os.path.join(CACHE, "_version.json")
+    try:
+        c = json.load(open(vf, encoding="utf-8"))
+        if time.time() - c.get("ts", 0) < 21600 and c.get("ver"):
+            return c["ver"]
+    except Exception:
+        pass
+    try:
+        ver = http("https://ddragon.leagueoflegends.com/api/versions.json")[0]
+        try:
+            _atomic_json(vf, {"ver": ver, "ts": time.time()})
+        except Exception:
+            pass
+        return ver
+    except Exception:
+        # offline: reuse the newest patch we've already cached
+        cached = sorted(f[:-len("_champion.json")] for f in os.listdir(CACHE)
+                        if f.endswith("_champion.json")) if os.path.isdir(CACHE) else []
+        if cached:
+            return cached[-1]
+        raise
+
 # ---------- ddragon (cached per patch) ----------
 def ddragon():
     os.makedirs(CACHE, exist_ok=True)
-    ver = http("https://ddragon.leagueoflegends.com/api/versions.json")[0]
+    ver = _ddragon_version()
     def load(name):
         fp = os.path.join(CACHE, f"{ver}_{name}.json")
         if os.path.exists(fp):
-            return json.load(open(fp, encoding="utf-8"))
+            try:
+                return json.load(open(fp, encoding="utf-8"))
+            except Exception:
+                pass  # corrupt cache file -> re-fetch below
         d = http(f"https://ddragon.leagueoflegends.com/cdn/{ver}/data/en_US/{name}.json")
-        json.dump(d, open(fp, "w", encoding="utf-8"))
+        try:
+            _atomic_json(fp, d)
+        except Exception:
+            pass
         return d
     items = {int(k): v["name"] for k, v in load("item")["data"].items()}
     rr = load("runesReforged"); runes = {}; trees = {}
@@ -64,33 +104,6 @@ def ddragon():
         name2id[norm(c["name"])] = cid; name2id[norm(c["id"])] = cid
     return dict(ver=ver, items=items, runes=runes, trees=trees, spells=spells,
                 name2id=name2id, id2name=id2name, id2key=id2key, id2tags=id2tags, norm=norm)
-
-# ---------- LCU champ-select auto-detect ----------
-def lcu_champ_select():
-    lf = next((p for p in LOCKFILES if os.path.exists(p)), None)
-    if not lf:  # fall back to scanning drive letters for a moved/reinstalled client
-        import string
-        for d in string.ascii_uppercase:
-            p = f"{d}:\\Riot Games\\League of Legends\\lockfile"
-            if os.path.exists(p):
-                lf = p; break
-    if not lf:
-        return None, "League client not running (no lockfile) — pass champ + role manually."
-    name, pid, port, pw, proto = open(lf).read().split(":")
-    auth = base64.b64encode(f"riot:{pw}".encode()).decode()
-    hdr = {"Authorization": f"Basic {auth}", "Accept": "application/json", "User-Agent": UA}
-    try:
-        s = http(f"https://127.0.0.1:{port}/lol-champ-select/v1/session", headers=hdr,
-                 timeout=4, insecure=True)
-    except urllib.error.HTTPError:
-        return None, "Client is up but not in champ select right now."
-    except Exception as e:
-        return None, f"Couldn't reach champ select ({e})."
-    mine = next((m for m in s.get("myTeam", []) if m.get("cellId") == s.get("localPlayerCellId")), None)
-    my_cid = (mine or {}).get("championId", 0)
-    pos = ROLE.get(((mine or {}).get("assignedPosition") or "").lower(), "")
-    enemies = [e["championId"] for e in s.get("theirTeam", []) if e.get("championId", 0) > 0]
-    return dict(my=my_cid, pos=pos, enemies=enemies), None
 
 # ---------- op.gg ----------
 def opgg(cid, role, tier=None):

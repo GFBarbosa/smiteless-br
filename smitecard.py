@@ -8,7 +8,7 @@ form bar per player. Renders progressively (build + lanes first, scout fills in)
 Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
-import sys, os, io, time, urllib.request
+import sys, os, time, threading, urllib.request
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +80,7 @@ def archetype(dd, cid):
 W = 920; ROWH = 66; TOP = 96
 ICONCACHE = os.path.expanduser("~/.claude/cache/icons")
 _FONTS = {}
+_ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
 
 
 def font(size, bold=False):
@@ -94,6 +95,9 @@ def font(size, bold=False):
 
 
 def get_icon(dd, cid, size):
+    ck = (cid, size)
+    if ck in _ICONS:
+        return _ICONS[ck]
     key = dd.get("id2key", {}).get(cid)
     if not key:
         return None
@@ -104,40 +108,50 @@ def get_icon(dd, cid, size):
         url = f"https://ddragon.leagueoflegends.com/cdn/{dd['ver']}/img/champion/{key}.png"
         try:
             req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
-            open(fp, "wb").write(urllib.request.urlopen(req, timeout=8).read())
+            data = urllib.request.urlopen(req, timeout=8).read()
+            tmp = f"{fp}.{os.getpid()}.tmp"
+            open(tmp, "wb").write(data)
+            os.replace(tmp, fp)                       # atomic: never a half-written icon
         except Exception:
             return None
     try:
-        return Image.open(fp).convert("RGBA").resize((size, size))
+        im = Image.open(fp).convert("RGBA").resize((size, size))
+        _ICONS[ck] = im
+        return im
     except Exception:
+        try:
+            os.remove(fp)                             # corrupt cached icon -> re-download next time
+        except Exception:
+            pass
         return None
 
 
 def build_data(dd, cid, role):
+    """op.gg build/runes for a champ+role, or None on any missing/odd data (never crashes)."""
     try:
         d = lb.opgg(cid, role or "jungle")
+        if not d or "summary" not in d or not d.get("runes"):
+            return None
+        av = d["summary"]["average_stats"]
+        rp = max(d["runes"], key=lambda r: r["play"])
+        core = max(d["core_items"], key=lambda x: x["play"])
+        ss = max(d["summoner_spells"], key=lambda x: x["play"])
+        shard = {5008: "Adaptive", 5005: "AtkSpd", 5007: "Haste", 5011: "Health",
+                 5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
+        pr = rp.get("primary_rune_ids", [])
+        sr = rp.get("secondary_rune_ids", [])
+        return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
+                    primary=[dd["runes"].get(i, "") for i in pr],
+                    secondary=[dd["runes"].get(i, "") for i in sr],
+                    primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
+                    secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
+                    shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
+                    core=[dd["items"].get(i, "") for i in core["ids"]],
+                    summs=[dd["spells"].get(i, "") for i in ss["ids"]],
+                    wr=av.get("win_rate", 0) * 100,
+                    tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
     except Exception:
         return None
-    if not d or "summary" not in d:
-        return None
-    av = d["summary"]["average_stats"]
-    rp = max(d["runes"], key=lambda r: r["play"])
-    core = max(d["core_items"], key=lambda x: x["play"])
-    ss = max(d["summoner_spells"], key=lambda x: x["play"])
-    shard = {5008: "Adaptive", 5005: "AtkSpd", 5007: "Haste", 5011: "Health",
-             5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
-    pr = rp.get("primary_rune_ids", [])
-    sr = rp.get("secondary_rune_ids", [])
-    return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
-                primary=[dd["runes"].get(i, "") for i in pr],
-                secondary=[dd["runes"].get(i, "") for i in sr],
-                primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
-                secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
-                shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
-                core=[dd["items"].get(i, "") for i in core["ids"]],
-                summs=[dd["spells"].get(i, "") for i in ss["ids"]],
-                wr=av["win_rate"] * 100,
-                tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
 
 
 # Gank score = transparent weighted math (no AI). The champ-vs-champ matchup is the
@@ -377,7 +391,7 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "gank = your lane wins + enemy struggling   |   green/red = last-10 W/L   |   N/M on = win rate on this champ",
+    d.text((16, ly), "gank = lane matchup + enemy recent form/streak   |   green/red = last-10 W/L   |   N/M on = winrate on this champ",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
@@ -468,27 +482,35 @@ def main():
             scout_map = {}
             patch = lm.patch_of(dd["ver"])
             opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
-            lane_tip = (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
-                                   my_role, patch) if opp_cid else None)
+            tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                          my_role, patch) if opp_cid else None)}
 
             def paint(note=""):
                 render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
-                       src, note, lane_tip=lane_tip)
+                       src, note, lane_tip=tip_box["tip"])
 
             paint()
-            # generate + cache the matchup tip once per patch (web search; ~60-120s) if new
-            if opp_cid and not lane_tip:
-                t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
-                                        dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),
-                                        my_role, patch)
-                if t:
-                    lane_tip = t
-                    paint()
+            # Generate the matchup tip in the BACKGROUND (web search, ~60-120s) so it never
+            # blocks the scout - the board fills in while the tip is being written, and each
+            # repaint picks it up once it's ready.
+            tip_thread = None
+            if opp_cid and not tip_box["tip"]:
+                def _gen_tip():
+                    t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
+                                            dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                            my_role, patch)
+                    if t:
+                        tip_box["tip"] = t
+                tip_thread = threading.Thread(target=_gen_tip, daemon=True)
+                tip_thread.start()
             for r in ls.iter_scout_struct(dd, count):
                 if "error" in r:
                     paint(r["error"])
                     break
                 scout_map[(r["cid"], r["is_ally"])] = r
+                paint()
+            if tip_thread:                                # board's done; wait out the tip, repaint
+                tip_thread.join(timeout=160)
                 paint()
             break
     finally:
