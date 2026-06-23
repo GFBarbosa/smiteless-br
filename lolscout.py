@@ -56,22 +56,27 @@ class KeyStale(Exception):
 
 
 def _get(url, key, timeout=8):
-    for _ in range(3):
+    for attempt in range(3):
         _throttle()
         req = urllib.request.Request(url, headers={"X-Riot-Token": key, "User-Agent": lb.UA})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code == 429:
+            if e.code == 429:                       # rate limited -> wait + retry
                 try:
                     ra = int(e.headers.get("Retry-After", "2"))
                 except Exception:
                     ra = 2
                 time.sleep(ra + 0.5)
                 continue
-            if e.code in (401, 403):
+            if e.code == 401:                       # definitively bad/expired key
                 raise KeyStale()
+            if e.code == 403:                       # could be a transient Cloudflare bot-block on
+                if attempt < 2:                     # the regional endpoint -> retry before giving up
+                    time.sleep(0.6)
+                    continue
+                raise KeyStale()                    # still forbidden after retries -> treat as stale
             return None
         except Exception:
             return None
@@ -272,18 +277,23 @@ def iter_scout_struct(dd, count=10):
     if not key:
         yield {"error": "No Riot API key file (~/.riot_api_key)."}
         return
-    players, err = roster(dd, key)
-    if err:
-        yield {"error": err}
-        return
-    players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me): enemies first, you last
+    # Everything network-y is inside the try: roster() (puuid resolution) can also raise
+    # KeyStale, and the scout must NEVER crash its caller - a bad key/outage just means
+    # "no scout this game", not a dead overlay.
     try:
+        players, err = roster(dd, key)
+        if err:
+            yield {"error": err}
+            return
+        players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me): enemies first, you last
         for puuid, cid, role, is_ally, is_me in players:
             n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form}
     except KeyStale:
         yield {"error": "Riot key is stale (401/403) - regenerate at developer.riotgames.com."}
+    except Exception as e:
+        yield {"error": f"player scout unavailable ({type(e).__name__})"}
 
 
 def iter_scout(dd, count=10):

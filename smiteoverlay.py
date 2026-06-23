@@ -156,10 +156,10 @@ def main():
     def worker():
         try:
             sc.run(emit, count=count, wait=wait, stop=lambda: st["closing"], monitor=True)
+            st["done"] = True                    # normal return = match over -> overlay may close
         except Exception as e:
-            emit(sc.info_image(f"overlay error: {e}"))
-        finally:
-            st["done"] = True
+            # Unexpected crash: show it and KEEP the window up (don't auto-close) so it's visible.
+            emit(sc.info_image(f"overlay error: {type(e).__name__}: {e}  -  Esc to close"))
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -194,6 +194,10 @@ def main():
 
     root.after(50, pump)
     root.mainloop()
+    # Force-release the process (and thus the single-instance mutex) immediately, even if a
+    # background tip-generation thread is mid-flight - otherwise a lingering thread could keep
+    # the mutex held and block the next launch.
+    os._exit(0)
 
 
 if __name__ == "__main__":

@@ -40,14 +40,16 @@ SmiteWatch() {
     }
     out := A_Temp "\smiteless_phase.txt"
     ph := ""
-    try ph := Trim(FileRead(out))
+    try ph := Trim(FileRead(out), " `t`r`n")    ; strip CR/LF too - Trim's default omits only space/tab
     Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\phasecheck.py" > "' out '" 2>nul"', , "Hide")
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
-    if (active && !g_smiteOpened) {
-        g_smiteOpened := true
-        OpenSmiteless(true)
-    } else if (ph = "Lobby" || ph = "None" || ph = "Matchmaking" || ph = "EndOfGame" || ph = "PreEndOfGame" || ph = "WaitingForStats") {
-        g_smiteOpened := false
+    if (active) {
+        if (!g_smiteOpened) {
+            g_smiteOpened := true
+            OpenSmiteless(true)
+        }
+    } else {
+        g_smiteOpened := false              ; any non-active phase re-arms
     }
 }
 SetTimer(SmiteWatch, 4000)
