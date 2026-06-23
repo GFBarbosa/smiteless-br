@@ -50,13 +50,15 @@ def c_opgg():
 
 
 def c_riot_key():
-    import lolscout as ls
+    import lolscout as ls, lolbuild as lb
     key = ls.read_key()
     if not key:
         return SKIP, "no ~/.riot_api_key -> player scout disabled (overlay still works)"
+    # MUST send a browser User-Agent: Riot's API is behind Cloudflare, which 403s
+    # (error 1010) a bare Python urllib UA. The real scout (lolscout._get) sends lb.UA.
     req = urllib.request.Request(
         "https://na1.api.riotgames.com/lol/status/v4/platform-data",
-        headers={"X-Riot-Token": key})
+        headers={"X-Riot-Token": key, "User-Agent": lb.UA})
     try:
         with urllib.request.urlopen(req, timeout=8, context=ssl.create_default_context()) as r:
             json.load(r)
