@@ -347,7 +347,7 @@ def draw_build_block(d, dd, x, y, build):
         d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
 
 
-def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
@@ -399,7 +399,16 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
+    return img
+
+
+def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source,
+           note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
+    """Render the board to a PIL Image and write it to a PNG (CLI / debug / fallback)."""
+    img = render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
+                       source, note, roles_known, live, lane_tip, champ_select)
     _save_png(img, path)
+    return img
 
 
 def _save_png(img, path):
@@ -412,12 +421,17 @@ def _save_png(img, path):
         pass
 
 
-def _info_card(path, msg):
+def info_image(msg):
+    """A small status/error card (no live game yet, key stale, etc.)."""
     img = Image.new("RGB", (W, 140), BG)
     d = ImageDraw.Draw(img)
     d.text((20, 20), "SMITELESS", font=font(18, 1), fill=GOLD)
     d.text((20, 58), msg, font=font(13), fill=TEXT)
-    _save_png(img, path)
+    return img
+
+
+def _info_card(path, msg):
+    _save_png(info_image(msg), path)
 
 
 def _takeflag(argv, name, default=None):
@@ -425,6 +439,111 @@ def _takeflag(argv, name, default=None):
         i = argv.index(name); v = argv[i + 1] if i + 1 < len(argv) else None
         del argv[i:i + 2]; return v
     return default
+
+
+def run(emit, count=10, wait=False, stop=None, monitor=False):
+    """Core loop: resolve the live game, render each frame, and hand the finished PIL
+    Image to emit(img). Shared by the PNG CLI (main) and the live Tk overlay.
+
+      emit(img) - called with every rendered frame (a PIL Image).
+      wait      - auto-open mode: stay blank until champs are actually present.
+      stop()    - return True to break out early (overlay was closed).
+      monitor   - in-game, after the board is complete, keep watching for the match to
+                  end (the overlay stays open through the game) instead of returning.
+
+    Returns when the game/session ends, the deadline passes, or stop() is True."""
+    stop = stop or (lambda: False)
+    dd = lb.ddragon()
+    deadline = time.time() + 420          # cap the pre-game wait (champ select + loading)
+    build = None
+    build_cid = 0
+    while not stop() and time.time() < deadline:
+        info, err = lg.resolve(dd)
+        if err:                            # not in champ select / a game yet
+            if not wait:                   # manual press shows status; auto-open stays hidden
+                emit(info_image(err))
+            time.sleep(3)
+            continue
+        my_cid, my_role = info["my"], info["pos"]
+        allies, enemies = info["allies"], info["enemies"]
+        ally_role = {r: c for c, r in allies if r and c}
+        enemy_role = {r: c for c, r in enemies if r and c}
+        if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
+            build = build_data(dd, my_cid, my_role)
+            build_cid = my_cid
+        src = info.get("source", "")
+        if not enemy_role:                 # champ select / loading: enemies + scout not live yet
+            if src == "champ select":
+                # CHAMP SELECT: show your team forming + your runes/build; enemies hidden
+                if wait and not (my_cid or ally_role):
+                    time.sleep(2)
+                    continue
+                emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
+                     "enemies are hidden in champ select - matchups + player scout load at the loading screen",
+                     roles_known=True, live=False, champ_select=True))
+                time.sleep(2)
+                continue
+            # LOADING screen: positional preview (no roles yet)
+            champs_ready = bool(allies) and bool(enemies)
+            if wait and not champs_ready:
+                time.sleep(3)
+                continue
+            ar = {ROLES[i][0]: c for i, (c, _r) in enumerate(allies[:5]) if c}
+            er = {ROLES[i][0]: c for i, (c, _r) in enumerate(enemies[:5]) if c}
+            emit(render_image(dd, my_cid, my_role, ar, er, build, {}, {}, src,
+                 "roles + live player scout load once the match starts...",
+                 roles_known=False, live=False))
+            time.sleep(3)
+            continue
+        # in-game: full board + matchup tip + progressive player scout
+        lanes = {r: wr for a, r, e, wr, g in lb.gather_lane_matchups(dd, allies, enemies)}
+        scout_map = {}
+        patch = lm.patch_of(dd["ver"])
+        opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
+        tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                      my_role, patch) if opp_cid else None)}
+
+        def paint(note=""):
+            emit(render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
+                 src, note, lane_tip=tip_box["tip"]))
+
+        paint()
+        # Generate the matchup tip in the BACKGROUND (web search, ~60-120s) so it never
+        # blocks the scout - the board fills in while the tip is being written, and each
+        # repaint picks it up once it's ready.
+        tip_thread = None
+        if opp_cid and not tip_box["tip"]:
+            def _gen_tip():
+                t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
+                                        dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),
+                                        my_role, patch)
+                if t:
+                    tip_box["tip"] = t
+            tip_thread = threading.Thread(target=_gen_tip, daemon=True)
+            tip_thread.start()
+        for r in ls.iter_scout_struct(dd, count):
+            if stop():
+                return
+            if "error" in r:
+                paint(r["error"])
+                break
+            scout_map[(r["cid"], r["is_ally"])] = r
+            paint()
+        if tip_thread:                                # board's done; wait out the tip, repaint
+            tip_thread.join(timeout=185)              # > the 170s tip-gen cap, so a slow tip
+            paint()                                   # still lands (and gets cached) before we exit
+        if not monitor:
+            return
+        # Overlay: board is complete -> keep it on screen and just watch for the match to
+        # end, so the next game's auto-open can take over with a fresh window.
+        gone = 0
+        while not stop():
+            time.sleep(8)
+            _i, e2 = lg.resolve(dd)
+            gone = gone + 8 if e2 else 0
+            if gone >= 96:                            # ~1.5 min with no game -> match over
+                return
+        return
 
 
 def main():
@@ -438,85 +557,8 @@ def main():
         count = int(_takeflag(argv, "--count", "10"))
     except Exception:
         count = 10
-    dd = lb.ddragon()
-    deadline = time.time() + 420          # keep trying up to 7 min for the match to come up
-    build = None
-    build_cid = 0
     try:
-        while time.time() < deadline:
-            info, err = lg.resolve(dd)
-            if err:                        # not in champ select / a game yet
-                if not wait:               # manual press shows status; auto-open stays hidden
-                    _info_card(outp, err)
-                time.sleep(3)
-                continue
-            my_cid, my_role = info["my"], info["pos"]
-            allies, enemies = info["allies"], info["enemies"]
-            ally_role = {r: c for c, r in allies if r and c}
-            enemy_role = {r: c for c, r in enemies if r and c}
-            if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
-                build = build_data(dd, my_cid, my_role)
-                build_cid = my_cid
-            src = info.get("source", "")
-            if not enemy_role:             # champ select / loading: enemies + scout not live yet
-                if src == "champ select":
-                    # CHAMP SELECT: show your team forming + your runes/build; enemies hidden
-                    if wait and not (my_cid or ally_role):
-                        time.sleep(2)
-                        continue
-                    render(outp, dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
-                           "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                           roles_known=True, live=False, champ_select=True)
-                    time.sleep(3)
-                    continue
-                # LOADING screen: positional preview (no roles yet)
-                champs_ready = bool(allies) and bool(enemies)
-                if wait and not champs_ready:
-                    time.sleep(3)
-                    continue
-                ar = {ROLES[i][0]: c for i, (c, _r) in enumerate(allies[:5]) if c}
-                er = {ROLES[i][0]: c for i, (c, _r) in enumerate(enemies[:5]) if c}
-                render(outp, dd, my_cid, my_role, ar, er, build, {}, {}, src,
-                       "roles + live player scout load once the match starts...",
-                       roles_known=False, live=False)
-                time.sleep(4)
-                continue
-            # in-game: full board + matchup tip + progressive player scout
-            lanes = {r: wr for a, r, e, wr, g in lb.gather_lane_matchups(dd, allies, enemies)}
-            scout_map = {}
-            patch = lm.patch_of(dd["ver"])
-            opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
-            tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
-                                          my_role, patch) if opp_cid else None)}
-
-            def paint(note=""):
-                render(outp, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
-                       src, note, lane_tip=tip_box["tip"])
-
-            paint()
-            # Generate the matchup tip in the BACKGROUND (web search, ~60-120s) so it never
-            # blocks the scout - the board fills in while the tip is being written, and each
-            # repaint picks it up once it's ready.
-            tip_thread = None
-            if opp_cid and not tip_box["tip"]:
-                def _gen_tip():
-                    t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
-                                            dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),
-                                            my_role, patch)
-                    if t:
-                        tip_box["tip"] = t
-                tip_thread = threading.Thread(target=_gen_tip, daemon=True)
-                tip_thread.start()
-            for r in ls.iter_scout_struct(dd, count):
-                if "error" in r:
-                    paint(r["error"])
-                    break
-                scout_map[(r["cid"], r["is_ally"])] = r
-                paint()
-            if tip_thread:                                # board's done; wait out the tip, repaint
-                tip_thread.join(timeout=185)              # > the 170s tip-gen cap, so a slow tip
-                paint()                                   # still lands (and gets cached) before we exit
-            break
+        run(lambda img: _save_png(img, outp), count=count, wait=wait, monitor=False)
     finally:
         if fm:
             try:

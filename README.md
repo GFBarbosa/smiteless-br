@@ -1,8 +1,9 @@
 # Smiteless
 
 A League of Legends champ-select & in-game companion. It opens a **scoreboard-style
-overlay** (rendered as an image) that shows everything you want before and during a
-game — and it auto-opens when a match starts.
+overlay** — a live, always-on-top window that polls the League client/API directly and
+updates **in place** as champ-select picks come in and the game progresses. It auto-opens
+when a match starts and never steals focus from the game.
 
 ![overlay](docs/overlay.png)
 
@@ -29,13 +30,19 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 
 ## Behavior
 
-- **Auto-opens at champ select** and fills in as picks lock — your team on the left, your
-  full rune page + build on the right (enemies are hidden in champ select). At the loading
-  screen / in-game it transitions to the full scoreboard, matchups, gank tags, and scout.
-- **Win+B** reopens it after you close it.
-- **Second monitor** — opens on your secondary display if you have one.
+- **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
+  left, your full rune page + build (and skill order) on the right (enemies are hidden in
+  champ select). At the loading screen / in-game it transitions to the full scoreboard,
+  matchups, gank tags, and the player scout, all updating in the same window.
+- **Win+B** opens it manually. **Esc or click** closes it; it **auto-closes** ~1.5 min
+  after the match ends so the next game's auto-open is fresh.
+- **Single window, never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second
+  monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
   hides all overlays — same requirement as Blitz/Porofessor).
+
+The overlay is a self-contained Python/Tk window (`smiteoverlay.py`); AutoHotkey only
+launches it (the hotkey + the auto-open watcher). No PNG file or picture-reload anymore.
 
 ## The gank score (transparent, tunable)
 
@@ -59,8 +66,10 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 
 ## Requirements
 
-- **Python 3** + **Pillow** (`pip install -r requirements.txt`). The rest is standard library.
-- **AutoHotkey v2** — for `smiteless.ahk` (hotkey, auto-open, monitor placement).
+- **Python 3** + **Pillow** (`pip install -r requirements.txt`). The window uses **Tkinter**
+  (Python standard library) + Pillow's `ImageTk`; everything else is stdlib.
+- **AutoHotkey v2** — for `smiteless.ahk`, which is just a launcher (the Win+B hotkey + the
+  auto-open phase watcher). The overlay window itself is pure Python.
 - **Riot API key** (for the player scout) — put it in `~/.riot_api_key`. Dev keys expire
   every 24h; a free production key lifts the rate limit and never expires.
 
@@ -92,9 +101,12 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
   used by the matchup tips and the standalone coach.
 - `lolcoach.py` — standalone text coach (CLI): verified op.gg lane win rates + an AI
   tactical read for a quick console look. Not used by the overlay.
-- `smitecard.py` — composites the scoreboard PNG; renders progressively (the matchup tip
-  generates in the background so it never blocks the player scout) and waits for the
-  match to come up so auto-open works from champ select onward.
+- `smiteoverlay.py` — the live overlay window (Tk + Pillow `ImageTk`). Runs `smitecard.run()`
+  in a worker thread and updates the displayed image in place; topmost, no-focus-steal,
+  second-monitor, single-instance, auto-close at game end.
+- `smitecard.py` — the renderer: builds each scoreboard frame as a PIL Image (`render_image`)
+  and drives the resolve→render loop (`run()`, with the matchup tip generated in the
+  background so it never blocks the scout). Also a PNG CLI (`--out`) for debugging.
 - `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
   op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
 
