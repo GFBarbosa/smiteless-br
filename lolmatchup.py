@@ -48,11 +48,14 @@ def generate_tip(my_name, my_key, opp_name, opp_key, role, patch):
     """Generate (web-search, current-patch) + cache. Returns (text, error)."""
     prompt = (
         f"Patch {patch}. Search the web for the CURRENT {my_name} vs {opp_name} {role} matchup "
-        f"(Mobafire, u.gg, Mobalytics, Reddit). In 2-3 sentences give a SPECIFIC, up-to-date tip: "
-        f"which enemy ability/abilities to dodge or bait and how, the trade and wave pattern, when "
-        f"you win vs lose (level/item spikes), and one build or summoner note. If you can't find "
-        f"anything current, use your own best knowledge. Plain text only - no preamble, no markdown, "
-        f"no bullet points, no headers."
+        f"(Mobafire, u.gg, Mobalytics, Reddit). In 2-3 sentences, give a SPECIFIC, up-to-date tip on "
+        f"HOW TO PLAY THE LANE: which enemy ability/abilities to dodge or bait and how, the trade and "
+        f"wave pattern, and when you win vs when you lose (you may reference generic timings like "
+        f"'level 6' or 'your first item spike'). "
+        f"CRITICAL: do NOT recommend or name ANY runes, keystones, summoner spells, or items - the "
+        f"live op.gg build is shown to the player separately and the LLM gets builds wrong. Keep it "
+        f"purely to lane mechanics and decisions. If you can't find current info, use your own best "
+        f"knowledge. Plain text only - no preamble, no markdown, no bullet points, no headers."
     )
     text, err = lc.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=170)
     if not text:
