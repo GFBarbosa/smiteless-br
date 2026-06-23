@@ -16,13 +16,15 @@ Key behaviors:
   python smiteoverlay.py --wait     # auto-open: stay hidden until champs are present
   python smiteoverlay.py --count 10
 """
-import sys, os, threading, ctypes
+import sys, os, threading, ctypes, webbrowser
 from ctypes import wintypes
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import smitecard as sc
 
 BG = "#11131a"   # matches smitecard's background so there's no border seam
+BAR_BG = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"
+GREEN = "#5fc47a"; RED = "#e0646c"; ENTRY_BG = "#0d0f16"; BTN_BG = "#262b3b"; BTN_ACTIVE = "#333a52"
 
 # ---- win32 constants ----
 GWL_EXSTYLE = -20
@@ -113,8 +115,85 @@ def main():
     root.configure(bg=BG)
     root.geometry("1x1+-4000+-4000")            # park off-screen until the first frame
     label = tk.Label(root, bd=0, bg=BG)
-    label.pack()
+    label.pack(side="top")
+
+    # --- Riot API key bar: refresh the dev key (expires every 24h) without leaving the game ---
+    KEY_FILES = [os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")]
+
+    def read_current_key():
+        for p in KEY_FILES:
+            try:
+                if os.path.exists(p):
+                    k = open(p, encoding="utf-8").read().strip()
+                    if k:
+                        return k
+            except Exception:
+                pass
+        return None
+
+    bar = tk.Frame(root, bg=BAR_BG)
+    bar.pack(side="bottom", fill="x")
+    tk.Label(bar, text="RIOT KEY", bg=BAR_BG, fg=GOLD,
+             font=("Segoe UI", 8, "bold")).pack(side="left", padx=(10, 4), pady=6)
+    keylbl = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
+    keylbl.pack(side="left", padx=(0, 6))
+
+    def mkbtn(text, cmd):
+        return tk.Button(bar, text=text, command=cmd, bg=BTN_BG, fg=TXT,
+                         activebackground=BTN_ACTIVE, activeforeground=TXT, relief="flat",
+                         bd=0, padx=9, pady=2, font=("Segoe UI", 8), cursor="hand2")
+
+    def refresh_key_label():
+        k = read_current_key()
+        if k and k.startswith("RGAPI-"):
+            keylbl.config(text=f"...{k[-4:]} set", fg=GREEN)
+        else:
+            keylbl.config(text="not set", fg=RED)
+
+    def open_dev_site():
+        webbrowser.open("https://developer.riotgames.com/")
+        status.config(text="log in, copy your key, then Paste + Save", fg=MUTED)
+
+    def paste_key():
+        try:
+            c = root.clipboard_get().strip()
+        except Exception:
+            status.config(text="clipboard is empty", fg=RED)
+            return
+        entry.delete(0, "end")
+        entry.insert(0, c)
+        status.config(text="pasted - review it, then Save", fg=MUTED)
+
+    def save_key():
+        k = entry.get().strip()
+        if not (k.startswith("RGAPI-") and len(k) >= 24):
+            status.config(text="that doesn't look like an RGAPI-... key", fg=RED)
+            return
+        for p in KEY_FILES:
+            try:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(k)
+            except Exception as e:
+                status.config(text=f"save failed: {e}", fg=RED)
+                return
+        entry.delete(0, "end")
+        refresh_key_label()
+        status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GREEN)
+
+    mkbtn("Get key ↗", open_dev_site).pack(side="left", padx=2, pady=4)
+    entry = tk.Entry(bar, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
+                     font=("Consolas", 8), width=30)
+    entry.pack(side="left", padx=(8, 2), pady=4, ipady=2)
+    entry.bind("<Button-1>", lambda e: entry.focus_set())   # attempt keyboard focus for Ctrl+V
+    entry.bind("<Return>", lambda e: save_key())
+    mkbtn("Paste", paste_key).pack(side="left", padx=2, pady=4)
+    mkbtn("Save", save_key).pack(side="left", padx=2, pady=4)
+    status = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
+    status.pack(side="left", padx=8)
+    refresh_key_label()
+
     root.update_idletasks()
+    bar_h = bar.winfo_reqheight()                # the key bar's fixed height, added below the board
     hwnd = root.winfo_id()                       # overrideredirect -> this is the toplevel HWND
     make_no_activate(hwnd)
 
@@ -145,13 +224,12 @@ def main():
         st["pos"] = (st["pos"][0] + dx, st["pos"][1] + dy)
         st["drag"] = (e.x_root, e.y_root)
         w, h = st["size"]
-        root.geometry(f"{w}x{h}+{st['pos'][0]}+{st['pos'][1]}")
+        root.geometry(f"{w}x{h + bar_h}+{st['pos'][0]}+{st['pos'][1]}")
 
     label.bind("<Button-1>", start_drag)
     label.bind("<B1-Motion>", on_drag)
     root.bind("<Escape>", close)
-    root.bind("<Button-3>", close)               # right-click to close
-    label.bind("<Button-3>", close)
+    label.bind("<Button-3>", close)              # right-click the board to close (not the key bar)
 
     def worker():
         try:
@@ -165,11 +243,12 @@ def main():
 
     def place(size):
         w, h = size
+        wh = h + bar_h                           # window = board image + the key bar below it
         if st["pos"] is None:                    # center on the target monitor, once
             l, t, r, b = target_monitor()
-            st["pos"] = (l + ((r - l) - w) // 2, t + ((b - t) - h) // 2)
+            st["pos"] = (l + ((r - l) - w) // 2, t + ((b - t) - wh) // 2)
         x, y = st["pos"]
-        root.geometry(f"{w}x{h}+{x}+{y}")
+        root.geometry(f"{w}x{wh}+{x}+{y}")
 
     def pump():
         if st["closing"]:

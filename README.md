@@ -71,7 +71,10 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 - **AutoHotkey v2** — for `smiteless.ahk`, which is just a launcher (the Win+B hotkey + the
   auto-open phase watcher). The overlay window itself is pure Python.
 - **Riot API key** (for the player scout) — put it in `~/.riot_api_key`. Dev keys expire
-  every 24h; a free production key lifts the rate limit and never expires.
+  every 24h; a free production key lifts the rate limit and never expires. You can refresh
+  an expired key **right from the overlay**: the bottom bar has a **Get key** button (opens
+  developer.riotgames.com), a paste field, **Paste** (from clipboard) and **Save** — no need
+  to edit files. It applies on the next game.
 
 ## Setup
 
