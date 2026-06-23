@@ -323,9 +323,17 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
+    _save_png(img, path)
+
+
+def _save_png(img, path):
     tmp = path + ".tmp"
     img.save(tmp, format="PNG")
     os.replace(tmp, path)
+    try:                                   # sidecar so the AHK overlay can resize to match
+        open(path + ".dim", "w").write(str(img.height))
+    except Exception:
+        pass
 
 
 def _info_card(path, msg):
@@ -333,7 +341,7 @@ def _info_card(path, msg):
     d = ImageDraw.Draw(img)
     d.text((20, 20), "SMITELESS", font=font(18, 1), fill=GOLD)
     d.text((20, 58), msg, font=font(13), fill=TEXT)
-    tmp = path + ".tmp"; img.save(tmp, format="PNG"); os.replace(tmp, path)
+    _save_png(img, path)
 
 
 def _takeflag(argv, name, default=None):

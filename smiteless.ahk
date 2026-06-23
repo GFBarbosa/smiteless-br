@@ -48,6 +48,7 @@ OpenSmiteless(autoMode := false) {
     g := 0
     pic := 0
     lastMod := ""
+    lastH := 0
 
     Poll() {
         if (!g) {
@@ -65,10 +66,11 @@ OpenSmiteless(autoMode := false) {
             pic := g.Add("Picture", "w920", img)
             g.OnEvent("Escape", (*) => g.Destroy())
             g.OnEvent("Close", (*) => g.Destroy())
-            g.Show("AutoSize")
+            g.Show("AutoSize NoActivate")        ; show on top WITHOUT stealing focus from the game
             SmitePlaceWindow(g)
             lastGui := g
             lastMod := FileGetTime(img, "M")
+            try lastH := Integer(Trim(FileRead(img ".dim")))
         } else {
             hwnd := 0
             try hwnd := g.Hwnd
@@ -77,6 +79,15 @@ OpenSmiteless(autoMode := false) {
             m := FileGetTime(img, "M")
             if (m != lastMod) {
                 try pic.Value := img
+                nh := 0
+                try nh := Integer(Trim(FileRead(img ".dim")))
+                if (nh > 0 && nh != lastH) {        ; height changed -> resize in place (keep position + focus)
+                    WinGetPos(&wx, &wy, , , "ahk_id " g.Hwnd)
+                    pic.Move(, , 920, nh)
+                    g.Show("AutoSize NoActivate")
+                    WinMove(wx, wy, , , "ahk_id " g.Hwnd)
+                    lastH := nh
+                }
                 lastMod := m
             }
         }
