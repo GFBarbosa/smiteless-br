@@ -514,8 +514,8 @@ def main():
                 scout_map[(r["cid"], r["is_ally"])] = r
                 paint()
             if tip_thread:                                # board's done; wait out the tip, repaint
-                tip_thread.join(timeout=160)
-                paint()
+                tip_thread.join(timeout=185)              # > the 170s tip-gen cap, so a slow tip
+                paint()                                   # still lands (and gets cached) before we exit
             break
     finally:
         if fm:
