@@ -34,8 +34,8 @@ OpenSmiteless(autoMode := false) {
 g_smiteOpened := false
 SmiteWatch() {
     global g_smiteOpened, PY, SCRIPTS
-    if (!ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
-        g_smiteOpened := false
+    if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
+        g_smiteOpened := false                  ; LeagueClient.exe is the one present during champ select
         return
     }
     out := A_Temp "\smiteless_phase.txt"

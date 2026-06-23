@@ -134,8 +134,24 @@ def main():
         except Exception:
             pass
 
+    # left-drag to move the window; Esc or right-click to close it
+    def start_drag(e):
+        st["drag"] = (e.x_root, e.y_root)
+
+    def on_drag(e):
+        if not st.get("drag") or not st["pos"] or not st["size"]:
+            return
+        dx, dy = e.x_root - st["drag"][0], e.y_root - st["drag"][1]
+        st["pos"] = (st["pos"][0] + dx, st["pos"][1] + dy)
+        st["drag"] = (e.x_root, e.y_root)
+        w, h = st["size"]
+        root.geometry(f"{w}x{h}+{st['pos'][0]}+{st['pos'][1]}")
+
+    label.bind("<Button-1>", start_drag)
+    label.bind("<B1-Motion>", on_drag)
     root.bind("<Escape>", close)
-    label.bind("<Button-1>", close)              # click the overlay to dismiss it
+    root.bind("<Button-3>", close)               # right-click to close
+    label.bind("<Button-3>", close)
 
     def worker():
         try:
