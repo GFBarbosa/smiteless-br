@@ -116,17 +116,26 @@ SmitePlaceWindow(g) {
     WinMove(L + ((R - L) - w) // 2, T + ((B - T) - h) // 2, , , "ahk_id " g.Hwnd)
 }
 
-; Auto-open once per game. The in-game client is "League of Legends.exe"
-; (distinct from the launcher "LeagueClient.exe").
-g_smiteGamePid := 0
+; Auto-open at CHAMP SELECT (and in-game). Polls the LCU gameflow phase via
+; phasecheck.py (async, non-blocking) only while the client/game is running, and
+; opens once per session. Resets when you return to lobby / post-game.
+g_smiteOpened := false
 SmiteWatch() {
-    global g_smiteGamePid
-    pid := ProcessExist("League of Legends.exe")
-    if (pid && pid != g_smiteGamePid) {
-        g_smiteGamePid := pid
+    global g_smiteOpened, PY, SCRIPTS
+    if (!ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
+        g_smiteOpened := false
+        return
+    }
+    out := A_Temp "\smiteless_phase.txt"
+    ph := ""
+    try ph := Trim(FileRead(out))
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\phasecheck.py" > "' out '" 2>nul"', , "Hide")
+    active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
+    if (active && !g_smiteOpened) {
+        g_smiteOpened := true
         OpenSmiteless(true)
-    } else if (!pid) {
-        g_smiteGamePid := 0
+    } else if (ph = "Lobby" || ph = "None" || ph = "Matchmaking" || ph = "EndOfGame" || ph = "PreEndOfGame" || ph = "WaitingForStats") {
+        g_smiteOpened := false
     }
 }
 SetTimer(SmiteWatch, 4000)

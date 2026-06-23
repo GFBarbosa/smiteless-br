@@ -124,7 +124,16 @@ def build_data(dd, cid, role):
     rp = max(d["runes"], key=lambda r: r["play"])
     core = max(d["core_items"], key=lambda x: x["play"])
     ss = max(d["summoner_spells"], key=lambda x: x["play"])
-    return dict(keystone=dd["runes"].get(rp["primary_rune_ids"][0], ""),
+    shard = {5008: "Adaptive", 5005: "AtkSpd", 5007: "Haste", 5011: "Health",
+             5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
+    pr = rp.get("primary_rune_ids", [])
+    sr = rp.get("secondary_rune_ids", [])
+    return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
+                primary=[dd["runes"].get(i, "") for i in pr],
+                secondary=[dd["runes"].get(i, "") for i in sr],
+                primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
+                secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
+                shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
                 core=[dd["items"].get(i, "") for i in core["ids"]],
                 summs=[dd["spells"].get(i, "") for i in ss["ids"]],
                 wr=av["win_rate"] * 100,
@@ -302,8 +311,26 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
             d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
 
 
-def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None):
-    panel = bool(roles_known and my_role and my_role != "jungle" and my_role in dict(ROLES))
+def draw_build_block(d, dd, x, y, build):
+    d.text((x, y), "RUNES", font=font(11, 1), fill=GOLD)
+    d.text((x, y + 18), build.get("keystone", ""), font=font(14, 1), fill=TEXT)
+    minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
+    if minor:
+        d.text((x, y + 40), minor, font=font(11), fill=MUTED)
+    sec = [r for r in build.get("secondary", []) if r]
+    if sec:
+        d.text((x, y + 58), f"{build.get('secondary_tree', '')}:  " + "  ·  ".join(sec),
+               font=font(11), fill=(150, 170, 200))
+    shards = [s for s in build.get("shards", []) if s]
+    if shards:
+        d.text((x, y + 76), "Shards:  " + "  /  ".join(shards), font=font(11), fill=MUTED)
+    d.text((x, y + 104), "BUILD", font=font(11, 1), fill=GOLD)
+    d.text((x, y + 122), " > ".join(c for c in build.get("core", []) if c), font=font(12), fill=TEXT)
+    d.text((x, y + 142), "Summoners:  " + " / ".join(build.get("summs", [])), font=font(11), fill=MUTED)
+
+
+def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
+    panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
     H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
@@ -321,14 +348,19 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     d.text((W - 16, 40), "SMITELESS  ·  " + source, font=font(11), fill=(110, 108, 100), anchor="ra")
     d.line([16, 66, W - 16, 66], fill=(40, 42, 50), width=1)
     d.text((26, 74), "YOUR TEAM", font=font(11, 1), fill=(125, 166, 216))
-    d.text((W - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
+    if champ_select:
+        d.text((W - 26, 74), "YOUR RUNES + BUILD", font=font(11, 1), fill=GOLD, anchor="ra")
+    else:
+        d.text((W - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
     cxc = W // 2
+    if champ_select and build:
+        draw_build_block(d, dd, cxc + 34, TOP + 6, build)
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
         draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
         draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
-        if roles_known:
+        if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
             if role == my_role or not e_cid:
                 d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
@@ -336,6 +368,8 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                 es = scout_map.get((e_cid, False))
                 a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
                 draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a)))
+        elif champ_select:
+            d.text((388, y + 24), lbl, font=font(10), fill=(120, 118, 110), anchor="la")
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)
@@ -389,6 +423,7 @@ def main():
     dd = lb.ddragon()
     deadline = time.time() + 420          # keep trying up to 7 min for the match to come up
     build = None
+    build_cid = 0
     try:
         while time.time() < deadline:
             info, err = lg.resolve(dd)
@@ -401,16 +436,27 @@ def main():
             allies, enemies = info["allies"], info["enemies"]
             ally_role = {r: c for c, r in allies if r and c}
             enemy_role = {r: c for c, r in enemies if r and c}
-            if build is None and my_cid:
+            if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
                 build = build_data(dd, my_cid, my_role)
+                build_cid = my_cid
             src = info.get("source", "")
-            if not enemy_role:             # champ select / loading: roles + scout not live yet
+            if not enemy_role:             # champ select / loading: enemies + scout not live yet
+                if src == "champ select":
+                    # CHAMP SELECT: show your team forming + your runes/build; enemies hidden
+                    if wait and not (my_cid or ally_role):
+                        time.sleep(2)
+                        continue
+                    render(outp, dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
+                           "enemies are hidden in champ select - matchups + player scout load at the loading screen",
+                           roles_known=True, live=False, champ_select=True)
+                    time.sleep(3)
+                    continue
+                # LOADING screen: positional preview (no roles yet)
                 champs_ready = bool(allies) and bool(enemies)
                 if wait and not champs_ready:
-                    time.sleep(3)          # auto-open: hold the window until the champs are there
+                    time.sleep(3)
                     continue
-                # show the champs we have (loading screen has no roles yet -> positional)
-                ar = ally_role or {ROLES[i][0]: c for i, (c, _r) in enumerate(allies[:5]) if c}
+                ar = {ROLES[i][0]: c for i, (c, _r) in enumerate(allies[:5]) if c}
                 er = {ROLES[i][0]: c for i, (c, _r) in enumerate(enemies[:5]) if c}
                 render(outp, dd, my_cid, my_role, ar, er, build, {}, {}, src,
                        "roles + live player scout load once the match starts...",

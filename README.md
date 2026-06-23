@@ -29,7 +29,9 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 
 ## Behavior
 
-- **Auto-opens** when a match starts (loading screen onward) — no need to press anything.
+- **Auto-opens at champ select** and fills in as picks lock — your team on the left, your
+  full rune page + build on the right (enemies are hidden in champ select). At the loading
+  screen / in-game it transitions to the full scoreboard, matchups, gank tags, and scout.
 - **Win+B** reopens it after you close it.
 - **Second monitor** — opens on your secondary display if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
@@ -71,6 +73,8 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `lolcoach.py` — verified per-lane op.gg win rates, **paired strictly by role slot**.
 - `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
   rate-limit aware, permanent match caching.
+- `phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK watcher
+  polls it to auto-open at champ select.
 - `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
 - `smitecard.py` — composites the scoreboard PNG; renders progressively and waits for the

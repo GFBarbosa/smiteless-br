@@ -87,9 +87,10 @@ def _from_champ_select(dd):
     mine = next((m for m in s.get("myTeam", []) if m.get("cellId") == local), None)
     if mine is None:
         return None
-    my = mine.get("championId", 0)
+    my = mine.get("championId", 0) or mine.get("championPickIntent", 0)  # show hovered champ pre-lock
     pos = ROLE.get((mine.get("assignedPosition") or "").lower(), "")
-    allies = [(m.get("championId", 0), ROLE.get((m.get("assignedPosition") or "").lower(), ""))
+    allies = [(m.get("championId", 0) or m.get("championPickIntent", 0),
+               ROLE.get((m.get("assignedPosition") or "").lower(), ""))
               for m in s.get("myTeam", [])]
     enemies = [(e.get("championId", 0), ROLE.get((e.get("assignedPosition") or "").lower(), ""))
                for e in s.get("theirTeam", []) if e.get("championId", 0) > 0]
