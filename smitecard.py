@@ -224,11 +224,11 @@ def draw_badge(d, cx, y, rating):
     d.text((cx, y + 8), label, font=f, fill=fg, anchor="mm")
 
 
-def _wrap(d, text, fnt, max_w):
+def _wrap(text, fnt, max_w):
     lines, cur = [], ""
     for word in text.split():
         t = (cur + " " + word).strip()
-        if d.textlength(t, font=fnt) <= max_w:
+        if fnt.getlength(t) <= max_w:
             cur = t
         else:
             if cur:
@@ -239,13 +239,12 @@ def _wrap(d, text, fnt, max_w):
     return lines
 
 
-def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip=None):
-    PH = 122
-    d.rectangle([x, y, x + w, y + PH], fill=(26, 28, 38))
-    d.rectangle([x, y, x + 3, y + PH], fill=GOLD)
+def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip_lines, ph):
+    d.rectangle([x, y, x + w, y + ph], fill=(26, 28, 38))
+    d.rectangle([x, y, x + 3, y + ph], fill=GOLD)
     myn = dd["id2name"].get(my_cid, "?")
     arch = archetype(dd, my_cid)
-    label = "YOUR LANE" + (f"   ·   {arch}" if arch else "") + ("   ·   live tip" if tip else "")
+    label = "YOUR LANE" + (f"   ·   {arch}" if arch else "") + ("   ·   live tip" if tip_lines else "")
     d.text((x + 14, y + 8), label, font=font(11, 1), fill=GOLD)
     if opp_cid:
         oppn = dd["id2name"].get(opp_cid, "?")
@@ -264,9 +263,9 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
                    font=font(11), fill=MUTED)
     else:
         d.text((x + 14, y + 26), f"{myn} — lane opponent fills in once the match starts", font=font(12), fill=MUTED)
-    if tip:
+    if tip_lines:
         ty = y + 65
-        for ln in _wrap(d, tip, font(12), w - 30)[:3]:
+        for ln in tip_lines:
             d.text((x + 14, ty), ln, font=font(12), fill=(216, 202, 168))
             ty += 18
     else:
@@ -281,7 +280,9 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
 
 def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None):
     panel = bool(roles_known and my_role and my_role != "jungle" and my_role in dict(ROLES))
-    H = TOP + 5 * ROWH + 46 + (140 if panel else 0)
+    tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
+    panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
+    H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     # header
@@ -315,8 +316,9 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     if panel:
         opp = enemy_role.get(my_role)
         draw_lane_panel(d, img, dd, 16, ly, W - 32, my_cid, my_role, opp,
-                        lanes.get(my_role), scout_map.get((opp, False)) if opp else None, lane_tip)
-        ly += 132
+                        lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
+                        tip_lines, panel_h)
+        ly += panel_h + 14
     d.text((16, ly), "gank = your lane wins + enemy struggling   |   green/red = last-10 W/L   |   N/M on = win rate on this champ",
            font=font(11), fill=(120, 118, 110))
     if note:
