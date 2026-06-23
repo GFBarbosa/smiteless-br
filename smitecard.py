@@ -139,6 +139,7 @@ def build_data(dd, cid, role):
                  5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
         pr = rp.get("primary_rune_ids", [])
         sr = rp.get("secondary_rune_ids", [])
+        sm = max(d["skill_masteries"], key=lambda x: x["play"]) if d.get("skill_masteries") else None
         return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
                     primary=[dd["runes"].get(i, "") for i in pr],
                     secondary=[dd["runes"].get(i, "") for i in sr],
@@ -147,6 +148,7 @@ def build_data(dd, cid, role):
                     shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
                     core=[dd["items"].get(i, "") for i in core["ids"]],
                     summs=[dd["spells"].get(i, "") for i in ss["ids"]],
+                    skills=(sm["ids"] if sm else []),
                     wr=av.get("win_rate", 0) * 100,
                     tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
     except Exception:
@@ -340,6 +342,9 @@ def draw_build_block(d, dd, x, y, build):
     d.text((x, y + 104), "BUILD", font=font(11, 1), fill=GOLD)
     d.text((x, y + 122), " > ".join(c for c in build.get("core", []) if c), font=font(12), fill=TEXT)
     d.text((x, y + 142), "Summoners:  " + " / ".join(build.get("summs", [])), font=font(11), fill=MUTED)
+    skills = [s for s in build.get("skills", []) if s]
+    if skills:
+        d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
 
 
 def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):

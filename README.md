@@ -71,6 +71,9 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 3. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
 4. Run `smiteless.ahk`. It auto-opens on game start; Win+B reopens.
 
+Verify everything works: `python selftest.py` — checks Pillow, Data Dragon, op.gg, your
+Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
+
 Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 
 ## Components
@@ -92,6 +95,8 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `smitecard.py` — composites the scoreboard PNG; renders progressively (the matchup tip
   generates in the background so it never blocks the player scout) and waits for the
   match to come up so auto-open works from champ select onward.
+- `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
+  op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
 
 ## Notes & roadmap
 
