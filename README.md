@@ -39,15 +39,23 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 
 ## The gank score (transparent, tunable)
 
+The champ-vs-champ matchup is the **base** (dominant). Enemy recent form is a ~30%
+modifier that **compounds** with the length of their win/loss streak, and an *extreme*
+(near-0%/100% last-10 or a long streak) **overrides** the matchup entirely:
+
 ```
-score =  1.0 * (your_lane_winrate - 50)      # matchup edge
-       + 0.5 * (50 - enemy_last10_winrate)   # enemy form (a 10-loss streak = +25)
-       + 0.3 * (50 - enemy_champ_winrate)    # enemy comfort on this champ (>=3 games)
-       + 5.0  if the enemy is off their champ
+score =  1.0  * (your_lane_winrate - 50)                    # matchup edge (the base)
+       + 0.15 * (50 - enemy_last10_winrate) * streak_comp   # enemy form, compounding w/ streak
+       + 0.10 * (50 - enemy_champ_winrate)                  # comfort on this champ (>=3 games)
+       + 4.0   if the enemy is off their champ
+       ± 16    if the enemy is extreme (<=15% / >=85% last-10, or a 7+ streak) -> overrides
+where  streak_comp = 1 + 0.18 * max(0, streak_len - 2)      # each game past 2-in-a-row amplifies form
 score >= +6  -> gank      |  score <= -6  -> tough  |  else even
 ```
 
-Weights/threshold live at the top of `smitecard.py` (`GANK_W_*`, `GANK_T`).
+So a tilted enemy on a long loss streak reads as a clear gank no matter the matchup,
+and a smurf/heater reads as tough even into a "winning" lane. Weights/threshold live at
+the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK_T`).
 
 ## Requirements
 
@@ -69,16 +77,21 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 
 - `lolgame.py` — resolves the current game (your champ/role + both teams **with roles**)
   from whichever source is live: champ-select session -> Live Client API -> gameflow.
-- `lolbuild.py` — op.gg build card + cached Data Dragon decode (champ names, icons, items).
-- `lolcoach.py` — verified per-lane op.gg win rates, **paired strictly by role slot**.
+- `lolbuild.py` — op.gg build card + per-lane matchup win rates (**paired strictly by role
+  slot**) + cached, self-healing Data Dragon decode (champ names, icons, items, runes).
 - `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
-  rate-limit aware, permanent match caching.
+  rate-limit aware, permanent (capped) match caching.
 - `phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK watcher
   polls it to auto-open at champ select.
 - `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
-- `smitecard.py` — composites the scoreboard PNG; renders progressively and waits for the
-  match to come up so auto-open works from the loading screen.
+- `claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);
+  used by the matchup tips and the standalone coach.
+- `lolcoach.py` — standalone text coach (CLI): verified op.gg lane win rates + an AI
+  tactical read for a quick console look. Not used by the overlay.
+- `smitecard.py` — composites the scoreboard PNG; renders progressively (the matchup tip
+  generates in the background so it never blocks the player scout) and waits for the
+  match to come up so auto-open works from champ select onward.
 
 ## Notes & roadmap
 

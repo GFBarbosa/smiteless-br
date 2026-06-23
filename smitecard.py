@@ -14,7 +14,6 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lolbuild as lb
 import lolgame as lg
-import lolcoach as lc
 import lolscout as ls
 import lolmatchup as lm
 
@@ -478,7 +477,7 @@ def main():
                 time.sleep(4)
                 continue
             # in-game: full board + matchup tip + progressive player scout
-            lanes = {r: wr for a, r, e, wr, g in lc.gather_lane_matchups(dd, allies, enemies)}
+            lanes = {r: wr for a, r, e, wr, g in lb.gather_lane_matchups(dd, allies, enemies)}
             scout_map = {}
             patch = lm.patch_of(dd["ver"])
             opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None

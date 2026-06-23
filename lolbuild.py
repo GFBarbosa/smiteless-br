@@ -111,6 +111,63 @@ def opgg(cid, role, tier=None):
     if tier: url += f"?tier={tier}"
     return http(url, headers={"User-Agent": UA, "Accept": "application/json"}).get("data", {})
 
+
+# ---------- op.gg matchup win rates ----------
+def gather_matchups(dd, my_cid, role, enemy_ids):
+    """op.gg same-role matchup win rates for the enemy champs in the table.
+    Returns ([(enemy_name, wr%, games), ...], your_overall_wr)."""
+    try:
+        d = opgg(my_cid, role)
+    except Exception:
+        return [], None
+    if not d or "summary" not in d:
+        return [], None
+    cmap = {c["champion_id"]: c for c in d.get("counters", []) if c.get("play", 0) >= 20}
+    out = []
+    for e in enemy_ids:
+        c = cmap.get(e)
+        if c:
+            out.append((dd["id2name"].get(e, e), c["win"] / c["play"] * 100, c["play"]))
+    tier = d["summary"]["average_stats"].get("win_rate")
+    return out, tier
+
+
+def gather_lane_matchups(dd, allies, enemies):
+    """Pair each lane STRICTLY BY ROLE using the real champion in that slot - no
+    guessing. ally[role] is matched against enemy[role] (the actual enemy who plays
+    that role, read from the live game), and the WR is op.gg's number for THAT exact
+    pair, or None if op.gg has no sample for it. We never substitute a different
+    enemy. Both `allies` and `enemies` are lists of (champ_id, role); a lane is only
+    returned when BOTH roles are known (i.e. in-game; in champ select enemy roles are
+    hidden, so no pairings are produced).
+    Returns [(ally_name, role, enemy_name, wr_or_None, games_or_None), ...]."""
+    enemy_by_role = {}
+    for cid, role in enemies:
+        if cid and role and role not in enemy_by_role:
+            enemy_by_role[role] = cid
+    out = []
+    for cid, role in allies:
+        if not cid or not role:
+            continue
+        opp = enemy_by_role.get(role)
+        if not opp:
+            continue  # enemy role for this lane unknown -> do NOT fabricate a pairing
+        wr = games = None
+        try:
+            d = opgg(cid, role)
+        except Exception:
+            d = None
+        if isinstance(d, dict):
+            for c in d.get("counters", []):
+                if c.get("champion_id") == opp and c.get("play", 0) >= 20:
+                    wr, games = c["win"] / c["play"] * 100, c["play"]
+                    break
+        out.append((dd["id2name"].get(cid, cid), role,
+                    dd["id2name"].get(opp, opp), wr, games))
+        time.sleep(0.1)  # rapid op.gg calls get throttled; space them out
+    return out
+
+
 # ---------- format ----------
 def card(dd, cid, role, tier, enemy_cid=None):
     role = ROLE.get(role.lower(), role.lower())

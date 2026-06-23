@@ -14,75 +14,19 @@ Usage:
   python lolcoach.py                          # AUTO from champ select (LCU)
   python lolcoach.py Ahri mid Zed Leona       # manual: champ role [enemy champs...]
 """
-import sys, os, time, subprocess, shutil, tempfile
+import sys, os
 
-# reuse the verified ddragon/op.gg plumbing from lolbuild.py + multi-source resolver
+# reuse the verified ddragon/op.gg plumbing from lolbuild.py + multi-source resolver,
+# the op.gg matchup helpers (lb.gather_*), and the shared claude CLI wrapper.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lolbuild as lb
 import lolgame as lg
+import claudecli as cc
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
-
-CLAUDE_MODEL = "sonnet"  # best quality for the guide
-CLAUDE_TIMEOUT = 120     # generous: finishes even a throttled call (typical ~35s;
-                         # quick read covers the wait). AHK caps the whole thing at 125s.
-
-
-def gather_matchups(dd, my_cid, role, enemy_ids):
-    """op.gg same-role matchup win rates for the enemy champs that appear in the table."""
-    try:
-        d = lb.opgg(my_cid, role)
-    except Exception:
-        return [], None
-    if not d or "summary" not in d:
-        return [], None
-    cmap = {c["champion_id"]: c for c in d.get("counters", []) if c.get("play", 0) >= 20}
-    out = []
-    for e in enemy_ids:
-        c = cmap.get(e)
-        if c:
-            out.append((dd["id2name"].get(e, e), c["win"] / c["play"] * 100, c["play"]))
-    tier = d["summary"]["average_stats"].get("win_rate")
-    return out, tier
-
-
-def gather_lane_matchups(dd, allies, enemies):
-    """Pair each lane STRICTLY BY ROLE using the real champion in that slot - no
-    guessing. ally[role] is matched against enemy[role] (the actual enemy who plays
-    that role, read from the live game), and the WR is op.gg's number for THAT exact
-    pair, or None if op.gg has no sample for it. We never substitute a different
-    enemy. Both `allies` and `enemies` are lists of (champ_id, role); a lane is only
-    returned when BOTH the ally's and the enemy's role for it are known (i.e. in-game;
-    in champ select enemy roles are hidden, so no pairings are produced).
-    Returns [(ally_name, role, enemy_name, wr_or_None, games_or_None), ...]."""
-    enemy_by_role = {}
-    for cid, role in enemies:
-        if cid and role and role not in enemy_by_role:
-            enemy_by_role[role] = cid
-    out = []
-    for cid, role in allies:
-        if not cid or not role:
-            continue
-        opp = enemy_by_role.get(role)
-        if not opp:
-            continue  # enemy role for this lane unknown -> do NOT fabricate a pairing
-        wr = games = None
-        try:
-            d = lb.opgg(cid, role)
-        except Exception:
-            d = None
-        if isinstance(d, dict):
-            for c in d.get("counters", []):
-                if c.get("champion_id") == opp and c.get("play", 0) >= 20:
-                    wr, games = c["win"] / c["play"] * 100, c["play"]
-                    break
-        out.append((dd["id2name"].get(cid, cid), role,
-                    dd["id2name"].get(opp, opp), wr, games))
-        time.sleep(0.1)  # rapid op.gg calls get throttled; space them out
-    return out
 
 
 def deterministic_analysis(lane_mu, role):
@@ -216,57 +160,6 @@ def build_prompt(dd, myname, role, allies, enemy_names, mu_text, ver):
     return common + ask + "\nDATA:\n" + data
 
 
-def _find_claude():
-    """Prefer the real claude.exe (lets us exec without a shell so the timeout can
-    kill the process directly). Fall back to whatever `claude` resolves to on PATH."""
-    exe = os.path.expanduser(
-        r"~/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe")
-    if os.path.exists(exe):
-        return exe
-    return shutil.which("claude")
-
-
-def call_claude(prompt, allow_tools=None, timeout=None):
-    """Return (text, error). Uses the logged-in claude CLI; no API key needed.
-
-    Runs from a neutral temp cwd so claude does NOT load the heavy C:\\ project
-    memory (that was adding 30-60s). Hard timeout kills the whole process tree.
-    Pass allow_tools="WebSearch,WebFetch" to let it pull up-to-date info."""
-    claude = _find_claude()
-    if not claude:
-        return None, "claude CLI not found"
-    args = [claude, "-p", "--model", CLAUDE_MODEL, "--strict-mcp-config"]
-    if allow_tools:
-        args += ["--allowedTools", allow_tools]
-    try:
-        p = subprocess.Popen(
-            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace", cwd=tempfile.gettempdir(),
-        )
-    except (FileNotFoundError, OSError) as e:
-        return None, f"couldn't launch claude ({e})"
-    try:
-        out, err = p.communicate(input=prompt, timeout=(timeout or CLAUDE_TIMEOUT))
-    except subprocess.TimeoutExpired:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
-                       capture_output=True)
-        try:
-            p.communicate(timeout=5)
-        except Exception:
-            pass
-        return None, "timed out"
-    out = (out or "").strip()
-    err = (err or "").strip()
-    blob = (out + "\n" + err).lower()
-    if "session limit" in blob or "usage limit" in blob:
-        return None, "Claude usage/session limit reached"
-    if p.returncode != 0 and not out:
-        return None, (err[:200] or f"claude exited {p.returncode}")
-    if not out:
-        return None, "claude returned no text"
-    return out, None
-
-
 FALLBACK_MACRO = {
     "jungle": ("Path toward your winning/kill-pressure lanes (strong side); play safe "
                "around your losing lanes. Crash camps on tempo, contest scuttle with prio, "
@@ -352,8 +245,8 @@ def main():
     enemy_cids = [c for c, _ in enemies]
     # Per-lane winrates need BOTH teams' roles (in-game). gather_lane_matchups pairs
     # strictly by role and returns only the lanes it could pair; else fall back.
-    lane_mu = gather_lane_matchups(dd, allies, enemies) if (allies and enemies) else []
-    my_mu = gather_matchups(dd, my_cid, role, enemy_cids)[0] if (role and not lane_mu) else []
+    lane_mu = lb.gather_lane_matchups(dd, allies, enemies) if (allies and enemies) else []
+    my_mu = lb.gather_matchups(dd, my_cid, role, enemy_cids)[0] if (role and not lane_mu) else []
     mu_text = matchup_text(lane_mu, my_mu, myname, role, ver)
     analysis = deterministic_analysis(lane_mu, role)
 
@@ -377,11 +270,11 @@ def main():
     if outp:
         _write(outp, base + "\n\n(AI tactical notes loading… the verified data above is already complete.)")
         _touch(qm)
-        text, err = call_claude(prompt)
+        text, err = cc.call_claude(prompt)
         _write(outp, with_ai(text, err))
         _touch(fm)
     else:
-        text, err = call_claude(prompt)
+        text, err = cc.call_claude(prompt)
         print(with_ai(text, err))
 
 

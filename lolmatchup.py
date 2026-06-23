@@ -14,7 +14,7 @@ import os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lolbuild as lb
-import lolcoach as lc          # reuse call_claude (logged-in claude CLI, no API key)
+import claudecli as cc         # logged-in claude CLI (no API key)
 
 CACHE = os.path.expanduser("~/.claude/cache/matchups")
 
@@ -57,7 +57,7 @@ def generate_tip(my_name, my_key, opp_name, opp_key, role, patch):
         f"purely to lane mechanics and decisions. If you can't find current info, use your own best "
         f"knowledge. Plain text only - no preamble, no markdown, no bullet points, no headers."
     )
-    text, err = lc.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=170)
+    text, err = cc.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=170)
     if not text:
         return None, err
     text = " ".join(text.split())          # collapse to one block
