@@ -131,22 +131,46 @@ def build_data(dd, cid, role):
                 tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
 
 
-# Gank score = transparent weighted sum, all terms in win-rate points (no AI).
-# Starts as pure lane matchup (loads first); the form/champ terms kick in when the
-# enemy's last-10 scout arrives, so a tilted/off-role enemy gets more gankable.
-GANK_W_LANE = 1.0      # your laner's matchup edge vs 50%
-GANK_W_FORM = 0.5      # enemy laner's last-10 account WR vs 50% (10-loss streak = +25)
-GANK_W_CHAMP = 0.3     # enemy's WR ON the champ they're playing vs 50%
-GANK_OFFCHAMP = 5.0    # flat bonus when the enemy is off their champ (no recent games on it)
-GANK_T = 6.0           # |score| threshold for GANK / TOUGH; between = EVEN
+# Gank score = transparent weighted math (no AI). The champ-vs-champ matchup is the
+# BASE (dominant); the enemy laner's recent form is ~a 30% modifier that COMPOUNDS
+# with the length of their win/loss streak; and an extreme (near-0%/100% winrate or
+# a long streak) OVERRIDES the matchup entirely - amazing/avoid no matter what.
+GANK_W_LANE = 1.0       # champ-vs-champ matchup edge vs 50% (the base; e.g. 55% -> +5)
+GANK_W_FORM = 0.15      # enemy recent-form weight before streak compounding (~30% influence)
+GANK_W_CHAMP = 0.10     # enemy's winrate ON the champ they're playing vs 50%
+GANK_OFFCHAMP = 4.0     # enemy is off their champ (no recent games on it)
+GANK_STREAK_COMP = 0.18 # each game in a streak BEYOND 2 amplifies the form term (compounding)
+GANK_EXTREME = 16.0     # near-total streak/winrate decides regardless of matchup
+GANK_T = 6.0            # |score| threshold for GANK / TOUGH; between = EVEN
 
 
-def gank_score(ally_wr, e_n, e_w, e_cg, e_cw):
+def _streak(form):
+    """Signed consecutive results from the MOST RECENT game: +k win streak, -k loss streak."""
+    if not form:
+        return 0
+    first, k = form[0], 0
+    for w in form:
+        if w == first:
+            k += 1
+        else:
+            break
+    return k if first else -k
+
+
+def gank_score(ally_wr, e_n, e_w, e_cg, e_cw, e_form=None):
     s = 0.0
     if ally_wr is not None:
-        s += GANK_W_LANE * (ally_wr - 50.0)
-    if e_n:  # enemy form is known (scout has loaded for them)
-        s += GANK_W_FORM * (50.0 - e_w / e_n * 100.0)
+        s += GANK_W_LANE * (ally_wr - 50.0)               # BASE: champ vs champ
+    if e_n:  # enemy scout loaded
+        f = e_w / e_n * 100.0                              # enemy recent winrate %
+        k = _streak(e_form or [])                          # signed streak (compounding)
+        comp = 1.0 + GANK_STREAK_COMP * max(0, abs(k) - 2)
+        s += GANK_W_FORM * (50.0 - f) * comp               # losing/loss-streak -> easier gank
+        if e_n >= 8:                                        # extreme OVERRIDES the matchup
+            if f <= 15.0 or k <= -7:
+                s += GANK_EXTREME                           # tilted/inting -> amazing no matter what
+            elif f >= 85.0 or k >= 7:
+                s -= GANK_EXTREME                           # smurfing/heater -> avoid no matter what
         if e_cg >= 3:
             s += GANK_W_CHAMP * (50.0 - e_cw / e_cg * 100.0)
         elif e_cg == 0:
@@ -310,7 +334,7 @@ def render(path, dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                 d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
             else:
                 es = scout_map.get((e_cid, False))
-                a = (es["n"], es["w"], es["cg"], es["cw"]) if es else (0, 0, 0, 0)
+                a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
                 draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a)))
     ly = TOP + 5 * ROWH + 12
     if panel:
