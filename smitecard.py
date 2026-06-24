@@ -227,6 +227,27 @@ def _wr_color(wr):
     return GREEN if wr >= 55 else (REDWR if wr <= 42 else TAN)
 
 
+TIER_ABBR = {"IRON": "I", "BRONZE": "B", "SILVER": "S", "GOLD": "G", "PLATINUM": "P",
+             "EMERALD": "E", "DIAMOND": "D", "MASTER": "M", "GRANDMASTER": "GM", "CHALLENGER": "C"}
+_DIVNUM = {"I": "1", "II": "2", "III": "3", "IV": "4"}
+TIER_COLOR = {"IRON": (124, 114, 104), "BRONZE": (160, 114, 80), "SILVER": (156, 166, 176),
+              "GOLD": (210, 170, 90), "PLATINUM": (76, 184, 176), "EMERALD": (72, 192, 120),
+              "DIAMOND": (120, 166, 232), "MASTER": (186, 114, 206), "GRANDMASTER": (222, 96, 96),
+              "CHALLENGER": (232, 202, 124)}
+
+
+def rank_str(r):
+    """('D2 45LP', tier-color) for a rank dict; ('Unranked', muted) if none."""
+    if not r or not r.get("tier"):
+        return "Unranked", MUTED
+    t = r["tier"].upper()
+    col = TIER_COLOR.get(t, TAN)
+    ab = TIER_ABBR.get(t, t[:1])
+    if t in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+        return f"{ab} {r.get('lp', 0)}LP", col
+    return f"{ab}{_DIVNUM.get(r.get('div', ''), '')} {r.get('lp', 0)}LP", col
+
+
 def draw_form(d, x, y, form):
     sq, gap = 7, 2
     for i, win in enumerate(form[:10]):
@@ -269,15 +290,22 @@ def _wr_line(d, x, y, sc, anchor, live=True):
         if live:
             d.text((x, y), "scouting...", font=font(11), fill=MUTED, anchor=anchor)
         return
+    rtext, rcol = rank_str(sc.get("rank"))
     n, w, cg, cw = sc["n"], sc["w"], sc["cg"], sc["cw"]
     if n:
         wr = w / n * 100
         t = f"L10 {w}-{n - w} {wr:.0f}%"
         col = _wr_color(wr)
     else:
-        t, col = "no recent ranked", MUTED
+        t, col = "no recent", MUTED
     t += f"  ·  {cw}/{cg} on" if cg else "  ·  off-champ"
-    d.text((x, y), t, font=font(11), fill=col, anchor=anchor)
+    rf, ff = font(11, 1), font(11)               # rank (bold, tier-colored) then form (by WR)
+    if anchor == "ra":                           # right rows: form ... rank, mirrored
+        d.text((x, y), t, font=ff, fill=col, anchor="ra")
+        d.text((x - d.textlength(t, font=ff) - 10, y), rtext, font=rf, fill=rcol, anchor="ra")
+    else:
+        d.text((x, y), rtext, font=rf, fill=rcol, anchor="la")
+        d.text((x + d.textlength(rtext, font=rf) + 10, y), t, font=ff, fill=col, anchor="la")
 
 
 def draw_badge(d, cx, y, rating):
@@ -323,8 +351,9 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
         if opp_sc and opp_sc["n"]:
             ofw = opp_sc["w"] / opp_sc["n"] * 100
             ct = (f"{opp_sc['cw']}/{opp_sc['cg']} on {oppn}" if opp_sc["cg"] else "off-champ")
+            orank = rank_str(opp_sc.get("rank"))[0]
             d.text((x + 14, y + 46),
-                   f"{oppn} last 10: {opp_sc['w']}-{opp_sc['n'] - opp_sc['w']} ({ofw:.0f}%)   ·   {ct}",
+                   f"{oppn} {orank}   ·   last 10: {opp_sc['w']}-{opp_sc['n'] - opp_sc['w']} ({ofw:.0f}%)   ·   {ct}",
                    font=font(11), fill=MUTED)
     else:
         d.text((x + 14, y + 26), f"{myn} — lane opponent fills in once the match starts", font=font(12), fill=MUTED)
@@ -433,7 +462,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "gank = lane matchup + enemy recent form/streak   |   green/red = last-10 W/L   |   N/M on = winrate on this champ",
+    d.text((16, ly), "each player: solo rank · last-10 W/L · winrate on champ   |   gank = lane matchup + enemy form/streak   |   click a champ → op.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))

@@ -15,7 +15,7 @@ Usage:
   python lolscout.py                 # auto from the running client, print scout
   python lolscout.py --count 10      # last N games (default 10)
 """
-import sys, os, json, time, urllib.request, urllib.error
+import sys, os, json, time, hashlib, shutil, urllib.request, urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lolbuild as lb
@@ -26,10 +26,11 @@ try:
 except Exception:
     pass
 
-REGIONAL = "americas"
-PLATFORM = "na1"
+REGIONAL = "americas"      # match-v5 + account-v1 (regional routing)
+PLATFORM = "na1"           # summoner-v4 + league-v4 (platform routing)
 CACHE = os.path.expanduser("~/.claude/cache/riot")
 IDS_TTL = 600          # re-pull a player's match-id list at most every 10 min
+RANK_TTL = 1800        # re-pull a player's rank at most every 30 min
 _CALLS = []            # sliding-window call timestamps for rate limiting
 
 
@@ -41,13 +42,15 @@ def read_key():
 
 
 def _throttle():
+    # Personal key: match-v5 (the scout's bulk) allows 2000 req / 10 s. Stay under that
+    # with margin; a 429 (handled in _get with Retry-After) is the backstop.
     now = time.time()
-    while _CALLS and now - _CALLS[0] > 120:
+    while _CALLS and now - _CALLS[0] > 10:
         _CALLS.pop(0)
-    if len(_CALLS) >= 95:                       # stay under 100/2min
-        time.sleep(max(0.0, 120 - (now - _CALLS[0]) + 0.5))
-    elif _CALLS and now - _CALLS[-1] < 0.06:    # stay under 20/s
-        time.sleep(0.06)
+    if len(_CALLS) >= 1500:                     # under 2000 / 10s
+        time.sleep(max(0.0, 10 - (now - _CALLS[0]) + 0.2))
+    elif _CALLS and now - _CALLS[-1] < 0.008:   # ~125/s burst cap
+        time.sleep(0.008)
     _CALLS.append(time.time())
 
 
@@ -89,6 +92,28 @@ def _cache_path(kind, name):
     return os.path.join(d, name + ".json")
 
 
+def ensure_key_namespace(key):
+    """Riot encrypts PUUIDs per API key (and match results embed those PUUIDs), so when
+    the key changes the cached puuids/matches/ranks become undecryptable (HTTP 400). If
+    the key's fingerprint changed since last time, wipe the key-specific caches so they
+    re-fetch fresh under the new key."""
+    h = hashlib.sha1((key or "").encode()).hexdigest()[:12]
+    fp = os.path.join(CACHE, "_keyhash")
+    old = ""
+    try:
+        old = open(fp).read().strip()
+    except Exception:
+        pass
+    if old != h:
+        for sub in ("puuid", "ids", "match", "rank"):
+            shutil.rmtree(os.path.join(CACHE, sub), ignore_errors=True)
+        try:
+            os.makedirs(CACHE, exist_ok=True)
+            open(fp, "w").write(h)
+        except Exception:
+            pass
+
+
 def recent_ids(puuid, key, count):
     fp = _cache_path("ids", puuid)
     if os.path.exists(fp):
@@ -127,6 +152,31 @@ def match_results(mid, key):
     except Exception:
         pass
     return res
+
+
+def rank(puuid, key):
+    """Solo-queue rank (league-v4 by-puuid), cached ~30 min since it drifts. Returns
+    {tier, div, lp, w, l} or None (unranked / lookup failed)."""
+    fp = _cache_path("rank", puuid)
+    if os.path.exists(fp):
+        try:
+            c = json.load(open(fp))
+            if time.time() - c.get("ts", 0) < RANK_TTL:
+                return c.get("rank")
+        except Exception:
+            pass
+    d = _get(f"https://{PLATFORM}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}", key)
+    r = None
+    if isinstance(d, list):
+        solo = next((e for e in d if e.get("queueType") == "RANKED_SOLO_5x5"), None)
+        if solo:
+            r = {"tier": solo.get("tier", ""), "div": solo.get("rank", ""),
+                 "lp": solo.get("leaguePoints", 0), "w": solo.get("wins", 0), "l": solo.get("losses", 0)}
+    try:
+        json.dump({"rank": r, "ts": time.time()}, open(fp, "w"))
+    except Exception:
+        pass
+    return r
 
 
 def scout(dd, puuid, champ_id, key, count):
@@ -277,6 +327,8 @@ def iter_scout_struct(dd, count=10):
     if not key:
         yield {"error": "No Riot API key file (~/.riot_api_key)."}
         return
+    ensure_key_namespace(key)            # key changed? -> drop the old key's undecryptable cache
+    _prune_match_cache()                  # keep the permanent match cache bounded
     # Everything network-y is inside the try: roster() (puuid resolution) can also raise
     # KeyStale, and the scout must NEVER crash its caller - a bad key/outage just means
     # "no scout this game", not a dead overlay.
@@ -289,7 +341,8 @@ def iter_scout_struct(dd, count=10):
         for puuid, cid, role, is_ally, is_me, riot_id in players:
             n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
-                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id}
+                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
+                   "rank": rank(puuid, key)}
     except KeyStale:
         yield {"error": "Riot key is stale (401/403) - regenerate at developer.riotgames.com."}
     except Exception as e:

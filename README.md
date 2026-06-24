@@ -17,8 +17,9 @@ The overlay has:
    matchup edge + the enemy laner's recent form + their win rate on the champ they're
    playing. Starts as the matchup, then shifts as the live scout loads (a tilted /
    off-role enemy becomes a clear gank).
-4. **Per-player form bar** — each player's last-10 W/L from the Riot API (the "are they
-   on a heater / tilted" read). Always current, unlike cached profile sites.
+4. **Per-player rank + form** — each player's solo-queue **rank** (e.g. `D2 67LP`,
+   tier-colored) plus their last-10 W/L from the Riot API (the "are they on a heater /
+   tilted" read). Always current, unlike cached profile sites. Click an icon for op.gg.
 5. **Lane panel** — when you lock a **lane** (not jungle), a panel with your matchup, the
    opponent's recent form, and a **specific, current matchup tip** ("dodge her E, hold Wind
    Wall for her R, all-in at 6…"). Tips are generated once per patch by the LLM **with web
