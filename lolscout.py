@@ -321,7 +321,7 @@ def roster(dd, key):
         myg = lg._gname(me_name)
         rid = lambda p: p.get("riotId") or p.get("summonerName") or ""
         me = next((p for p in players if lg._gname(rid(p)) == myg), None)
-        myteam = me.get("team") if me else None
+        myteam = me.get("team") if me else "ORDER"   # spectator/replay (no active player): ORDER = "ally" side
         out = []
         for p in players:
             puuid = resolve_puuid(rid(p), key)

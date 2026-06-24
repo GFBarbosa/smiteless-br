@@ -123,13 +123,22 @@ def _from_live_client(dd):
     def pg(p):
         return _gname(p.get("riotId") or p.get("summonerName") or p.get("riotIdGameName", ""))
 
-    me = next((p for p in players if pg(p) == myg), None) if myg else None
-    if me is None:
-        return None
-    myteam = me.get("team")
-
     def pos_of(p):
         return ROLE.get((p.get("position") or "").lower(), "")
+
+    me = next((p for p in players if pg(p) == myg), None) if myg else None
+    if me is None:
+        # SPECTATOR / REPLAY: no active player. Show both teams (ORDER = "your" side) with
+        # no designated "me" so the board, scout, ranks + mastery all still populate.
+        allies = [(_cid(dd, p.get("championName", "")), pos_of(p))
+                  for p in players if p.get("team") == "ORDER"]
+        enemies = [(_cid(dd, p.get("championName", "")), pos_of(p))
+                   for p in players if p.get("team") == "CHAOS" and _cid(dd, p.get("championName", ""))]
+        if not (allies and enemies):
+            return None
+        return dict(my=0, pos="", allies=allies, enemies=enemies,
+                    phase="InProgress", source="replay")
+    myteam = me.get("team")
 
     my = _cid(dd, me.get("championName", ""))
     pos = pos_of(me) or load_role(my)
@@ -195,7 +204,8 @@ def resolve(dd):
         return info, None
     for fn in (_from_live_client, _from_gameflow):
         info = fn(dd)
-        if info and info.get("my"):
+        # accept if we found "you" (my>0) OR a spectator/replay board (both teams, my=0)
+        if info and (info.get("my") or (info.get("allies") and info.get("enemies"))):
             return info, None
-    return None, ("No live game found — open champ select, or be on the loading "
-                  "screen / in-game (all three work).")
+    return None, ("No live game found — open champ select, be on the loading screen / "
+                  "in-game, or watch a replay (all work).")

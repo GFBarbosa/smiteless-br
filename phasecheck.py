@@ -28,16 +28,20 @@ def _lockfile():
 
 
 def main():
-    lf = _lockfile()
     ctx = ssl._create_unverified_context()
+    # Check the live-client / replay API (port 2999) FIRST: if it answers, an actual game
+    # OR a replay/spectator session is running -> treat as InProgress. This is what makes
+    # the overlay open during replays (the gameflow phase reads "None" during a replay).
+    try:
+        urllib.request.urlopen("https://127.0.0.1:2999/liveclientdata/gamestats",
+                               timeout=1, context=ctx)
+        print("InProgress")
+        return
+    except Exception:
+        pass
+    lf = _lockfile()
     if not lf:
-        # client not found via lockfile, but maybe the game is running (live client)?
-        try:
-            urllib.request.urlopen("https://127.0.0.1:2999/liveclientdata/gamestats",
-                                   timeout=1, context=ctx)
-            print("InProgress")
-        except Exception:
-            print("")
+        print("")
         return
     try:
         _n, _p, port, pw, _proto = open(lf).read().split(":")

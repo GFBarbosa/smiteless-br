@@ -433,7 +433,11 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         murl = _profile_url(msc.get("riot_id")) if msc else None
         if murl:
             hits.append((16, 9, 64, 57, murl))
-    d.text((74, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
+    if my_cid:
+        d.text((74, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
+    else:                                        # spectator / replay: no "you"
+        d.text((16, 12), "SPECTATING", font=font(18, 1), fill=GOLD)
+        d.text((16, 42), "both teams scouted — no personal build (replay/spectator mode)", font=font(11), fill=MUTED)
     if build:
         bl = f"{build['keystone']}   ·   " + " > ".join(x for x in build['core'] if x) + "   ·   " + " / ".join(build['summs'])
         d.text((74, 40), bl[:104], font=font(12), fill=MUTED)
