@@ -38,8 +38,7 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, and the player scout, all updating in the same window.
 - **Click a champ icon** to open that player's **op.gg** profile in your browser.
-- **Ctrl+B** (while a League window is focused) opens it manually. **Left-drag** moves the
-  overlay; **right-click or Esc**
+- **Ctrl+Alt+X** opens it manually (global). **Left-drag** moves the overlay; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
@@ -88,7 +87,7 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 - **Python 3** + **Pillow** (`pip install -r requirements.txt`). The window uses **Tkinter**
   (Python standard library) + Pillow's `ImageTk`; everything else is stdlib.
 - **AutoHotkey v2** — runs `smiteless.ahk`, the persistent tray app (tray icon + menu, the
-  Ctrl+B hotkey, and the auto-open phase watcher). The overlay/settings windows are pure Python.
+  Ctrl+Alt+X hotkey, and the auto-open phase watcher). The overlay/settings windows are pure Python.
 - **Riot API key** (for the player scout) — put it in `~/.riot_api_key`. Dev keys expire
   every 24h; a free production key lifts the rate limit and never expires. You can refresh
   an expired key **right from the overlay**: the bottom bar has a **Get key** button (opens
@@ -101,7 +100,7 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 2. Edit `smiteless.ahk` — set `PY` to your `python.exe` (or leave `"python"`).
 3. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
 4. Run `smiteless.ahk`. It sits in your **system tray** (right-click for the menu),
-   auto-opens at champ select, and binds **Ctrl+B**.
+   auto-opens at champ select, and binds **Ctrl+Alt+X**.
 
 Verify everything works: `python selftest.py` — checks Pillow, Data Dragon, op.gg, your
 Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
@@ -135,7 +134,7 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
   the auto-open marker); read live by the overlay's gank math.
 - `smiteless.ahk` — the persistent **tray app**: tray icon + right-click menu, the
-  champ-select auto-open watcher, and Ctrl+B. Launches the Python windows.
+  champ-select auto-open watcher, and Ctrl+Alt+X. Launches the Python windows.
 - `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
   op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
 
