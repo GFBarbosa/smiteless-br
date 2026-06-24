@@ -36,6 +36,7 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, and the player scout, all updating in the same window.
+- **Click a champ icon** to open that player's **op.gg** profile in your browser.
 - **Win+B** opens it manually. **Left-drag** moves the overlay; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.

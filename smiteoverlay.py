@@ -197,7 +197,7 @@ def main():
     hwnd = root.winfo_id()                       # overrideredirect -> this is the toplevel HWND
     make_no_activate(hwnd)
 
-    st = {"img": None, "dirty": False, "ref": None, "size": None,
+    st = {"img": None, "dirty": False, "ref": None, "size": None, "hitmap": [],
           "pos": None, "shown": False, "closing": False, "done": False}
     lock = threading.Lock()
 
@@ -213,21 +213,43 @@ def main():
         except Exception:
             pass
 
-    # left-drag to move the window; Esc or right-click to close it
-    def start_drag(e):
-        st["drag"] = (e.x_root, e.y_root)
+    # left-click a champ icon -> open that player's op.gg; left-DRAG moves the window;
+    # Esc / right-click closes. A click is a press+release that didn't move (>5px = drag).
+    def on_press(e):
+        st["press"] = (e.x_root, e.y_root, e.x, e.y)
+        st["last"] = (e.x_root, e.y_root)
+        st["moved"] = False
 
     def on_drag(e):
-        if not st.get("drag") or not st["pos"] or not st["size"]:
+        if not st.get("press") or not st["pos"] or not st["size"]:
             return
-        dx, dy = e.x_root - st["drag"][0], e.y_root - st["drag"][1]
+        if not st["moved"] and abs(e.x_root - st["press"][0]) + abs(e.y_root - st["press"][1]) < 5:
+            return                               # within click tolerance - not a drag yet
+        st["moved"] = True
+        dx, dy = e.x_root - st["last"][0], e.y_root - st["last"][1]
         st["pos"] = (st["pos"][0] + dx, st["pos"][1] + dy)
-        st["drag"] = (e.x_root, e.y_root)
+        st["last"] = (e.x_root, e.y_root)
         w, h = st["size"]
         root.geometry(f"{w}x{h + bar_h}+{st['pos'][0]}+{st['pos'][1]}")
 
-    label.bind("<Button-1>", start_drag)
+    def on_release(e):
+        if st.get("press") and not st["moved"]:  # a click, not a drag
+            cx, cy = st["press"][2], st["press"][3]
+            for x0, y0, x1, y1, url in st["hitmap"]:
+                if x0 <= cx <= x1 and y0 <= cy <= y1:
+                    webbrowser.open(url)
+                    break
+        st["press"] = None
+        st["moved"] = False
+
+    def on_motion(e):                            # hand cursor over a clickable icon
+        over = any(x0 <= e.x <= x1 and y0 <= e.y <= y1 for x0, y0, x1, y1, _ in st["hitmap"])
+        label.config(cursor="hand2" if over else "")
+
+    label.bind("<Button-1>", on_press)
     label.bind("<B1-Motion>", on_drag)
+    label.bind("<ButtonRelease-1>", on_release)
+    label.bind("<Motion>", on_motion)
     root.bind("<Escape>", close)
     label.bind("<Button-3>", close)              # right-click the board to close (not the key bar)
 
@@ -260,6 +282,7 @@ def main():
             ref = ImageTk.PhotoImage(pil)        # build on the Tk (main) thread
             label.configure(image=ref)
             st["ref"] = ref                      # keep a reference or it gets GC'd (blank image)
+            st["hitmap"] = getattr(pil, "hitmap", [])   # clickable icon rects for this frame
             if st["size"] != pil.size:
                 st["size"] = pil.size
                 place(pil.size)

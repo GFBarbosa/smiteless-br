@@ -8,7 +8,7 @@ form bar per player. Renders progressively (build + lanes first, scout fills in)
 Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
-import sys, os, time, threading, urllib.request
+import sys, os, time, threading, urllib.request, urllib.parse
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -364,6 +364,15 @@ def draw_build_block(d, dd, x, y, build):
         d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
 
 
+def _opgg_url(riot_id):
+    """op.gg profile URL for a 'Name#TAG' riot id, or None."""
+    if not riot_id or "#" not in riot_id:
+        return None
+    region = "".join(c for c in getattr(ls, "PLATFORM", "na1") if c.isalpha()) or "na"
+    name, tag = riot_id.rsplit("#", 1)
+    return f"https://www.op.gg/summoners/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}"
+
+
 def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
@@ -371,10 +380,15 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
+    hits = []                                    # clickable icon rects -> op.gg URL
     # header
     ic = get_icon(dd, my_cid, 48)
     if ic:
         img.paste(ic, (16, 9), ic)
+        msc = scout_map.get((my_cid, True))
+        murl = _opgg_url(msc.get("riot_id")) if msc else None
+        if murl:
+            hits.append((16, 9, 64, 57, murl))
     d.text((74, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
     if build:
         bl = f"{build['keystone']}   ·   " + " > ".join(x for x in build['core'] if x) + "   ·   " + " / ".join(build['summs'])
@@ -395,6 +409,13 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
         draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
         draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
+        asc, esc = scout_map.get((a_cid, True)), scout_map.get((e_cid, False))
+        aurl = _opgg_url(asc.get("riot_id")) if (a_cid and asc) else None
+        eurl = _opgg_url(esc.get("riot_id")) if (e_cid and esc) else None
+        if aurl:
+            hits.append((27, y + 13, 65, y + 51, aurl))     # ally icon (left)
+        if eurl:
+            hits.append((855, y + 13, 893, y + 51, eurl))   # enemy icon (right)
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
             if role == my_role or not e_cid:
@@ -416,6 +437,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
+    img.hitmap = hits
     return img
 
 

@@ -195,10 +195,10 @@ def _prune_match_cache(cap=4000):
 
 
 def roster(dd, key):
-    """[(puuid, champ_id, role, is_ally, is_me)] for all 10. Primary source is the Live
-    Client API (in-game): it exposes riotIds we can resolve to real puuids. The
-    gameflow session hands back placeholder UUIDs that Match-V5 rejects, so we only
-    use it if it happens to carry encrypted (78-char) puuids."""
+    """[(puuid, champ_id, role, is_ally, is_me, riot_id)] for all 10. Primary source is
+    the Live Client API (in-game): it exposes riotIds we can resolve to real puuids (and
+    use to open op.gg). The gameflow session hands back placeholder UUIDs that Match-V5
+    rejects, so we only use it if it happens to carry encrypted (78-char) puuids."""
     # --- primary: live client (in-game) ---
     try:
         d = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata", timeout=3, insecure=True)
@@ -222,7 +222,7 @@ def roster(dd, key):
                 continue
             cid = dd["name2id"].get(dd["norm"](p.get("championName", ""))) or 0
             role = lb.ROLE.get((p.get("position") or "").lower(), "")
-            out.append((puuid, cid, role, p.get("team") == myteam, p is me))
+            out.append((puuid, cid, role, p.get("team") == myteam, p is me, rid(p)))
         if out:
             return out, None
     # --- fallback: gameflow, ONLY if it carries real (encrypted) puuids ---
@@ -248,7 +248,7 @@ def roster(dd, key):
                     for p in team:
                         if p.get("puuid"):
                             out.append((p["puuid"], p.get("championId", 0), "",
-                                        team is mine, p.get("puuid") == mypuuid))
+                                        team is mine, p.get("puuid") == mypuuid, ""))
                 return out, None
         except Exception:
             pass
@@ -285,11 +285,11 @@ def iter_scout_struct(dd, count=10):
         if err:
             yield {"error": err}
             return
-        players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me): enemies first, you last
-        for puuid, cid, role, is_ally, is_me in players:
+        players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me,riot_id): enemies first, you last
+        for puuid, cid, role, is_ally, is_me, riot_id in players:
             n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
-                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form}
+                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id}
     except KeyStale:
         yield {"error": "Riot key is stale (401/403) - regenerate at developer.riotgames.com."}
     except Exception as e:
