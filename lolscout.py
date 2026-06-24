@@ -136,7 +136,7 @@ def ensure_key_namespace(key):
     except Exception:
         pass
     if old != h:
-        for sub in ("puuid", "ids", "match", "rank"):
+        for sub in ("puuid", "ids", "match", "rank", "mastery"):
             shutil.rmtree(os.path.join(CACHE, sub), ignore_errors=True)
         try:
             os.makedirs(CACHE, exist_ok=True)
@@ -208,6 +208,32 @@ def rank(puuid, key):
     except Exception:
         pass
     return r
+
+
+def mastery(puuid, champ_id, key):
+    """Champion mastery on the champ they're playing THIS game (champion-mastery-v4),
+    cached ~30 min. Returns {level, points} or None (no mastery entry = effectively a
+    first-timer, or lookup failed)."""
+    if not champ_id:
+        return None
+    fp = _cache_path("mastery", f"{puuid}_{champ_id}")
+    if os.path.exists(fp):
+        try:
+            c = json.load(open(fp))
+            if time.time() - c.get("ts", 0) < RANK_TTL:
+                return c.get("m")
+        except Exception:
+            pass
+    d = _get(f"https://{PLATFORM}.api.riotgames.com/lol/champion-mastery/v4/"
+             f"champion-masteries/by-puuid/{puuid}/by-champion/{champ_id}", key)
+    m = None
+    if isinstance(d, dict) and "championPoints" in d:
+        m = {"level": d.get("championLevel", 0), "points": d.get("championPoints", 0)}
+    try:
+        json.dump({"m": m, "ts": time.time()}, open(fp, "w"))
+    except Exception:
+        pass
+    return m
 
 
 def scout(dd, puuid, champ_id, key, count):
@@ -376,7 +402,7 @@ def iter_scout_struct(dd, count=10):
             n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
-                   "rank": rank(puuid, key)}
+                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key)}
     except KeyStale:
         yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
     except Exception as e:

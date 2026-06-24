@@ -248,6 +248,14 @@ def rank_str(r):
     return f"{ab}{_DIVNUM.get(r.get('div', ''), '')} {r.get('lp', 0)}LP", col
 
 
+def _abbr_pts(p):
+    if p >= 1_000_000:
+        return f"{p / 1e6:.1f}M"
+    if p >= 1000:
+        return f"{p // 1000}k"
+    return str(p)
+
+
 def draw_form(d, x, y, form):
     sq, gap = 7, 2
     for i, win in enumerate(form[:10]):
@@ -298,7 +306,13 @@ def _wr_line(d, x, y, sc, anchor, live=True):
         col = _wr_color(wr)
     else:
         t, col = "no recent", MUTED
-    t += f"  ·  {cw}/{cg} on" if cg else "  ·  off-champ"
+    m = sc.get("mastery")                        # champ comfort: lifetime mastery > recent record
+    if m and m.get("points"):
+        t += f"  ·  M{m['level']} {_abbr_pts(m['points'])}"
+    elif cg == 0:
+        t += "  ·  off-champ"                     # no mastery + none recent = first-timing it
+    else:
+        t += f"  ·  {cw}/{cg} on"
     rf, ff = font(11, 1), font(11)               # rank (bold, tier-colored) then form (by WR)
     if anchor == "ra":                           # right rows: form ... rank, mirrored
         d.text((x, y), t, font=ff, fill=col, anchor="ra")
@@ -463,7 +477,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "each player: solo rank · last-10 W/L · winrate on champ   |   gank = lane matchup + enemy form/streak   |   click a champ → u.gg",
+    d.text((16, ly), "each player: solo rank · last-10 W/L · champ mastery (M7 1.2M = one-trick)   |   gank = matchup + enemy form/streak   |   click → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
