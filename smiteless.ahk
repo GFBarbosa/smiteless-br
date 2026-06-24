@@ -2,45 +2,82 @@
 #SingleInstance Force
 
 ; ============================================================
-; Smiteless - live League of Legends champ-select & in-game overlay.
+; Smiteless - persistent tray app.
 ;
-; The overlay itself is a self-contained Python window (smiteoverlay.py): it polls the
-; League client/API directly and updates IN PLACE as picks come in and the game
-; progresses - no PNG file, no picture-reload. This script just LAUNCHES it (Win+B) and
-; auto-launches it when a match starts. The window manages itself: opens on a second
-; monitor, never steals focus from the game, Esc or click to close, and auto-closes at
-; game end. It's single-instance, so re-launching while it's up is a harmless no-op.
-;
-; Run League in Borderless so the overlay shows over the game.
+; Sits in the system tray with a right-click menu:
+;   Open overlay | Settings | Auto-open at champ select (toggle) | Reload | Exit
+; It auto-opens the overlay at champ select (while auto-open is on and the client is up)
+; and binds Win+B. The overlay window and the settings window are Python
+; (smiteoverlay.py / smitesettings.py); this script is just the persistent shell.
 ; ============================================================
 
 ; --- CONFIG -------------------------------------------------
-; Python 3 with Pillow installed (pip install -r requirements.txt). "python" if on PATH.
-PY := "python"
+PY := "python"                  ; Python 3 + Pillow. Set to your python.exe if not on PATH.
 SCRIPTS := A_ScriptDir          ; the .py files live next to this script
 ; ------------------------------------------------------------
+
+NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
+
+if FileExist(SCRIPTS "\smiteless.ico")
+    TraySetIcon(SCRIPTS "\smiteless.ico")
+A_IconTip := "Smiteless"
+
+tray := A_TrayMenu
+tray.Delete()                                   ; replace the default AHK menu
+tray.Add("Open overlay", (*) => OpenSmiteless(false))
+tray.Add("Settings", (*) => OpenSettings())
+tray.Add()
+tray.Add("Auto-open at champ select", ToggleAuto)
+tray.Add()
+tray.Add("Reload", (*) => Reload())
+tray.Add("Exit", (*) => ExitApp())
+tray.Default := "Open overlay"                  ; double-click the tray icon
+RefreshAutoCheck()
+
+#b::OpenSmiteless(false)
 
 OpenSmiteless(autoMode := false) {
     global PY, SCRIPTS
     waitFlag := autoMode ? " --wait" : ""       ; auto-open stays hidden until champs are present
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smiteoverlay.py" --count 10' waitFlag ' 2>nul"', , "Hide")
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smiteoverlay.py"' waitFlag ' 2>nul"', , "Hide")
 }
 
-#b::OpenSmiteless(false)
+OpenSettings() {
+    global PY, SCRIPTS
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smitesettings.py" 2>nul"', , "Hide")
+}
 
-; Auto-open at CHAMP SELECT (and in-game). Polls the LCU gameflow phase via phasecheck.py
-; (async, non-blocking) only while the client/game is running, and launches the overlay
-; once per session. Resets when you return to lobby / post-game.
+ToggleAuto(ItemName, *) {
+    global NOAUTO
+    if FileExist(NOAUTO)
+        FileDelete(NOAUTO)                       ; enable auto-open
+    else
+        FileAppend("off", NOAUTO)                ; disable auto-open
+    RefreshAutoCheck()
+}
+
+RefreshAutoCheck() {
+    global NOAUTO
+    if FileExist(NOAUTO)
+        A_TrayMenu.Uncheck("Auto-open at champ select")
+    else
+        A_TrayMenu.Check("Auto-open at champ select")
+}
+
+; Auto-open watcher: only while auto-open is on AND the client/game is up. Polls the LCU
+; gameflow phase via phasecheck.py (async) and opens the overlay once per active session.
 g_smiteOpened := false
 SmiteWatch() {
-    global g_smiteOpened, PY, SCRIPTS
+    global g_smiteOpened, PY, SCRIPTS, NOAUTO
+    if FileExist(NOAUTO)                         ; auto-open disabled
+        return
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
-        g_smiteOpened := false                  ; LeagueClient.exe is the one present during champ select
+        g_smiteOpened := false
         return
     }
     out := A_Temp "\smiteless_phase.txt"
     ph := ""
-    try ph := Trim(FileRead(out), " `t`r`n")    ; strip CR/LF too - Trim's default omits only space/tab
+    try ph := Trim(FileRead(out), " `t`r`n")     ; strip CR/LF (Trim's default omits them)
     Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\phasecheck.py" > "' out '" 2>nul"', , "Hide")
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active) {
@@ -49,7 +86,7 @@ SmiteWatch() {
             OpenSmiteless(true)
         }
     } else {
-        g_smiteOpened := false              ; any non-active phase re-arms
+        g_smiteOpened := false                   ; any non-active phase re-arms for the next game
     }
 }
 SetTimer(SmiteWatch, 4000)

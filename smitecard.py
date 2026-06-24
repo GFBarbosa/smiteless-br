@@ -16,6 +16,7 @@ import lolbuild as lb
 import lolgame as lg
 import lolscout as ls
 import lolmatchup as lm
+import smiteconfig as cfg
 
 # ---- theme ----
 BG = (17, 19, 26); TEXT = (232, 230, 223); MUTED = (155, 152, 142); GOLD = (200, 170, 110)
@@ -166,6 +167,22 @@ GANK_OFFCHAMP = 4.0     # enemy is off their champ (no recent games on it)
 GANK_STREAK_COMP = 0.18 # each game in a streak BEYOND 2 amplifies the form term (compounding)
 GANK_EXTREME = 16.0     # near-total streak/winrate decides regardless of matchup
 GANK_T = 6.0            # |score| threshold for GANK / TOUGH; between = EVEN
+
+
+def apply_settings():
+    """Pull the user's tuning (smitesettings.py) into the gank weights. The single
+    'streak influence' dial scales the form weight, streak compounding, and the extreme
+    override together (50 = the defaults above). Called each render so changes apply live."""
+    global GANK_W_FORM, GANK_STREAK_COMP, GANK_EXTREME, GANK_W_CHAMP, GANK_OFFCHAMP, GANK_T
+    s = cfg.load()
+    m = s["streak_influence"] / 50.0          # 0..2, default 1.0; scales all "enemy state" terms
+    GANK_W_FORM = 0.15 * m
+    GANK_STREAK_COMP = 0.18 * m
+    GANK_W_CHAMP = 0.10 * m
+    GANK_OFFCHAMP = 4.0 * m
+    GANK_EXTREME = min(32.0, 16.0 * m)        # at m=0 -> 0: pure champ matchup, ignore how they're doing
+    GANK_T = float(s["gank_threshold"])
+    return s
 
 
 def _streak(form):
@@ -441,11 +458,12 @@ def _takeflag(argv, name, default=None):
     return default
 
 
-def run(emit, count=10, wait=False, stop=None, monitor=False):
+def run(emit, count=None, wait=False, stop=None, monitor=False):
     """Core loop: resolve the live game, render each frame, and hand the finished PIL
     Image to emit(img). Shared by the PNG CLI (main) and the live Tk overlay.
 
       emit(img) - called with every rendered frame (a PIL Image).
+      count     - scout games per player; None -> use the user's setting (live).
       wait      - auto-open mode: stay blank until champs are actually present.
       stop()    - return True to break out early (overlay was closed).
       monitor   - in-game, after the board is complete, keep watching for the match to
@@ -458,6 +476,8 @@ def run(emit, count=10, wait=False, stop=None, monitor=False):
     build = None
     build_cid = 0
     while not stop() and time.time() < deadline:
+        settings = apply_settings()       # live tuning: gank weights + scout depth
+        n_scout = count if count is not None else settings["scout_games"]
         info, err = lg.resolve(dd)
         if err:                            # not in champ select / a game yet
             if not wait:                   # manual press shows status; auto-open stays hidden
@@ -521,7 +541,7 @@ def run(emit, count=10, wait=False, stop=None, monitor=False):
                     tip_box["tip"] = t
             tip_thread = threading.Thread(target=_gen_tip, daemon=True)
             tip_thread.start()
-        for r in ls.iter_scout_struct(dd, count):
+        for r in ls.iter_scout_struct(dd, n_scout):
             if stop():
                 return
             if "error" in r:
@@ -554,9 +574,9 @@ def main():
     outp = _takeflag(argv, "--out") or os.path.expanduser("~/.claude/cache/smitecard.png")
     fm = _takeflag(argv, "--fm")
     try:
-        count = int(_takeflag(argv, "--count", "10"))
+        count = int(_takeflag(argv, "--count"))      # None -> use the saved scout-depth setting
     except Exception:
-        count = 10
+        count = None
     try:
         run(lambda img: _save_png(img, outp), count=count, wait=wait, monitor=False)
     finally:

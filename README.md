@@ -30,19 +30,35 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 
 ## Behavior
 
+- **Lives in your system tray.** A tray icon with a right-click menu: **Open overlay**,
+  **Settings**, **Auto-open at champ select** (toggle), **Reload**, **Exit**.
 - **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, and the player scout, all updating in the same window.
-- **Win+B** opens it manually. **Esc or click** closes it; it **auto-closes** ~1.5 min
-  after the match ends so the next game's auto-open is fresh.
-- **Single window, never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second
-  monitor if you have one.
+- **Win+B** opens it manually. **Left-drag** moves the overlay; **right-click or Esc**
+  closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
+- **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
   hides all overlays — same requirement as Blitz/Porofessor).
 
-The overlay is a self-contained Python/Tk window (`smiteoverlay.py`); AutoHotkey only
-launches it (the hotkey + the auto-open watcher). No PNG file or picture-reload anymore.
+The tray app is `smiteless.ahk`; the overlay and settings windows are Python/Tk
+(`smiteoverlay.py` / `smitesettings.py`). No PNG file or picture-reload anymore.
+
+## Settings
+
+Right-click the tray icon → **Settings** (a Tk window). Everything applies **live** — the
+overlay re-reads it every frame, so gank tags update within a few seconds.
+
+- **Win/loss streak influence** (the headline dial) — how much an enemy's recent form and
+  win/loss streak swing the gank rating. **0** = ignore it (pure champ-vs-champ matchup);
+  **50** = balanced (matchup is the base, form nudges it); **100** = form/streak dominate.
+- **Gank decisiveness** — the score threshold for the GANK / TOUGH tags (lower = more lanes
+  tagged).
+- **Scout depth** — recent games pulled per player (more = steadier read, slower first scout).
+- **Auto-open at champ select** — same toggle as the tray menu.
+
+Saved to `~/.claude/smiteless_settings.json` (plain JSON you can also hand-edit).
 
 ## The gank score (transparent, tunable)
 
@@ -68,8 +84,8 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 
 - **Python 3** + **Pillow** (`pip install -r requirements.txt`). The window uses **Tkinter**
   (Python standard library) + Pillow's `ImageTk`; everything else is stdlib.
-- **AutoHotkey v2** — for `smiteless.ahk`, which is just a launcher (the Win+B hotkey + the
-  auto-open phase watcher). The overlay window itself is pure Python.
+- **AutoHotkey v2** — runs `smiteless.ahk`, the persistent tray app (tray icon + menu, the
+  Win+B hotkey, and the auto-open phase watcher). The overlay/settings windows are pure Python.
 - **Riot API key** (for the player scout) — put it in `~/.riot_api_key`. Dev keys expire
   every 24h; a free production key lifts the rate limit and never expires. You can refresh
   an expired key **right from the overlay**: the bottom bar has a **Get key** button (opens
@@ -81,7 +97,8 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 1. Clone, then `pip install -r requirements.txt`.
 2. Edit `smiteless.ahk` — set `PY` to your `python.exe` (or leave `"python"`).
 3. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
-4. Run `smiteless.ahk`. It auto-opens on game start; Win+B reopens.
+4. Run `smiteless.ahk`. It sits in your **system tray** (right-click for the menu),
+   auto-opens at champ select, and binds **Win+B**.
 
 Verify everything works: `python selftest.py` — checks Pillow, Data Dragon, op.gg, your
 Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
@@ -110,6 +127,12 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `smitecard.py` — the renderer: builds each scoreboard frame as a PIL Image (`render_image`)
   and drives the resolve→render loop (`run()`, with the matchup tip generated in the
   background so it never blocks the scout). Also a PNG CLI (`--out`) for debugging.
+- `smitesettings.py` — the Tk settings window (the streak-influence dial, gank threshold,
+  scout depth, auto-open).
+- `smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
+  the auto-open marker); read live by the overlay's gank math.
+- `smiteless.ahk` — the persistent **tray app**: tray icon + right-click menu, the
+  champ-select auto-open watcher, and Win+B. Launches the Python windows.
 - `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
   op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
 

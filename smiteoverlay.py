@@ -98,7 +98,7 @@ def main():
     wait = "--wait" in argv
     if wait:
         argv.remove("--wait")
-    count = 10
+    count = None                                 # None -> smitecard.run uses the saved scout-depth setting
     if "--count" in argv:
         i = argv.index("--count")
         try:
