@@ -2,13 +2,14 @@
 """smiteconfig.py - tiny shared settings store for Smiteless.
 
 Settings live in ~/.claude/smiteless_settings.json (gank/scout tuning, read live by the
-overlay and edited by smitesettings.py). Auto-open is a marker file so the AutoHotkey
-tray can toggle it without parsing JSON.
+overlay and edited by smitesettings.py). Auto-open is a marker file (so it can be toggled
+without parsing JSON), and "start with Windows" is a registry Run key.
 """
-import os, json
+import os, sys, json
 
 PATH = os.path.expanduser("~/.claude/smiteless_settings.json")
 NOAUTO = os.path.expanduser("~/.claude/smiteless_noautoopen")   # presence = auto-open OFF
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # streak_influence: 0..100, 50 = the original/default behavior (a multiplier m = value/50
 #   scales the enemy form weight, the streak compounding, and the extreme override).
@@ -63,5 +64,44 @@ def set_auto_open(on):
                 os.remove(NOAUTO)
         else:
             open(NOAUTO, "w").close()
+    except Exception:
+        pass
+
+
+# ---------- start with Windows (registry Run key) ----------
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_APP = "Smiteless"
+
+
+def autostart_command():
+    """The command Windows runs at login: pythonw smiteless_tray.py (no console window)."""
+    pyw = sys.executable
+    cand = os.path.join(os.path.dirname(pyw), "pythonw.exe")
+    if os.path.exists(cand):
+        pyw = cand
+    return f'"{pyw}" "{os.path.join(HERE, "smiteless_tray.py")}"'
+
+
+def autostart_enabled():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as k:
+            winreg.QueryValueEx(k, _APP)
+        return True
+    except Exception:
+        return False
+
+
+def set_autostart(on):
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+            if on:
+                winreg.SetValueEx(k, _APP, 0, winreg.REG_SZ, autostart_command())
+            else:
+                try:
+                    winreg.DeleteValue(k, _APP)
+                except FileNotFoundError:
+                    pass
     except Exception:
         pass

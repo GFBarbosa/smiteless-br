@@ -82,11 +82,17 @@ def main():
                       5, 20, 1, s["scout_games"], lambda v: f"{int(v)}")
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
+    startwin = tk.BooleanVar(value=cfg.autostart_enabled())
+
+    def _chk(parent, text, var):
+        return tk.Checkbutton(parent, text=text, variable=var, bg=BG, fg=TXT, selectcolor=TROUGH,
+                              activebackground=BG, activeforeground=TXT, font=("Segoe UI", 9),
+                              bd=0, highlightthickness=0)
+
     afr = tk.Frame(root, bg=BG)
     afr.pack(fill="x", padx=16, pady=(8, 0))
-    tk.Checkbutton(afr, text="Auto-open the overlay at champ select", variable=auto,
-                   bg=BG, fg=TXT, selectcolor=TROUGH, activebackground=BG, activeforeground=TXT,
-                   font=("Segoe UI", 9), bd=0, highlightthickness=0).pack(side="left")
+    _chk(afr, "Auto-open at champ select", auto).pack(side="left")
+    _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
     status = tk.Label(root, text="", bg=BG, fg=GREEN, font=("Segoe UI", 8))
     status.pack(anchor="w", padx=18, pady=(6, 0))
@@ -96,6 +102,7 @@ def main():
                   "gank_threshold": float(thr.get()),
                   "scout_games": int(scout.get())})
         cfg.set_auto_open(auto.get())
+        cfg.set_autostart(startwin.get())
         status.config(text="saved ✓  (overlay updates live; auto-open next game)", fg=GREEN)
 
     def reset():

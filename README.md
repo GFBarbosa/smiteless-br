@@ -40,7 +40,7 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 ## Behavior
 
 - **Lives in your system tray.** A tray icon with a right-click menu: **Open overlay**,
-  **Settings**, **Auto-open at champ select** (toggle), **Reload**, **Exit**.
+  **Settings**, **Auto-open at champ select** (toggle), **Start with Windows** (toggle), **Quit**.
 - **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
@@ -52,8 +52,10 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
   hides all overlays — same requirement as Blitz/Porofessor).
 
-The tray app is `smiteless.ahk`; the overlay and settings windows are Python/Tk
-(`smiteoverlay.py` / `smitesettings.py`). No PNG file or picture-reload anymore.
+It's **pure Python**: the tray app is `smiteless_tray.py` (a `pystray` tray icon + a native
+Win32 global hotkey), and the overlay/settings are Python/Tk (`smiteoverlay.py` /
+`smitesettings.py`). AutoHotkey is **not required** — an optional `smiteless.ahk` is included
+if you'd rather not install the `pystray` dependency.
 
 ## Settings
 
@@ -67,6 +69,7 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
   tagged).
 - **Scout depth** — recent games pulled per player (more = steadier read, slower first scout).
 - **Auto-open at champ select** — same toggle as the tray menu.
+- **Start with Windows** — adds/removes a registry Run key so the tray launches at login.
 
 Saved to `~/.claude/smiteless_settings.json` (plain JSON you can also hand-edit).
 
@@ -94,8 +97,8 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 
 - **Python 3** + **Pillow** (`pip install -r requirements.txt`). The window uses **Tkinter**
   (Python standard library) + Pillow's `ImageTk`; everything else is stdlib.
-- **AutoHotkey v2** — runs `smiteless.ahk`, the persistent tray app (tray icon + menu, the
-  Ctrl+Alt+X hotkey, and the auto-open phase watcher). The overlay/settings windows are pure Python.
+- That's it — no AutoHotkey needed. (Optional: AutoHotkey v2 if you prefer the legacy
+  `smiteless.ahk` launcher instead of the Python tray.)
 - **Riot API key** (for the player scout) — put it in `~/.riot_api_key`. Dev keys expire
   every 24h; a free production key lifts the rate limit and never expires. You can refresh
   an expired key **right from the overlay**: the bottom bar has a **Get key** button (opens
@@ -105,10 +108,11 @@ the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK
 ## Setup
 
 1. Clone, then `pip install -r requirements.txt`.
-2. Edit `smiteless.ahk` — set `PY` to your `python.exe` (or leave `"python"`).
-3. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
-4. Run `smiteless.ahk`. It sits in your **system tray** (right-click for the menu),
-   auto-opens at champ select, and binds **Ctrl+Alt+X**.
+2. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
+3. Run `pythonw smiteless_tray.py`. It sits in your **system tray** (right-click for the
+   menu), auto-opens at champ select, and binds **Ctrl+Alt+X**. Tick **Start with Windows**
+   in Settings to launch it at login. *(Or use the optional `smiteless.ahk` if you'd rather
+   not install `pystray`.)*
 
 Verify everything works: `python selftest.py` — checks Pillow, Data Dragon, op.gg, your
 Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
@@ -141,8 +145,10 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
   scout depth, auto-open).
 - `smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
   the auto-open marker); read live by the overlay's gank math.
-- `smiteless.ahk` — the persistent **tray app**: tray icon + right-click menu, the
-  champ-select auto-open watcher, and Ctrl+Alt+X. Launches the Python windows.
+- `smiteless_tray.py` — the persistent **tray app** (pure Python): `pystray` tray icon +
+  right-click menu, a native Win32 **Ctrl+Alt+X** global hotkey, the champ-select auto-open
+  watcher, and the **Start with Windows** registry toggle. Launches the overlay/settings.
+- `smiteless.ahk` — optional legacy AutoHotkey launcher (same role, no `pystray` needed).
 - `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
   op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
 
