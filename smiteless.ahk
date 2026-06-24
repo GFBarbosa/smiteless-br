@@ -7,7 +7,7 @@
 ; Sits in the system tray with a right-click menu:
 ;   Open overlay | Settings | Auto-open at champ select (toggle) | Reload | Exit
 ; It auto-opens the overlay at champ select (while auto-open is on and the client is up)
-; and binds Win+B. The overlay window and the settings window are Python
+; and binds Ctrl+B (while League is focused). The overlay/settings windows are Python
 ; (smiteoverlay.py / smitesettings.py); this script is just the persistent shell.
 ; ============================================================
 
@@ -34,7 +34,11 @@ tray.Add("Exit", (*) => ExitApp())
 tray.Default := "Open overlay"                  ; double-click the tray icon
 RefreshAutoCheck()
 
-#b::OpenSmiteless(false)
+; Ctrl+B opens the overlay - scoped to when a League window is focused so it doesn't
+; hijack Ctrl+B elsewhere (terminals, editors, tmux, voice tools, etc.).
+#HotIf WinActive("ahk_exe League of Legends.exe") or WinActive("ahk_exe LeagueClientUx.exe")
+^b::OpenSmiteless(false)
+#HotIf
 
 OpenSmiteless(autoMode := false) {
     global PY, SCRIPTS
