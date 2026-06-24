@@ -1,5 +1,13 @@
 # Smiteless
 
+> ⚠️ **Personal project — not intended for public use (for now).** This is built for my
+> own machine and isn't packaged, supported, or hardened for general use: some assumptions
+> (NA region, Windows, AutoHotkey, local paths) are baked in, and it can break or change
+> at any time. No warranty, no support — use at your own risk. **Not affiliated with or
+> endorsed by Riot Games**; respect the [Riot API terms](https://developer.riotgames.com/policies/general)
+> and the terms of any third-party sites it links to (op.gg, u.gg). Provide your own Riot
+> API key.
+
 A League of Legends champ-select & in-game companion. It opens a **scoreboard-style
 overlay** — a live, always-on-top window that polls the League client/API directly and
 updates **in place** as champ-select picks come in and the game progresses. It auto-opens
