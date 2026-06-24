@@ -35,10 +35,38 @@ _CALLS = []            # sliding-window call timestamps for rate limiting
 
 
 def read_key():
-    for p in (os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")):
-        if os.path.exists(p):
-            return open(p).read().strip()
-    return None
+    # Use the most-recently-modified key file, so a fresh update always wins even if the
+    # two files (~/.riot_api_key and .txt) somehow got out of sync.
+    existing = [p for p in (os.path.expanduser("~/.riot_api_key"),
+                            os.path.expanduser("~/.riot_api_key.txt")) if os.path.exists(p)]
+    if not existing:
+        return None
+    try:
+        return open(max(existing, key=os.path.getmtime), encoding="utf-8").read().strip() or None
+    except Exception:
+        return None
+
+
+def key_ok(key):
+    """Quick key-validity check via lol-status on the PLATFORM host (na1), which is not
+    Cloudflare-gated like the regional host. True = valid, False = genuinely rejected,
+    None = couldn't tell (network). Lets us distinguish a bad key from a transient 403."""
+    if not key:
+        return False
+    url = f"https://{PLATFORM}.api.riotgames.com/lol/status/v4/platform-data"
+    last = None
+    for _ in range(2):
+        req = urllib.request.Request(url, headers={"X-Riot-Token": key, "User-Agent": lb.UA,
+                                                   "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                r.read()
+            return True
+        except urllib.error.HTTPError as e:
+            last = (e.code in (401, 403))      # status host isn't Cloudflare-gated -> real auth result
+        except Exception:
+            last = None
+    return False if last else None
 
 
 def _throttle():
@@ -58,32 +86,35 @@ class KeyStale(Exception):
     pass
 
 
+_HDRS = {"User-Agent": lb.UA, "Accept": "application/json, text/plain, */*",
+         "Accept-Language": "en-US,en;q=0.9"}      # look like a browser to dodge Cloudflare
+
+
 def _get(url, key, timeout=8):
-    for attempt in range(3):
+    headers = dict(_HDRS, **{"X-Riot-Token": key})
+    for attempt in range(4):
         _throttle()
-        req = urllib.request.Request(url, headers={"X-Riot-Token": key, "User-Agent": lb.UA})
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code == 429:                       # rate limited -> wait + retry
+            if e.code == 429:                       # rate limited -> wait (capped) + retry
                 try:
                     ra = int(e.headers.get("Retry-After", "2"))
                 except Exception:
                     ra = 2
-                time.sleep(ra + 0.5)
+                time.sleep(min(ra, 10) + 0.5)
                 continue
-            if e.code == 401:                       # definitively bad/expired key
+            if e.code == 401:                       # 401 = definitively bad/expired key
                 raise KeyStale()
-            if e.code == 403:                       # could be a transient Cloudflare bot-block on
-                if attempt < 2:                     # the regional endpoint -> retry before giving up
-                    time.sleep(0.6)
-                    continue
-                raise KeyStale()                    # still forbidden after retries -> treat as stale
+            if e.code == 403:                       # almost always a TRANSIENT Cloudflare block on
+                time.sleep(0.5 * (attempt + 1))     # the regional host (NOT a stale key) -> back off
+                continue                            # and retry; if it never clears, skip this call
             return None
         except Exception:
             return None
-    return None
+    return None                                     # exhausted retries (e.g. persistent 403) -> skip
 
 
 def _cache_path(kind, name):
@@ -327,6 +358,9 @@ def iter_scout_struct(dd, count=10):
     if not key:
         yield {"error": "No Riot API key file (~/.riot_api_key)."}
         return
+    if key_ok(key) is False:             # confirmed bad key (via the non-Cloudflare status host)
+        yield {"error": "Riot key rejected (401/403) - open the overlay key bar (Get key) to update it."}
+        return
     ensure_key_namespace(key)            # key changed? -> drop the old key's undecryptable cache
     _prune_match_cache()                  # keep the permanent match cache bounded
     # Everything network-y is inside the try: roster() (puuid resolution) can also raise
@@ -344,7 +378,7 @@ def iter_scout_struct(dd, count=10):
                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
                    "rank": rank(puuid, key)}
     except KeyStale:
-        yield {"error": "Riot key is stale (401/403) - regenerate at developer.riotgames.com."}
+        yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
     except Exception as e:
         yield {"error": f"player scout unavailable ({type(e).__name__})"}
 
