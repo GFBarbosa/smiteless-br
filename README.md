@@ -19,7 +19,7 @@ The overlay has:
    off-role enemy becomes a clear gank).
 4. **Per-player rank + form** — each player's solo-queue **rank** (e.g. `D2 67LP`,
    tier-colored) plus their last-10 W/L from the Riot API (the "are they on a heater /
-   tilted" read). Always current, unlike cached profile sites. Click an icon for op.gg.
+   tilted" read). Always current, unlike cached profile sites. Click an icon for u.gg.
 5. **Lane panel** — when you lock a **lane** (not jungle), a panel with your matchup, the
    opponent's recent form, and a **specific, current matchup tip** ("dodge her E, hold Wind
    Wall for her R, all-in at 6…"). Tips are generated once per patch by the LLM **with web
@@ -37,7 +37,7 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, and the player scout, all updating in the same window.
-- **Click a champ icon** to open that player's **op.gg** profile in your browser.
+- **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens it manually (global). **Left-drag** moves the overlay; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.

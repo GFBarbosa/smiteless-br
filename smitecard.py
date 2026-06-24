@@ -393,13 +393,14 @@ def draw_build_block(d, dd, x, y, build):
         d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
 
 
-def _opgg_url(riot_id):
-    """op.gg profile URL for a 'Name#TAG' riot id, or None."""
+def _profile_url(riot_id):
+    """u.gg profile URL for a 'Name#TAG' riot id, or None. (u.gg plays nicer than op.gg
+    behind Cloudflare WARP.) u.gg uses the platform code directly, e.g. na1."""
     if not riot_id or "#" not in riot_id:
         return None
-    region = "".join(c for c in getattr(ls, "PLATFORM", "na1") if c.isalpha()) or "na"
+    region = getattr(ls, "PLATFORM", "na1")
     name, tag = riot_id.rsplit("#", 1)
-    return f"https://www.op.gg/summoners/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}"
+    return f"https://u.gg/lol/profile/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}/overview"
 
 
 def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
@@ -415,7 +416,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     if ic:
         img.paste(ic, (16, 9), ic)
         msc = scout_map.get((my_cid, True))
-        murl = _opgg_url(msc.get("riot_id")) if msc else None
+        murl = _profile_url(msc.get("riot_id")) if msc else None
         if murl:
             hits.append((16, 9, 64, 57, murl))
     d.text((74, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
@@ -439,8 +440,8 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
         draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
         asc, esc = scout_map.get((a_cid, True)), scout_map.get((e_cid, False))
-        aurl = _opgg_url(asc.get("riot_id")) if (a_cid and asc) else None
-        eurl = _opgg_url(esc.get("riot_id")) if (e_cid and esc) else None
+        aurl = _profile_url(asc.get("riot_id")) if (a_cid and asc) else None
+        eurl = _profile_url(esc.get("riot_id")) if (e_cid and esc) else None
         if aurl:
             hits.append((27, y + 13, 65, y + 51, aurl))     # ally icon (left)
         if eurl:
@@ -462,7 +463,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "each player: solo rank · last-10 W/L · winrate on champ   |   gank = lane matchup + enemy form/streak   |   click a champ → op.gg",
+    d.text((16, ly), "each player: solo rank · last-10 W/L · winrate on champ   |   gank = lane matchup + enemy form/streak   |   click a champ → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
