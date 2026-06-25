@@ -14,3 +14,6 @@ cache/
 *.tmp
 *.out
 *.log
+
+# local launchers (may contain machine paths)
+*.bat

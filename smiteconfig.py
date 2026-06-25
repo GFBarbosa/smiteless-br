@@ -74,7 +74,12 @@ _APP = "Smiteless"
 
 
 def autostart_command():
-    """The command Windows runs at login: pythonw smiteless_tray.py (no console window)."""
+    """The command Windows runs at login. Prefer the AutoHotkey tray (the reliable shell);
+    fall back to the pure-Python tray if AutoHotkey isn't installed."""
+    ahk = os.path.expanduser(r"~/AppData/Local/Programs/AutoHotkey/v2/AutoHotkey64.exe")
+    ahk_script = os.path.join(HERE, "smiteless.ahk")
+    if os.path.exists(ahk) and os.path.exists(ahk_script):
+        return f'"{ahk}" "{ahk_script}"'
     pyw = sys.executable
     cand = os.path.join(os.path.dirname(pyw), "pythonw.exe")
     if os.path.exists(cand):

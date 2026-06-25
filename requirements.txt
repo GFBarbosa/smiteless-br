@@ -1,2 +1,3 @@
 Pillow>=10
-pystray>=0.19
+# Optional — only for the pure-Python tray (smiteless_tray.py). Not needed with the AHK tray.
+# pystray>=0.19

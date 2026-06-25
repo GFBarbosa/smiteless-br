@@ -29,8 +29,11 @@ _stop = threading.Event()
 
 
 def _single_instance():
-    _k32.CreateMutexW(None, False, "Global\\SmitelessTray")
-    return _k32.GetLastError() != 183            # ERROR_ALREADY_EXISTS
+    # use_last_error so GetLastError is read reliably (a plain ctypes call can clobber it,
+    # which let duplicate instances start)
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateMutexW(None, False, "Global\\SmitelessTray")
+    return ctypes.get_last_error() != 183        # ERROR_ALREADY_EXISTS
 
 
 def _launch(script, *args):
