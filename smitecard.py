@@ -545,6 +545,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     deadline = time.time() + 420          # cap the pre-game wait (champ select + loading)
     build = None
     build_cid = 0
+    last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
         n_scout = count if count is not None else settings["scout_games"]
@@ -564,13 +565,18 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         src = info.get("source", "")
         if not enemy_role:                 # champ select / loading: enemies + scout not live yet
             if src == "champ select":
-                # CHAMP SELECT: show your team forming + your runes/build; enemies hidden
+                # CHAMP SELECT: show your team forming + your runes/build; enemies hidden.
+                # Only re-render when a pick actually changes (avoids needless window updates,
+                # which is what made the overlay flicker/grab focus every couple seconds).
                 if wait and not (my_cid or ally_role):
                     time.sleep(2)
                     continue
-                emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
-                     "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                     roles_known=True, live=False, champ_select=True))
+                sig = (my_cid, my_role, tuple(sorted(ally_role.items())), bool(build))
+                if sig != last_cs_sig:
+                    emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
+                         "enemies are hidden in champ select - matchups + player scout load at the loading screen",
+                         roles_known=True, live=False, champ_select=True))
+                    last_cs_sig = sig
                 time.sleep(2)
                 continue
             # LOADING screen: positional preview (no roles yet)

@@ -91,6 +91,30 @@ def show_no_activate(hwnd):
         pass
 
 
+def toplevel_hwnd(child):
+    """Tk's winfo_id() can return a CHILD window; the WS_EX_NOACTIVATE style has to be on
+    the actual TOP-LEVEL window (that's what gets activated). GA_ROOT walks up to it."""
+    try:
+        top = _user32.GetAncestor(child, 2)      # GA_ROOT
+        return top or child
+    except Exception:
+        return child
+
+
+def restore_foreground(target):
+    """Hand focus back to `target` if our window grabbed it. Windows ignores a plain
+    SetForegroundWindow from a background process, so briefly attach to the target's input
+    thread. This is the hard guarantee that the overlay NEVER keeps focus from the game."""
+    try:
+        cur = _kernel32.GetCurrentThreadId()
+        tgt = _user32.GetWindowThreadProcessId(target, None)
+        _user32.AttachThreadInput(cur, tgt, True)
+        _user32.SetForegroundWindow(target)
+        _user32.AttachThreadInput(cur, tgt, False)
+    except Exception:
+        pass
+
+
 def main():
     if not acquire_single_instance():
         return  # another overlay is already up
@@ -194,7 +218,7 @@ def main():
 
     root.update_idletasks()
     bar_h = bar.winfo_reqheight()                # the key bar's fixed height, added below the board
-    hwnd = root.winfo_id()                       # overrideredirect -> this is the toplevel HWND
+    hwnd = toplevel_hwnd(root.winfo_id())        # the REAL top-level (winfo_id can be a child)
     make_no_activate(hwnd)
 
     st = {"img": None, "dirty": False, "ref": None, "size": None, "hitmap": [],
@@ -279,6 +303,7 @@ def main():
             dirty, pil = st["dirty"], st["img"]
             st["dirty"] = False
         if dirty and pil is not None:
+            prev_fg = _user32.GetForegroundWindow()     # whatever had focus (the game/client)
             ref = ImageTk.PhotoImage(pil)        # build on the Tk (main) thread
             label.configure(image=ref)
             st["ref"] = ref                      # keep a reference or it gets GC'd (blank image)
@@ -286,9 +311,13 @@ def main():
             if st["size"] != pil.size:
                 st["size"] = pil.size
                 place(pil.size)
+            make_no_activate(hwnd)               # keep the no-activate style (Tk can clear it)
             if not st["shown"]:
                 show_no_activate(hwnd)           # reveal without taking focus
                 st["shown"] = True
+            # HARD GUARANTEE: never hold focus. If updating grabbed it, hand it right back.
+            if prev_fg and prev_fg != hwnd and _user32.GetForegroundWindow() == hwnd:
+                restore_foreground(prev_fg)
         if st["done"] and not dirty:             # worker finished (match over) -> close out
             close()
             return
