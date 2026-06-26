@@ -23,17 +23,27 @@ The overlay has:
    that role**, read straight from the live game (paired by slot, never inferred).
 3. **Gank rating per enemy lane** — a transparent weighted score (no AI): your lane's
    matchup edge + the enemy laner's recent form + their win rate on the champ they're
-   playing. Starts as the matchup, then shifts as the live scout loads (a tilted /
-   off-role enemy becomes a clear gank).
-4. **Per-player rank + form** — each player's solo-queue **rank** (e.g. `D2 67LP`,
-   tier-colored) plus their last-10 W/L from the Riot API (the "are they on a heater /
-   tilted" read). Always current, unlike cached profile sites. Click an icon for u.gg.
+   playing + **your own champ's gank kit** (a Maokai's CC makes every lane gankable; a
+   Nidalee's lack of it doesn't). Starts as the matchup, then shifts as the live scout
+   loads (a tilted / off-role enemy becomes a clear gank).
+4. **Per-player rank, form + mastery** — each player's solo-queue **rank** (e.g. `D2 67LP`,
+   tier-colored), their last-10 W/L (the "heater / tilted" read), and their **mastery** on
+   the champ they're playing (`M7 1.2M` = one-trick) — all live from the Riot API, always
+   current unlike cached profile sites. Click an icon for u.gg.
 5. **Lane panel** — when you lock a **lane** (not jungle), a panel with your matchup, the
    opponent's recent form, and a **specific, current matchup tip** ("dodge her E, hold Wind
    Wall for her R, all-in at 6…"). Tips are generated once per patch by the LLM **with web
    search** (so they're up to date, not stale recall) and cached to disk — instant every
    game after, and the cache files are plain text you can hand-edit. Before a tip is cached
    it falls back to an archetype-based macro line.
+6. **Duo / premade detection** — teammates who share several of their recent ranked games
+   get a matching **duo** marker (same color = same group). Inferred from match-history
+   overlap, since the API doesn't expose lobby premades directly.
+7. **Live counter-item suggestions** — in-game, a `THREAT … → BUY …` bar reads the enemy
+   team's **current items** (Live Client API) and recommends counters **tailored to your
+   class**: vs heavy AD a tank gets Thornmail, an ADC gets Plated + GA, a mage gets Zhonya's;
+   anti-heal matches your damage type; tenacity when they stack CC. It refreshes as they
+   build, so the read **evolves through the game**.
 
 Everything that states a number traces to a real source (op.gg or the Riot API).
 
@@ -44,7 +54,8 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
 - **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
-  matchups, gank tags, and the player scout, all updating in the same window.
+  matchups, gank tags, the player scout, duo markers, and a live counter-item bar — all
+  updating in the same window and evolving as the game goes on.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens it manually (global). **Left-drag** moves the overlay; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
@@ -80,7 +91,8 @@ modifier that **compounds** with the length of their win/loss streak, and an *ex
 (near-0%/100% last-10 or a long streak) **overrides** the matchup entirely:
 
 ```
-score =  1.0  * (your_lane_winrate - 50)                    # matchup edge (the base)
+score =  your_champ_kit                                     # YOUR CC/engage: Maokai +6 … Nidalee -1
+       + 1.0  * (your_lane_winrate - 50)                    # matchup edge (the base)
        + 0.15 * (50 - enemy_last10_winrate) * streak_comp   # enemy form, compounding w/ streak
        + 0.10 * (50 - enemy_champ_winrate)                  # comfort on this champ (>=3 games)
        + 4.0   if the enemy is off their champ
@@ -90,8 +102,10 @@ score >= +6  -> gank      |  score <= -6  -> tough  |  else even
 ```
 
 So a tilted enemy on a long loss streak reads as a clear gank no matter the matchup,
-and a smurf/heater reads as tough even into a "winning" lane. Weights/threshold live at
-the top of `smitecard.py` (`GANK_W_*`, `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK_T`).
+a smurf/heater reads as tough even into a "winning" lane, and your own champion shifts
+every lane up or down — the same enemy is a gank on Maokai and even on Nidalee. Weights/
+threshold and the per-champ kit table live at the top of `smitecard.py` (`GANK_W_*`,
+`GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK_T`, `GANK_KIT`).
 
 ## Requirements
 
@@ -128,7 +142,11 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `lolbuild.py` — op.gg build card + per-lane matchup win rates (**paired strictly by role
   slot**) + cached, self-healing Data Dragon decode (champ names, icons, items, runes).
 - `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
-  rate-limit aware, permanent (capped) match caching.
+  rank, mastery, and the recent **match IDs** that drive duo detection; rate-limit aware,
+  permanent (capped) match caching.
+- `lolitems.py` — rule-based in-game counter-item suggestions: reads the enemy team's live
+  items + champs (Live Client API), builds a threat profile (AD/AP, healing, hard CC), and
+  picks counters tailored to your champ's class. No AI.
 - `phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK watcher
   polls it to auto-open at champ select.
 - `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
