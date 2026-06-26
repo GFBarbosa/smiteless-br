@@ -14,14 +14,17 @@ for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolitems as li
+import phasecheck
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
                           monitors, _kernel32)
+
+INGAME_PHASES = ("GameStart", "InProgress", "Reconnect")   # widget belongs on screen only here
 
 BG = "#11131a"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#7f7d75"
 RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"
 KIND_COLOR = {"counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
 KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
-POLL = 8                                                  # seconds between live reads
+POLL = 5                                                  # seconds between live reads
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
 
 
@@ -133,20 +136,32 @@ def main():
     q = queue.Queue()
 
     def worker():
-        seen, gone = False, 0                            # auto-close ~1.5 min after a game ends
+        seen, waited = False, 0
         while st["alive"]:
             try:
                 rec = li.recommend(dd)
             except Exception:
                 rec = None
-            if rec:
-                seen, gone = True, 0
-            elif seen:
-                gone += 1
-            q.put(rec)
-            if seen and gone >= 12:                      # only after we'd actually shown a game
-                q.put("__quit__")
-                return
+            if rec is not None:                          # in a live game with data -> show it
+                seen, waited = True, 0
+                q.put(rec)
+            else:
+                # No live data. The phase tells "game ended" from "still loading": phasecheck
+                # reports InProgress whenever the live client (:2999) is up, even on a brief
+                # mid-game hiccup, so we only treat it as over when the client truly leaves the
+                # in-game phases.
+                in_game = phasecheck.phase() in INGAME_PHASES
+                if seen and not in_game:                 # the game we were in has ended -> close now
+                    q.put("__quit__")
+                    return
+                q.put(rec)                               # show "waiting…" (loading / just opened)
+                if in_game:
+                    waited = 0                           # loading screen -> wait for the game
+                else:
+                    waited += 1                          # opened with no game -> don't linger
+                    if waited >= 2:                      # ~10s
+                        q.put("__quit__")
+                        return
             for _ in range(POLL * 2):
                 if not st["alive"]:
                     return
