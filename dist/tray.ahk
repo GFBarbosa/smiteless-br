@@ -62,8 +62,31 @@ RefreshAutoCheck() {
         A_TrayMenu.Check("Auto-open at champ select")
 }
 
-; Check GitHub for a newer release ~6s after startup (silent unless an update exists).
-SetTimer(() => Launch("update"), -6000)
+; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
+; version exists - on launch AND every few hours (so it notifies mid-session, not just at
+; boot). It also renames the menu item to "Update to vX" and flags the icon tooltip. The
+; menu item runs the one-click installer.
+g_updateVer := ""
+g_updLabel := "Check for updates"
+CheckUpdate() {
+    global APP, g_updateVer, g_updLabel
+    out := A_Temp "\smiteless_updchk.txt"
+    try FileDelete(out)
+    RunWait('"' APP '" update --check "' out '"', , "Hide")
+    ver := ""
+    try ver := Trim(FileRead(out), " `t`r`n")
+    if (ver != "" && ver != g_updateVer) {
+        g_updateVer := ver
+        newLabel := "Update to " ver
+        try A_TrayMenu.Rename(g_updLabel, newLabel)
+        g_updLabel := newLabel
+        A_IconTip := "Smiteless  -  update " ver " available"
+        TrayTip("Version " ver " is ready. Right-click the gold S in your tray, then '"
+            . newLabel "'.", "Smiteless update available", 1)
+    }
+}
+SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
+SetTimer(CheckUpdate, 4 * 60 * 60 * 1000)      ; then every 4 hours
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
 g_overlayOpened := false

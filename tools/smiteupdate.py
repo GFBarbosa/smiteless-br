@@ -142,6 +142,20 @@ def _info(msg):
 
 def main(args=None):
     args = args or []
+    # --check <file>: write the newer version (or empty) to <file>, no GUI. The tray polls
+    # this in the background and pops a balloon notification when something is available.
+    if "--check" in args:
+        i = args.index("--check")
+        out = (args[i + 1] if i + 1 < len(args)
+               else os.path.join(tempfile.gettempdir(), "smiteless_update.txt"))
+        rel = latest_release()
+        ver = rel[0] if (rel and _vtuple(rel[0]) > _vtuple(local_version())) else ""
+        try:
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(ver)
+        except Exception:
+            pass
+        return
     force = "--force" in args                     # manual "Check for updates" -> always give feedback
     cur = local_version()
     rel = latest_release()

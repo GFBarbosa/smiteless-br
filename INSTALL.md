@@ -54,9 +54,11 @@ free Riot key (it's free and takes 2 minutes). Each person needs their own.
 ---
 
 ## When there's an update
-When a new version comes out, Smiteless will show a little **"Update available"** box the next
-time it starts. Just click **Update now** — it does the rest. You can also right-click the gold
-**S** icon → **Check for updates**.
+When a new version comes out, a little **notification pops up from your system tray** (near the
+clock) that says **"Smiteless update available"**. It checks on its own — when you're playing,
+and every few hours. To install it, **right-click the gold S icon** and click **"Update to v…"**.
+It downloads and installs by itself, then restarts. (You can also check any time: right-click the
+**S** → **Check for updates**.)
 
 ## To uninstall
 Open **Start menu → Smiteless → Uninstall Smiteless** (or Windows **Settings → Apps → Smiteless → Uninstall**).
