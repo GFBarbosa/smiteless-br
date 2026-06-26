@@ -54,9 +54,15 @@ def _cats(dd, iid):
     return c
 
 
+def _is_boots(dd, iid):
+    return "Boots" in (dd.get("item_data", {}).get(iid, {}) or {}).get("tags", [])
+
+
 def champ_pool(dd, cid, role):
-    """op.gg's real item pool for this champ+role: an ordered standard build sequence
-    (core + best boots + situational finals) plus per-item defensive categories. Cached."""
+    """op.gg's real item pool for this champ+role: an ordered build sequence (core path +
+    situational finals) plus per-item defensive categories. Boots are kept SEPARATE (in
+    pool["boots"]) because the right boots are a per-game pick - they never go in the core
+    "next item" sequence. Cached."""
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
     ck = (cid, role)
     if ck in _POOL:
@@ -71,13 +77,10 @@ def champ_pool(dd, cid, role):
     boots = [b["ids"][0] for b in sorted(d.get("boots", []), key=lambda x: -x["play"])]
     situ = [s["ids"][0] for s in sorted((x for x in d.get("last_items", []) if x["play"] >= 120),
                                         key=lambda x: -x["win"] / x["play"])]
-    seq = []
-    if core:
-        seq.append(core[0])
-    if boots:
-        seq.append(boots[0])
-    seq += [i for i in core[1:] if i not in seq]
-    seq += [i for i in situ if i not in seq]
+    # core path + situational finals, with boots filtered out (they're a per-game choice,
+    # surfaced only by the dedicated boots cue) and de-duped while preserving order.
+    seq = [i for i in (list(core) + situ) if not _is_boots(dd, i)]
+    seq = list(dict.fromkeys(seq))
     cats = {i: _cats(dd, i) for i in set(seq) | set(boots)}
     pool = {"seq": seq, "boots": boots, "cats": cats}
     _POOL[ck] = pool
