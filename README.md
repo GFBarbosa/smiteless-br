@@ -13,7 +13,7 @@ overlay** — a live, always-on-top window that polls the League client/API dire
 updates **in place** as champ-select picks come in and the game progresses. It auto-opens
 when a match starts and never steals focus from the game.
 
-![overlay](docs/overlay.png)
+![Smiteless overlay](docs/overlay-v2.png)
 
 The overlay has:
 
