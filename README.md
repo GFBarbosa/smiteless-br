@@ -151,58 +151,79 @@ The threat/recommendation logic is all in `lolitems.py` (`live_state` → `recom
 2. (Optional) Save your Riot API key to `~/.riot_api_key` for the player scout.
 3. Run `smiteless.ahk`. It sits in your **system tray** (right-click for the menu),
    auto-opens at champ select, and binds **Ctrl+Alt+X**. *(No AutoHotkey? Run
-   `pythonw smiteless_tray.py` instead — `pip install pystray` first.)*
+   `pythonw tools/smiteless_tray.py` instead — `pip install pystray` first.)*
 
 > **Heads-up:** Windows hides new tray icons in the **overflow** (the **^** chevron by the
 > clock). If you don't see the gold "S", click the chevron and drag it onto the taskbar to
 > pin it. The **Ctrl+Alt+X** hotkey works either way.
 
-Verify everything works: `python selftest.py` — checks Pillow, Data Dragon, op.gg, your
-Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
+Verify everything works: `python tools/selftest.py` — checks Pillow, Data Dragon, op.gg,
+your Riot key, the claude CLI, and the live client. Run it after a dev-key rotation or a patch.
 
-Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
+Render a card standalone (writes a PNG): `python core/smitecard.py --out card.png`
+
+## Layout
+
+```
+smiteless.ahk    the tray app + global hotkeys (the launcher; stays at the root)
+core/            data + render engine — imported, not run directly
+ui/              the windows you launch — overlay, item widget, settings
+tools/           standalone CLIs + helpers — selftest, coach, phase check, pystray tray
+assets/          icon
+```
+
+The modules use flat imports (`import lolbuild`); each launchable script has a tiny
+bootstrap at the top that adds `core/`, `ui/`, and `tools/` to `sys.path`, so nothing else
+had to change when the files moved into folders.
 
 ## Components
 
-- `lolgame.py` — resolves the current game (your champ/role + both teams **with roles**)
+**`core/`** — data + rendering engine
+- `core/lolgame.py` — resolves the current game (your champ/role + both teams **with roles**)
   from whichever source is live: champ-select session -> Live Client API -> gameflow.
-- `lolbuild.py` — op.gg build card + per-lane matchup win rates (**paired strictly by role
-  slot**) + cached, self-healing Data Dragon decode (champ names, icons, items, runes).
-- `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
+- `core/lolbuild.py` — op.gg build card + per-lane matchup win rates (**paired strictly by
+  role slot**) + cached, self-healing Data Dragon decode (champ names, icons, items, runes).
+- `core/lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
   rank, mastery, and the recent **match IDs** that drive duo detection; rate-limit aware,
   permanent (capped) match caching.
-- `lolitems.py` — in-game item logic: pulls your champ's real item pool from op.gg, reads the
-  live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed), and
-  picks the next item + the right defensive piece from that pool. No AI, no generic tables.
-- `phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK watcher
-  polls it to auto-open at champ select.
-- `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
+- `core/lolitems.py` — in-game item logic: pulls your champ's real item pool from op.gg, reads
+  the live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed),
+  and picks the next item + the right defensive piece from that pool. No AI, no generic tables.
+- `core/lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
-- `claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);
+- `core/claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);
   used by the matchup tips and the standalone coach.
-- `lolcoach.py` — standalone text coach (CLI): verified op.gg lane win rates + an AI
-  tactical read for a quick console look. Not used by the overlay.
-- `smiteoverlay.py` — the live overlay window (Tk + Pillow `ImageTk`). Runs `smitecard.run()`
+- `core/smitecard.py` — the renderer: builds each scoreboard frame as a PIL Image
+  (`render_image`) and drives the resolve→render loop (`run()`, with the matchup tip generated
+  in the background so it never blocks the scout). Also a PNG CLI (`--out`) for debugging.
+- `core/smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
+  the auto-open marker); read live by the overlay's gank math.
+
+**`ui/`** — the windows
+- `ui/smiteoverlay.py` — the live overlay window (Tk + Pillow `ImageTk`). Runs `smitecard.run()`
   in a worker thread and updates the displayed image in place; topmost, no-focus-steal,
   second-monitor, single-instance, auto-close at game end.
-- `smitewidget.py` — the floating in-game **item widget** (Tk). Polls `lolitems.recommend()`,
+- `ui/smitewidget.py` — the floating in-game **item widget** (Tk). Polls `lolitems.recommend()`,
   shows next-item + defensive suggestions, draggable + position-remembering, no-focus-steal,
   single-instance, auto-closes after the game.
-- `smitecard.py` — the renderer: builds each scoreboard frame as a PIL Image (`render_image`)
-  and drives the resolve→render loop (`run()`, with the matchup tip generated in the
-  background so it never blocks the scout). Also a PNG CLI (`--out`) for debugging.
-- `smitesettings.py` — the Tk settings window (the streak-influence dial, gank threshold,
+- `ui/smitesettings.py` — the Tk settings window (the streak-influence dial, gank threshold,
   scout depth, auto-open).
-- `smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
-  the auto-open marker); read live by the overlay's gank math.
+
+**`tools/`** — standalone CLIs + helpers
+- `tools/phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK
+  watcher polls it to auto-open at champ select.
+- `tools/lolcoach.py` — standalone text coach (CLI): verified op.gg lane win rates + an AI
+  tactical read for a quick console look. Not used by the overlay.
+- `tools/smiteless_tray.py` — optional **pure-Python** tray (same role, `pip install pystray`):
+  `pystray` icon + native Win32 hotkey + watcher + a "Start with Windows" registry toggle.
+- `tools/selftest.py` — `python tools/selftest.py` health-checks every dependency (Pillow,
+  Data Dragon, op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
+
+**root**
 - `smiteless.ahk` — the persistent **tray app** (AutoHotkey, default): tray icon + right-click
   menu, the **Ctrl+Alt+X** (overlay) / **Ctrl+Alt+B** (item widget) global hotkeys, and the
   watcher that auto-opens the board at champ select and the widget in-game. Launches the
-  overlay/widget/settings windows.
-- `smiteless_tray.py` — optional **pure-Python** tray (same role, `pip install pystray`):
-  `pystray` icon + native Win32 hotkey + watcher + a "Start with Windows" registry toggle.
-- `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
-  op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
+  windows under `ui/`.
 
 ## Notes & roadmap
 

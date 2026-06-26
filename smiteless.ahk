@@ -14,13 +14,13 @@
 
 ; --- CONFIG -------------------------------------------------
 PY := "python"                  ; Python 3 + Pillow. Set to your python.exe if not on PATH.
-SCRIPTS := A_ScriptDir          ; the .py files live next to this script
+SCRIPTS := A_ScriptDir          ; the .py files live in core/ ui/ tools/ under this dir
 ; ------------------------------------------------------------
 
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
 
-if FileExist(SCRIPTS "\smiteless.ico")
-    TraySetIcon(SCRIPTS "\smiteless.ico")
+if FileExist(SCRIPTS "\assets\smiteless.ico")
+    TraySetIcon(SCRIPTS "\assets\smiteless.ico")
 A_IconTip := "Smiteless"
 
 tray := A_TrayMenu
@@ -43,17 +43,17 @@ RefreshAutoCheck()
 OpenSmiteless(autoMode := false) {
     global PY, SCRIPTS
     waitFlag := autoMode ? " --wait" : ""       ; auto-open stays hidden until champs are present
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smiteoverlay.py"' waitFlag ' 2>nul"', , "Hide")
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smiteoverlay.py"' waitFlag ' 2>nul"', , "Hide")
 }
 
 OpenWidget() {
     global PY, SCRIPTS                           ; small floating in-game item helper (single-instance)
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smitewidget.py" 2>nul"', , "Hide")
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smitewidget.py" 2>nul"', , "Hide")
 }
 
 OpenSettings() {
     global PY, SCRIPTS
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smitesettings.py" 2>nul"', , "Hide")
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smitesettings.py" 2>nul"', , "Hide")
 }
 
 ToggleAuto(ItemName, *) {
@@ -89,7 +89,7 @@ SmiteWatch() {
     out := A_Temp "\smiteless_phase.txt"
     ph := ""
     try ph := Trim(FileRead(out), " `t`r`n")     ; strip CR/LF (Trim's default omits them)
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\phasecheck.py" > "' out '" 2>nul"', , "Hide")
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\tools\phasecheck.py" > "' out '" 2>nul"', , "Hide")
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active) {

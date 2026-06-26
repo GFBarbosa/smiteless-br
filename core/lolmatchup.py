@@ -12,7 +12,9 @@ CLI (manual seeding / testing):
 """
 import os, re, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import claudecli as cc         # logged-in claude CLI (no API key)
 

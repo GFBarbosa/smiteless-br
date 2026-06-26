@@ -9,7 +9,9 @@ the whole game. Never steals focus; remembers where you drag it.
   python smitewidget.py
 """
 import sys, os, json, threading, time, queue
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolitems as li
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,

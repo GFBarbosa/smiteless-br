@@ -11,7 +11,9 @@ Usage:
 import sys, os, time, threading, urllib.request, urllib.parse
 from PIL import Image, ImageDraw, ImageFont
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolgame as lg
 import lolscout as ls

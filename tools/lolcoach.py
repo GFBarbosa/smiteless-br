@@ -18,7 +18,9 @@ import sys, os
 
 # reuse the verified ddragon/op.gg plumbing from lolbuild.py + multi-source resolver,
 # the op.gg matchup helpers (lb.gather_*), and the shared claude CLI wrapper.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolgame as lg
 import claudecli as cc

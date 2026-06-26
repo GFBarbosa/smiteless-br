@@ -11,16 +11,18 @@ Run with pythonw.exe so there's no console window. Needs: pip install pystray pi
 import sys, os, threading, subprocess, ctypes
 from ctypes import wintypes
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import smiteconfig as cfg
 import phasecheck
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
 PYW = _pyw if os.path.exists(_pyw) else sys.executable        # windowless launcher
-OVERLAY = os.path.join(HERE, "smiteoverlay.py")
-SETTINGS = os.path.join(HERE, "smitesettings.py")
-ICON = os.path.join(HERE, "smiteless.ico")
+OVERLAY = os.path.join(_ROOT, "ui", "smiteoverlay.py")
+SETTINGS = os.path.join(_ROOT, "ui", "smitesettings.py")
+ICON = os.path.join(_ROOT, "assets", "smiteless.ico")
 CREATE_NO_WINDOW = 0x08000000
 
 _k32 = ctypes.windll.kernel32

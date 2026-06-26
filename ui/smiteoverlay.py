@@ -19,7 +19,9 @@ Key behaviors:
 import sys, os, threading, ctypes, webbrowser
 from ctypes import wintypes
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import smitecard as sc
 
 BG = "#11131a"   # matches smitecard's background so there's no border seam

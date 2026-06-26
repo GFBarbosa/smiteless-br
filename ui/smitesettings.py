@@ -5,7 +5,9 @@ A normal (focusable) window - unlike the overlay - so you can tweak it like any 
 Everything it saves is read live by the overlay (smitecard.apply_settings each frame).
 """
 import sys, os, ctypes
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 import smiteconfig as cfg
 
 BG = "#11131a"; PANEL = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"

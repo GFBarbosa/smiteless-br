@@ -8,7 +8,9 @@ patch (in case op.gg changes shape).
   python selftest.py
 """
 import sys, os, time, json, ssl, urllib.request, urllib.error
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ("core", "ui", "tools"):            # cross-folder flat imports
+    sys.path.insert(0, os.path.join(_ROOT, _d))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
