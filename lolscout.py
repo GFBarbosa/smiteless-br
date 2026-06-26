@@ -237,8 +237,9 @@ def mastery(puuid, champ_id, key):
 
 
 def scout(dd, puuid, champ_id, key, count):
-    """Return (games, wins, champ_games, champ_wins, form) over the last `count`
-    ranked. `form` is a list of bool (True=win) in recent-first order."""
+    """Return (games, wins, champ_games, champ_wins, form, match_ids) over the last `count`
+    ranked. `form` is a list of bool (True=win) in recent-first order. match_ids drives
+    duo detection (two players sharing many recent matches are likely premade)."""
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
     form = []
@@ -253,7 +254,7 @@ def scout(dd, puuid, champ_id, key, count):
         if dd["name2id"].get(dd["norm"](cname)) == champ_id:
             cg += 1
             cw += 1 if win else 0
-    return n, w, cg, cw, form
+    return n, w, cg, cw, form, ids
 
 
 def _safe(s):
@@ -399,10 +400,10 @@ def iter_scout_struct(dd, count=10):
             return
         players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me,riot_id): enemies first, you last
         for puuid, cid, role, is_ally, is_me, riot_id in players:
-            n, w, cg, cw, form = scout(dd, puuid, cid, key, count)
+            n, w, cg, cw, form, mids = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
-                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key)}
+                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key), "mids": mids}
     except KeyStale:
         yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
     except Exception as e:

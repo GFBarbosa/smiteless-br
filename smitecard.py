@@ -168,6 +168,70 @@ GANK_STREAK_COMP = 0.18 # each game in a streak BEYOND 2 amplifies the form term
 GANK_EXTREME = 16.0     # near-total streak/winrate decides regardless of matchup
 GANK_T = 6.0            # |score| threshold for GANK / TOUGH; between = EVEN
 
+# YOUR champ's gank/roam potential (added to every lane's score): hard reliable CC + engage
+# makes any lane gankable; no CC means you need the enemy to be already losing. Keyed by
+# Data Dragon champ key. Curated by kit (jungle + common mid roamers); default = neutral.
+GANK_KIT = {
+    # +6 elite lockdown / unmissable CC engage
+    "Maokai": 6, "Nautilus": 6, "Sejuani": 6, "Amumu": 6, "Zac": 6, "Rammus": 6,
+    "Skarner": 6, "Warwick": 6, "Volibear": 6, "Nunu": 6, "Leona": 6, "Galio": 6,
+    "Lissandra": 6, "Annie": 6, "Malphite": 6, "Ornn": 6,
+    # +4 strong engage / reliable CC
+    "JarvanIV": 5, "Vi": 5, "Nocturne": 5, "RekSai": 5, "Elise": 5, "Trundle": 5,
+    "Poppy": 5, "Evelynn": 5, "Pantheon": 5, "Sett": 5, "Hecarim": 4, "XinZhao": 4,
+    "MonkeyKing": 4, "Gragas": 4, "Camille": 4, "Diana": 4, "Jax": 4, "Viego": 4,
+    "Lillia": 4, "Fiddlesticks": 4, "Rengar": 4, "TwistedFate": 4, "Neeko": 4,
+    "Veigar": 4, "Morgana": 4, "LeeSin": 4, "Udyr": 4, "Shaco": 4,
+    # +2 gap-close / skillshot or single-target CC
+    "Graves": 2, "KhaZix": 3, "Kayn": 3, "Ekko": 3, "Belveth": 2, "Taliyah": 3,
+    "Kindred": 2, "Zed": 3, "Talon": 3, "Qiyana": 4, "Briar": 4, "Naafiri": 3,
+    "Ahri": 3, "Sylas": 3, "Vex": 4, "Zoe": 3, "Akali": 2, "Fizz": 3, "Lux": 3,
+    "Yone": 2, "Katarina": 2, "Gwen": 2,
+    # 0/-1 little reliable CC -> weak ganks
+    "Nidalee": -1, "Karthus": -1, "MasterYi": 0, "Shyvana": 0, "Teemo": 0,
+    "Cassiopeia": 1, "Yasuo": 1,
+}
+GANK_KIT_DEFAULT = 1    # neutral (some CC / standard)
+
+
+def gank_kit(dd, my_cid):
+    """Your champ's flat gank/roam bonus (CC + engage). 0 if unknown champ."""
+    if not my_cid:
+        return 0.0
+    return float(GANK_KIT.get(dd.get("id2key", {}).get(my_cid, ""), GANK_KIT_DEFAULT))
+
+
+DUO_COLORS = [(232, 190, 90), (110, 205, 140), (150, 165, 235), (224, 130, 205), (110, 210, 210)]
+DUO_SHARED = 3          # shared recent ranked games to call two teammates a duo
+
+
+def detect_duos(scout_map):
+    """{(cid, is_ally): duo_index} for players who share >= DUO_SHARED recent ranked games
+    with a teammate (very likely a premade). Same index = same duo group."""
+    out, nxt = {}, [0]
+    for team in (True, False):
+        players = [(k, set(sc.get("mids") or [])) for k, sc in scout_map.items()
+                   if k[1] is team and sc.get("mids")]
+        for i in range(len(players)):
+            for j in range(i + 1, len(players)):
+                if len(players[i][1] & players[j][1]) >= DUO_SHARED:
+                    ki, kj = players[i][0], players[j][0]
+                    idx = out.get(ki, out.get(kj))
+                    if idx is None:
+                        idx = nxt[0]
+                        nxt[0] += 1
+                    out[ki] = out[kj] = idx
+    return out
+
+
+def _duo_marker(d, cx, y, idx, side):
+    col = DUO_COLORS[idx % len(DUO_COLORS)]
+    d.ellipse([cx - 5, y - 5, cx + 5, y + 5], fill=col)
+    if side == "L":
+        d.text((cx + 9, y), "duo", font=font(10, 1), fill=col, anchor="lm")
+    else:
+        d.text((cx - 9, y), "duo", font=font(10, 1), fill=col, anchor="rm")
+
 
 def apply_settings():
     """Pull the user's tuning (smitesettings.py) into the gank weights. The single
@@ -198,8 +262,8 @@ def _streak(form):
     return k if first else -k
 
 
-def gank_score(ally_wr, e_n, e_w, e_cg, e_cw, e_form=None):
-    s = 0.0
+def gank_score(ally_wr, e_n, e_w, e_cg, e_cw, e_form=None, self_kit=0.0):
+    s = float(self_kit)                                   # YOUR champ's CC/engage (gank/roam kit)
     if ally_wr is not None:
         s += GANK_W_LANE * (ally_wr - 50.0)               # BASE: champ vs champ
     if e_n:  # enemy scout loaded
@@ -450,6 +514,8 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     else:
         d.text((W - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
     cxc = W // 2
+    my_kit = gank_kit(dd, my_cid)                 # your champ's CC/engage shifts every gank
+    duo_of = detect_duos(scout_map) if (roles_known and not champ_select) else {}
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build)
     for i, (role, lbl) in enumerate(ROLES):
@@ -464,6 +530,10 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
             hits.append((27, y + 13, 65, y + 51, aurl))     # ally icon (left)
         if eurl:
             hits.append((855, y + 13, 893, y + 51, eurl))   # enemy icon (right)
+        if a_cid and (a_cid, True) in duo_of:               # premade markers (shared color = same duo)
+            _duo_marker(d, 350, y + 18, duo_of[(a_cid, True)], "L")
+        if e_cid and (e_cid, False) in duo_of:
+            _duo_marker(d, W - 350, y + 18, duo_of[(e_cid, False)], "R")
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
             if role == my_role or not e_cid:
@@ -471,7 +541,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
             else:
                 es = scout_map.get((e_cid, False))
                 a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
-                draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a)))
+                draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a, self_kit=my_kit)))
         elif champ_select:
             d.text((388, y + 24), lbl, font=font(10), fill=(120, 118, 110), anchor="la")
     ly = TOP + 5 * ROWH + 12
@@ -481,7 +551,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "each player: solo rank · last-10 W/L · champ mastery (M7 1.2M = one-trick)   |   gank = matchup + enemy form/streak   |   click → u.gg",
+    d.text((16, ly), "rank · L10 W/L · mastery · ● duo = premade   |   gank = matchup + enemy form/streak + YOUR champ's kit   |   click → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
