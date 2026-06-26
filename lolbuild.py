@@ -88,7 +88,9 @@ def ddragon():
         except Exception:
             pass
         return d
-    items = {int(k): v["name"] for k, v in load("item")["data"].items()}
+    _items = load("item")["data"]
+    items = {int(k): v["name"] for k, v in _items.items()}
+    item_data = {int(k): v for k, v in _items.items()}   # full stats/tags for threat analysis
     rr = load("runesReforged"); runes = {}; trees = {}
     for s in rr:
         trees[s["id"]] = s["name"]
@@ -102,7 +104,7 @@ def ddragon():
         cid = int(c["key"]); id2name[cid] = c["name"]; id2key[cid] = c["id"]
         id2tags[cid] = c.get("tags", [])
         name2id[norm(c["name"])] = cid; name2id[norm(c["id"])] = cid
-    return dict(ver=ver, items=items, runes=runes, trees=trees, spells=spells,
+    return dict(ver=ver, items=items, item_data=item_data, runes=runes, trees=trees, spells=spells,
                 name2id=name2id, id2name=id2name, id2key=id2key, id2tags=id2tags, norm=norm)
 
 # ---------- op.gg ----------
