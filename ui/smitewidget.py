@@ -136,32 +136,29 @@ def main():
     q = queue.Queue()
 
     def worker():
-        seen, waited = False, 0
+        seen, out = False, 0                             # out = consecutive reads with no game
         while st["alive"]:
             try:
                 rec = li.recommend(dd)
             except Exception:
                 rec = None
-            if rec is not None:                          # in a live game with data -> show it
-                seen, waited = True, 0
-                q.put(rec)
+            # "live" = we have data, OR the client is still in an in-game phase. phasecheck
+            # reports InProgress whenever :2999 is up, so a brief mid-game hiccup in EITHER
+            # check just needs the next read to recover - we never close on a single blip.
+            live = rec is not None or phasecheck.phase() in INGAME_PHASES
+            if rec is not None:
+                seen = True
+            if live:
+                out = 0
+                q.put(rec)                               # build lines, or None -> "waiting" while loading
             else:
-                # No live data. The phase tells "game ended" from "still loading": phasecheck
-                # reports InProgress whenever the live client (:2999) is up, even on a brief
-                # mid-game hiccup, so we only treat it as over when the client truly leaves the
-                # in-game phases.
-                in_game = phasecheck.phase() in INGAME_PHASES
-                if seen and not in_game:                 # the game we were in has ended -> close now
+                out += 1
+                if not seen:
+                    q.put(rec)                           # never saw a game -> show "waiting"
+                # if seen: keep the last build frame on screen through the blip (no update)
+                if out >= (3 if seen else 2):            # ~15s after a game / ~10s if it never started
                     q.put("__quit__")
                     return
-                q.put(rec)                               # show "waiting…" (loading / just opened)
-                if in_game:
-                    waited = 0                           # loading screen -> wait for the game
-                else:
-                    waited += 1                          # opened with no game -> don't linger
-                    if waited >= 2:                      # ~10s
-                        q.put("__quit__")
-                        return
             for _ in range(POLL * 2):
                 if not st["alive"]:
                     return
