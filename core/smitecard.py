@@ -18,7 +18,13 @@ import lolbuild as lb
 import lolgame as lg
 import lolscout as ls
 import lolmatchup as lm
+import phasecheck
 import smiteconfig as cfg
+
+# Phases where the overlay's session is still alive. Anything else (Lobby, None, EndOfGame…)
+# means the champ select was dodged/left or the game is over -> the overlay should close so a
+# fresh one opens for the next game (avoids showing a stale board from the prior session).
+ACTIVE_PHASES = ("ChampSelect", "GameStart", "InProgress", "Reconnect")
 
 # ---- theme ----
 BG = (17, 19, 26); TEXT = (232, 230, 223); MUTED = (155, 152, 142); GOLD = (200, 170, 110)
@@ -618,15 +624,29 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     build = None
     build_cid = 0
     last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
+    shown = False                         # have we rendered a real session (champ select / game)?
+    inactive = 0                          # consecutive reads with the client out of an active phase
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
         n_scout = count if count is not None else settings["scout_games"]
+        # Once we've shown a session, close as soon as the client leaves the active phases for
+        # a couple of checks (champ select dodged/left, or the game ended) so the NEXT champ
+        # select opens a fresh window instead of leaving this stale board up. The phase is
+        # authoritative - lg.resolve can return stale loading-screen data after a session ends.
+        if monitor and shown:
+            if phasecheck.phase() in ACTIVE_PHASES:
+                inactive = 0
+            else:
+                inactive += 1
+                if inactive >= 2:          # ~6s consistently inactive -> session over, close
+                    return
         info, err = lg.resolve(dd)
         if err:                            # not in champ select / a game yet
             if not wait:                   # manual press shows status; auto-open stays hidden
                 emit(info_image(err))
             time.sleep(3)
             continue
+        shown = True                       # resolve succeeded -> we're in a session
         my_cid, my_role = info["my"], info["pos"]
         allies, enemies = info["allies"], info["enemies"]
         ally_role = {r: c for c, r in allies if r and c}
@@ -701,16 +721,27 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             paint()                                   # still lands (and gets cached) before we exit
         if not monitor:
             return
-        # Overlay: board is complete -> keep it on screen and just watch for the match to
-        # end, so the next game's auto-open can take over with a fresh window.
-        gone = 0
+        # Overlay: board is complete -> keep it on screen and watch THIS game's phase.
+        #   new champ select   -> refresh this same window to the new draft (don't go stale)
+        #   game over (lobby)  -> close, so the next champ select opens fresh
+        # Phase-driven, because lg.resolve can keep returning stale data after a session ends.
+        miss, restart = 0, False
         while not stop():
-            time.sleep(8)
-            _i, e2 = lg.resolve(dd)
-            gone = gone + 8 if e2 else 0
-            if gone >= 96:                            # ~1.5 min with no game -> match over
+            time.sleep(5)
+            ph = phasecheck.phase()
+            if ph in ("InProgress", "GameStart", "Reconnect"):
+                miss = 0                              # still in this game
+                continue
+            if ph == "ChampSelect":                   # a NEW champ select -> refresh, don't close
+                restart = True
+                break
+            miss += 1                                 # WaitingForStats / EndOfGame / Lobby / None
+            if miss >= 3:                             # ~15s out of game -> match over, close
                 return
-        return
+        if not restart:
+            return                                    # stop() requested -> close
+        build_cid, last_cs_sig = 0, None              # re-render fresh for the new champ select
+        continue
 
 
 def main():
