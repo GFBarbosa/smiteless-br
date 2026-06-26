@@ -17,3 +17,8 @@ cache/
 
 # local launchers (may contain machine paths)
 *.bat
+
+# distribution build artifacts
+build/
+dist/payload.zip
+*.exe

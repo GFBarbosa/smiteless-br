@@ -1,12 +1,27 @@
 # Smiteless
 
-> ⚠️ **Personal project — not intended for public use (for now).** This is built for my
-> own machine and isn't packaged, supported, or hardened for general use: some assumptions
-> (NA region, Windows, AutoHotkey, local paths) are baked in, and it can break or change
-> at any time. No warranty, no support — use at your own risk. **Not affiliated with or
-> endorsed by Riot Games**; respect the [Riot API terms](https://developer.riotgames.com/policies/general)
-> and the terms of any third-party sites it links to (op.gg, u.gg). Provide your own Riot
-> API key.
+> ⚠️ **Small personal project — Windows + NA only, no warranty.** Built for me and a few
+> friends; it can break or change at any time, and there's no official support. **Not
+> affiliated with or endorsed by Riot Games**; respect the
+> [Riot API terms](https://developer.riotgames.com/policies/general) and the terms of any
+> third-party sites it links to (op.gg, u.gg). The optional player scout needs your own free
+> Riot API key.
+
+## ⬇️ Install (no Python or setup needed)
+
+**[Download the latest `SmitelessSetup.exe`](https://github.com/bobbyroylee/smiteless/releases/latest)**,
+double-click it, and click **Install**. Everything it needs is bundled — you do **not** need
+Python, AutoHotkey, or anything else. Works on **Windows 10/11 (64-bit)**. Run League in
+**Borderless** mode. Full step-by-step (with the optional Riot-key walkthrough) is in
+**[INSTALL.md](INSTALL.md)** — written so anyone can follow it.
+
+Once installed it lives in your system tray (gold **S**), auto-opens at champ select and
+in-game, updates itself when a new version is out, and starts with Windows. Hotkeys:
+**Ctrl+Alt+X** (overlay), **Ctrl+Alt+B** (item widget).
+
+The rest of this README is for building from source / hacking on it.
+
+---
 
 A League of Legends champ-select & in-game companion. It opens a **scoreboard-style
 overlay** — a live, always-on-top window that polls the League client/API directly and
