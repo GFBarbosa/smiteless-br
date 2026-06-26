@@ -5,10 +5,11 @@
 ; Smiteless - persistent tray app.
 ;
 ; Sits in the system tray with a right-click menu:
-;   Open overlay | Settings | Auto-open at champ select (toggle) | Reload | Exit
-; It auto-opens the overlay at champ select (while auto-open is on and the client is up)
-; and binds Ctrl+Alt+X (global). The overlay/settings windows are Python
-; (smiteoverlay.py / smitesettings.py); this script is just the persistent shell.
+;   Open overlay | Item widget | Settings | Auto-open at champ select (toggle) | Reload | Exit
+; It auto-opens the overlay at champ select and the floating item widget in-game (while
+; auto-open is on and the client is up). Hotkeys: Ctrl+Alt+X = overlay, Ctrl+Alt+B = item
+; widget (both global). The windows are Python (smiteoverlay.py / smitewidget.py /
+; smitesettings.py); this script is just the persistent shell.
 ; ============================================================
 
 ; --- CONFIG -------------------------------------------------
@@ -25,6 +26,7 @@ A_IconTip := "Smiteless"
 tray := A_TrayMenu
 tray.Delete()                                   ; replace the default AHK menu
 tray.Add("Open overlay", (*) => OpenSmiteless(false))
+tray.Add("Item widget", (*) => OpenWidget())
 tray.Add("Settings", (*) => OpenSettings())
 tray.Add()
 tray.Add("Auto-open at champ select", ToggleAuto)
@@ -34,13 +36,19 @@ tray.Add("Exit", (*) => ExitApp())
 tray.Default := "Open overlay"                  ; double-click the tray icon
 RefreshAutoCheck()
 
-; Ctrl+Alt+X opens the overlay - global (works anywhere, anytime).
+; Ctrl+Alt+X opens the overlay; Ctrl+Alt+B opens the floating item widget - both global.
 ^!x::OpenSmiteless(false)
+^!b::OpenWidget()
 
 OpenSmiteless(autoMode := false) {
     global PY, SCRIPTS
     waitFlag := autoMode ? " --wait" : ""       ; auto-open stays hidden until champs are present
     Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smiteoverlay.py"' waitFlag ' 2>nul"', , "Hide")
+}
+
+OpenWidget() {
+    global PY, SCRIPTS                           ; small floating in-game item helper (single-instance)
+    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\smitewidget.py" 2>nul"', , "Hide")
 }
 
 OpenSettings() {
@@ -68,12 +76,14 @@ RefreshAutoCheck() {
 ; Auto-open watcher: only while auto-open is on AND the client/game is up. Polls the LCU
 ; gameflow phase via phasecheck.py (async) and opens the overlay once per active session.
 g_smiteOpened := false
+g_widgetOpened := false
 SmiteWatch() {
-    global g_smiteOpened, PY, SCRIPTS, NOAUTO
+    global g_smiteOpened, g_widgetOpened, PY, SCRIPTS, NOAUTO
     if FileExist(NOAUTO)                         ; auto-open disabled
         return
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_smiteOpened := false
+        g_widgetOpened := false
         return
     }
     out := A_Temp "\smiteless_phase.txt"
@@ -81,6 +91,7 @@ SmiteWatch() {
     try ph := Trim(FileRead(out), " `t`r`n")     ; strip CR/LF (Trim's default omits them)
     Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\phasecheck.py" > "' out '" 2>nul"', , "Hide")
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
+    ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active) {
         if (!g_smiteOpened) {
             g_smiteOpened := true
@@ -88,6 +99,14 @@ SmiteWatch() {
         }
     } else {
         g_smiteOpened := false                   ; any non-active phase re-arms for the next game
+    }
+    if (ingame) {                                ; the floating item helper is in-game only
+        if (!g_widgetOpened) {
+            g_widgetOpened := true
+            OpenWidget()
+        }
+    } else {
+        g_widgetOpened := false
     }
 }
 SetTimer(SmiteWatch, 4000)

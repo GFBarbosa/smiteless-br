@@ -16,7 +16,6 @@ import lolbuild as lb
 import lolgame as lg
 import lolscout as ls
 import lolmatchup as lm
-import lolitems as li
 import smiteconfig as cfg
 
 # ---- theme ----
@@ -482,13 +481,11 @@ def _profile_url(riot_id):
     return f"https://u.gg/lol/profile/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}/overview"
 
 
-def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, item_tip=None):
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
-    show_item = bool(item_tip and roles_known and not champ_select)   # live counter-item suggestion
-    item_h = 20 if show_item else 0
-    H = (TOP + 5 * ROWH + 12 + panel_h + 48 + item_h) if panel else (TOP + 5 * ROWH + 46 + item_h)
+    H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     hits = []                                    # clickable icon rects -> op.gg URL
@@ -554,10 +551,6 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    if show_item:
-        d.rectangle([12, ly - 2, W - 12, ly + 16], fill=(30, 30, 22))
-        d.text((16, ly), item_tip, font=font(11, 1), fill=(224, 206, 150))
-        ly += 22
     d.text((16, ly), "rank · L10 W/L · mastery · ● duo = premade   |   gank = matchup + enemy form/streak + YOUR champ's kit   |   click → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
@@ -675,11 +668,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
         tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
                                       my_role, patch) if opp_cid else None)}
-        item_box = {"tip": li.suggest(dd, my_cid, li.live_threat(dd))}   # live counter-item read
-
         def paint(note=""):
             emit(render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
-                 src, note, lane_tip=tip_box["tip"], item_tip=item_box["tip"]))
+                 src, note, lane_tip=tip_box["tip"]))
 
         paint()
         # Generate the matchup tip in the BACKGROUND (web search, ~60-120s) so it never
@@ -711,19 +702,12 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         # Overlay: board is complete -> keep it on screen and just watch for the match to
         # end, so the next game's auto-open can take over with a fresh window.
         gone = 0
-        next_items = time.time() + 12
         while not stop():
             time.sleep(8)
             _i, e2 = lg.resolve(dd)
             gone = gone + 8 if e2 else 0
             if gone >= 96:                            # ~1.5 min with no game -> match over
                 return
-            if not e2 and time.time() >= next_items:  # refresh the counter-item read as they build
-                new = li.suggest(dd, my_cid, li.live_threat(dd))
-                if new and new != item_box["tip"]:
-                    item_box["tip"] = new
-                    paint()
-                next_items = time.time() + 12
         return
 
 

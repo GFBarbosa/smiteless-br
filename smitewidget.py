@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""smitewidget.py - small floating in-game item helper.
+
+A compact, always-on-top, draggable window that shows what to build NEXT from op.gg's
+real per-champ pool, adapting live to the enemy's actual build + who's fed + what you
+already own. Independent of the big scoreboard overlay - it's meant to sit in a corner
+the whole game. Never steals focus; remembers where you drag it.
+
+  python smitewidget.py
+"""
+import sys, os, json, threading, time, queue
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lolbuild as lb
+import lolitems as li
+from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
+                          monitors, _kernel32)
+
+BG = "#11131a"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#7f7d75"
+RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"
+KIND_COLOR = {"counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
+KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
+POLL = 8                                                  # seconds between live reads
+POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
+
+
+def acquire_single_instance():
+    _kernel32.CreateMutexW(None, False, "Global\\SmitelessWidget")
+    return _kernel32.GetLastError() != 183                # ERROR_ALREADY_EXISTS
+
+
+def _load_pos():
+    try:
+        p = json.load(open(POS_FILE))
+        x, y = int(p["x"]), int(p["y"])
+        for m in monitors():                             # only if still on a visible monitor
+            if m[0] - 40 <= x <= m[2] and m[1] - 20 <= y <= m[3]:
+                return x, y
+    except Exception:
+        pass
+    return None
+
+
+def _save_pos(x, y):
+    try:
+        os.makedirs(os.path.dirname(POS_FILE), exist_ok=True)
+        json.dump({"x": x, "y": y}, open(POS_FILE, "w"))
+    except Exception:
+        pass
+
+
+def main():
+    if not acquire_single_instance():
+        return                                           # one widget already up
+    import tkinter as tk
+    dd = lb.ddragon()
+    st = {"alive": True}
+
+    root = tk.Tk()
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+    root.attributes("-alpha", 0.94)
+    root.configure(bg=GOLD)                              # 1px gold edge via padding
+    outer = tk.Frame(root, bg=BG)
+    outer.pack(padx=1, pady=1, fill="both", expand=True)
+
+    hdr = tk.Frame(outer, bg=BG)
+    hdr.pack(fill="x", padx=9, pady=(6, 1))
+    tk.Label(hdr, text="SMITELESS · build", font=("Segoe UI", 8, "bold"), fg=GOLD, bg=BG).pack(side="left")
+    close = tk.Label(hdr, text="✕", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=BG, cursor="hand2")
+    close.pack(side="right")
+
+    champ = tk.Label(outer, text="waiting for a live game…", font=("Segoe UI", 12, "bold"),
+                     fg=MUTED, bg=BG, anchor="w")
+    champ.pack(fill="x", padx=9)
+    body = tk.Frame(outer, bg=BG)
+    body.pack(fill="x", padx=9, pady=(3, 2))
+    summ = tk.Label(outer, text="open in-game or a replay to see suggestions",
+                    font=("Segoe UI", 8), fg=MUTED, bg=BG, anchor="w", justify="left")
+    summ.pack(fill="x", padx=9, pady=(0, 7))
+
+    def render(rec):
+        for w in body.winfo_children():
+            w.destroy()
+        if not rec:
+            champ.config(text="waiting for a live game…", fg=MUTED)
+            summ.config(text="open in-game or a replay to see suggestions")
+            return
+        champ.config(text=rec["champ"], fg=TXT)
+        if not rec["lines"]:
+            tk.Label(body, text="building standard — no defensive swap needed",
+                     font=("Segoe UI", 9), fg=MUTED, bg=BG, anchor="w").pack(fill="x")
+        for kind, txt in rec["lines"]:
+            tk.Label(body, text=f"{KIND_TAG.get(kind, '▸')}  {txt}", font=("Segoe UI", 9),
+                     fg=KIND_COLOR.get(kind, TXT), bg=BG, anchor="w", justify="left").pack(fill="x")
+        if rec.get("no_pool"):
+            tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
+                     fg=MUTED, bg=BG, anchor="w").pack(fill="x")
+        summ.config(text=rec["summary"])
+
+    # --- drag anywhere on the chrome; persist where you drop it ---
+    drag = {"x": 0, "y": 0}
+
+    def press(e):
+        drag["x"], drag["y"] = e.x_root, e.y_root
+
+    def move(e):
+        root.geometry(f"+{root.winfo_x() + e.x_root - drag['x']}+{root.winfo_y() + e.y_root - drag['y']}")
+        drag["x"], drag["y"] = e.x_root, e.y_root
+
+    def drop(_e):
+        _save_pos(root.winfo_x(), root.winfo_y())
+
+    for w in (outer, hdr, champ, summ):
+        w.bind("<Button-1>", press)
+        w.bind("<B1-Motion>", move)
+        w.bind("<ButtonRelease-1>", drop)
+
+    def quit_():
+        st["alive"] = False
+        _save_pos(root.winfo_x(), root.winfo_y())
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+    close.bind("<Button-1>", lambda e: quit_())
+    root.bind("<Escape>", lambda e: quit_())
+    root.bind("<Button-3>", lambda e: quit_())
+
+    # --- live polling off the UI thread ---
+    q = queue.Queue()
+
+    def worker():
+        seen, gone = False, 0                            # auto-close ~1.5 min after a game ends
+        while st["alive"]:
+            try:
+                rec = li.recommend(dd)
+            except Exception:
+                rec = None
+            if rec:
+                seen, gone = True, 0
+            elif seen:
+                gone += 1
+            q.put(rec)
+            if seen and gone >= 12:                      # only after we'd actually shown a game
+                q.put("__quit__")
+                return
+            for _ in range(POLL * 2):
+                if not st["alive"]:
+                    return
+                time.sleep(0.5)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def pump():
+        if not st["alive"]:
+            return
+        try:
+            while True:
+                msg = q.get_nowait()
+                if msg == "__quit__":
+                    quit_()
+                    return
+                render(msg)
+        except queue.Empty:
+            pass
+        make_no_activate(toplevel_hwnd(root.winfo_id()))
+        root.after(400, pump)
+
+    # place: remembered spot, else upper-left of the monitor you play on (primary)
+    root.update_idletasks()
+    pos = _load_pos()
+    if not pos:
+        prim = next((m for m in monitors() if (m[0], m[1]) == (0, 0)), monitors()[0])
+        pos = (prim[0] + 24, prim[1] + 150)
+    root.geometry(f"+{pos[0]}+{pos[1]}")
+    hwnd = toplevel_hwnd(root.winfo_id())
+    make_no_activate(hwnd)
+    show_no_activate(hwnd)
+    pump()
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

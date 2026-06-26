@@ -39,25 +39,27 @@ The overlay has:
 6. **Duo / premade detection** — teammates who share several of their recent ranked games
    get a matching **duo** marker (same color = same group). Inferred from match-history
    overlap, since the API doesn't expose lobby premades directly.
-7. **Live counter-item suggestions** — in-game, a `THREAT … → BUY …` bar reads the enemy
-   team's **current items** (Live Client API) and recommends counters **tailored to your
-   class**: vs heavy AD a tank gets Thornmail, an ADC gets Plated + GA, a mage gets Zhonya's;
-   anti-heal matches your damage type; tenacity when they stack CC. It refreshes as they
-   build, so the read **evolves through the game**.
+7. **Floating item helper** — a *separate* small, draggable, always-on-top widget (not part
+   of the board) you leave in a corner all game. It shows your **next item** from op.gg's
+   real per-champ pool, and surfaces a defensive piece (Zhonya's vs a fed AD threat, an MR
+   item vs magic, anti-heal vs a healer) **only when the enemy's actual built damage + who's
+   fed calls for it** — dropping each suggestion the moment you own it. Real op.gg items, no
+   generic tables, no AI. See [Floating item widget](#floating-item-widget) below.
 
 Everything that states a number traces to a real source (op.gg or the Riot API).
 
 ## Behavior
 
 - **Lives in your system tray.** A tray icon with a right-click menu: **Open overlay**,
-  **Settings**, **Auto-open at champ select** (toggle), **Reload**, **Exit**.
+  **Item widget**, **Settings**, **Auto-open at champ select** (toggle), **Reload**, **Exit**.
 - **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
-  matchups, gank tags, the player scout, duo markers, and a live counter-item bar — all
-  updating in the same window and evolving as the game goes on.
+  matchups, gank tags, the player scout, and duo markers — all updating in the same window.
+- **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
+  drag it anywhere, it remembers the spot, and it closes itself after the game.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
-- **Ctrl+Alt+X** opens it manually (global). **Left-drag** moves the overlay; **right-click or Esc**
+- **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
@@ -107,6 +109,31 @@ every lane up or down — the same enemy is a gank on Maokai and even on Nidalee
 threshold and the per-champ kit table live at the top of `smitecard.py` (`GANK_W_*`,
 `GANK_STREAK_COMP`, `GANK_EXTREME`, `GANK_T`, `GANK_KIT`).
 
+## Floating item widget
+
+A separate compact window (`smitewidget.py`) — always-on-top, never steals focus, draggable,
+and it **remembers where you drop it**. It auto-opens in-game (or **Ctrl+Alt+B** / tray →
+*Item widget*) and closes itself ~1.5 min after the game ends. Leave it in a corner and glance
+at it on each back.
+
+It is **not** generic. The item pool is op.gg's real, per-champ build for your champ+role (the
+same source as the build card), so the suggestions are always champ-correct. The **live game**
+then drives them, so they're genuinely dynamic:
+
+- **Next item** — the first item in your champ's standard op.gg sequence you don't already own.
+  It advances every time you complete an item.
+- **Defensive swap** — surfaced only when the game calls for it: it reads the enemy's *actual
+  built* AD vs AP (from their live items, not their class) and who's **fed** (live KDA), then
+  pulls the matching resist/anti-heal/stasis item **from your champ's own pool** (e.g. Zhonya's
+  vs a fed Zed, an MR item vs a magic comp, a Grievous-Wounds item vs a healer). The moment you
+  buy it, it drops off.
+- **Boots cue** — Mercury's Treads over your standard boots when they're stacking CC or magic.
+
+If your champ simply doesn't itemize against a threat (e.g. a burst mage vs magic damage), it
+says so rather than inventing a fake item — it shows the threat readout and your next core.
+
+The threat/recommendation logic is all in `lolitems.py` (`live_state` → `recommend`).
+
 ## Requirements
 
 - **Python 3** + **Pillow**. The window uses **Tkinter** (stdlib) + Pillow's `ImageTk`.
@@ -144,9 +171,9 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `lolscout.py` — Riot API per-player recent form (last-10 W/L + current-champ record),
   rank, mastery, and the recent **match IDs** that drive duo detection; rate-limit aware,
   permanent (capped) match caching.
-- `lolitems.py` — rule-based in-game counter-item suggestions: reads the enemy team's live
-  items + champs (Live Client API), builds a threat profile (AD/AP, healing, hard CC), and
-  picks counters tailored to your champ's class. No AI.
+- `lolitems.py` — in-game item logic: pulls your champ's real item pool from op.gg, reads the
+  live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed), and
+  picks the next item + the right defensive piece from that pool. No AI, no generic tables.
 - `phasecheck.py` — tiny stdlib helper that prints the LCU gameflow phase; the AHK watcher
   polls it to auto-open at champ select.
 - `lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
@@ -158,6 +185,9 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `smiteoverlay.py` — the live overlay window (Tk + Pillow `ImageTk`). Runs `smitecard.run()`
   in a worker thread and updates the displayed image in place; topmost, no-focus-steal,
   second-monitor, single-instance, auto-close at game end.
+- `smitewidget.py` — the floating in-game **item widget** (Tk). Polls `lolitems.recommend()`,
+  shows next-item + defensive suggestions, draggable + position-remembering, no-focus-steal,
+  single-instance, auto-closes after the game.
 - `smitecard.py` — the renderer: builds each scoreboard frame as a PIL Image (`render_image`)
   and drives the resolve→render loop (`run()`, with the matchup tip generated in the
   background so it never blocks the scout). Also a PNG CLI (`--out`) for debugging.
@@ -166,8 +196,9 @@ Render a card standalone (writes a PNG): `python smitecard.py --out card.png`
 - `smiteconfig.py` — tiny shared settings store (`~/.claude/smiteless_settings.json` +
   the auto-open marker); read live by the overlay's gank math.
 - `smiteless.ahk` — the persistent **tray app** (AutoHotkey, default): tray icon + right-click
-  menu, the **Ctrl+Alt+X** global hotkey, and the champ-select auto-open watcher. Launches
-  the overlay/settings windows.
+  menu, the **Ctrl+Alt+X** (overlay) / **Ctrl+Alt+B** (item widget) global hotkeys, and the
+  watcher that auto-opens the board at champ select and the widget in-game. Launches the
+  overlay/widget/settings windows.
 - `smiteless_tray.py` — optional **pure-Python** tray (same role, `pip install pystray`):
   `pystray` icon + native Win32 hotkey + watcher + a "Start with Windows" registry toggle.
 - `selftest.py` — `python selftest.py` health-checks every dependency (Pillow, Data Dragon,
