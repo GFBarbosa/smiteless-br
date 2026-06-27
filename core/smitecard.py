@@ -722,32 +722,35 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
         n_scout = count if count is not None else settings["scout_games"]
-        # Once we've shown a session, close as soon as the client leaves the active phases for
-        # a couple of checks (champ select dodged/left, or the game ended) so the NEXT champ
-        # select opens a fresh window instead of leaving this stale board up. The phase is
-        # authoritative - lg.resolve can return stale loading-screen data after a session ends.
-        if monitor and shown:
-            if phasecheck.phase() in ACTIVE_PHASES:
-                inactive = 0
-            else:
+        # The PHASE is authoritative for "are we in a session". lg.resolve keeps returning a
+        # STALE board after a game ends, so we gate on phasecheck, not resolve - otherwise
+        # opening the overlay out of game shows the PREVIOUS game instead of the home page.
+        ph = phasecheck.phase()
+        if ph not in ACTIVE_PHASES:
+            if ph == "":                   # no League client reachable (closed, or a mid-game lag blip)
+                if not wait and not shown:
+                    emit(info_image("waiting for the League client…"))
+                time.sleep(3)
+                continue
+            if monitor and shown:          # we were in a champ select / game and it's over -> close
                 inactive += 1
-                if inactive >= 2:          # ~6s consistently inactive -> session over, close
+                if inactive >= 2:
                     return
+            elif not wait:                 # opened cold, OUT OF GAME -> the home / profile page
+                if not profile_tried:
+                    profile_tried = True
+                    emit(info_image("loading your profile…"))
+                    try:
+                        _pr = lp.build_profile(dd)
+                        profile_img = render_profile(dd, _pr) if (_pr and _pr.get("games")) else None
+                    except Exception:
+                        profile_img = None
+                emit(profile_img or info_image("open champ select or a game for the live board"))
+            time.sleep(3)
+            continue
+        inactive = 0
         info, err = lg.resolve(dd)
-        if err:                            # not in champ select / a game yet
-            if not wait:                   # manual open, out of a game -> the home / profile page
-                if not shown:
-                    if not profile_tried:
-                        profile_tried = True
-                        emit(info_image("loading your profile…"))   # show something immediately
-                        try:
-                            _pr = lp.build_profile(dd)
-                            profile_img = render_profile(dd, _pr) if (_pr and _pr.get("games")) else None
-                        except Exception:
-                            profile_img = None
-                    emit(profile_img or info_image(err))
-                else:
-                    emit(info_image(err))
+        if err:                            # in an active phase but nothing resolvable yet (loading)
             time.sleep(3)
             continue
         shown = True                       # resolve succeeded -> we're in a session
