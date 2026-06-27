@@ -340,8 +340,23 @@ def rank_str(r):
     return f"{ab}{_DIVNUM.get(r.get('div', ''), '')} {r.get('lp', 0)}LP", col
 
 
-GRADE_COLOR = {"S+": (232, 202, 124), "S": (95, 196, 122), "A": (95, 196, 122),
-               "B": (120, 166, 232), "C": (210, 150, 90), "D": (200, 80, 88)}
+GRADE_COLOR = {"S+": (236, 206, 128), "S": (236, 206, 128), "A": (95, 200, 126),
+               "B": (120, 166, 232), "C": (214, 156, 92), "D": (206, 86, 94)}
+PCARD = (25, 28, 38); PCARD2 = (31, 35, 47); PEDGE = (46, 50, 64)
+LABEL_COL = {"hard carry": (236, 206, 128), "carried": (95, 200, 126),
+             "carried, team lost": (120, 166, 232), "rough one": (206, 86, 94),
+             "could've done better": (214, 156, 92)}
+
+
+def _dim(c, f):
+    return tuple(max(0, min(255, int(x * f))) for x in c)
+
+
+def _rrect(d, box, r, fill=None, outline=None, width=1):
+    try:
+        d.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
+    except Exception:
+        d.rectangle(box, fill=fill, outline=outline)
 
 
 def _profile_headline(p):
@@ -362,52 +377,79 @@ def _profile_headline(p):
 
 def render_profile(dd, p):
     """The 'home' page: who you are, rank, recent form, champ win rates, and per-game scores
-    graded against the whole lobby. Shown when you open the overlay outside a game."""
+    graded against the whole lobby. Carded layout; shown out of game (and in the profile window)."""
     games = p.get("games", [])
-    H = 196 + 22 + max(1, len(games)) * 34 + 30
+    HEAD, CHAMPS = 116, 96
+    games_top = HEAD + CHAMPS + 34
+    H = games_top + max(1, len(games)) * 50 + 16
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
+
+    # ---- header card ----
+    _rrect(d, (14, 12, W - 14, 100), 14, fill=PCARD, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
-    d.text((20, 14), name, font=name_font(22, name), fill=TEXT)
+    d.text((32, 24), name, font=name_font(25, name), fill=TEXT)
     rs, rc = rank_str(p.get("rank"))
-    d.text((W - 20, 18), rs, font=font(18, 1), fill=rc, anchor="ra")
-    d.text((20, 48), f"last {p['n']} ranked   ·   {p['wins']}W {p['losses']}L   ·   {p['wr']}%   ·   avg score {p['avg_score']}/100",
-            font=font(12), fill=MUTED)
+    bw = 188
+    _rrect(d, (W - 30 - bw, 26, W - 30, 64), 9, fill=_dim(rc, 0.22), outline=_dim(rc, 0.55), width=1)
+    d.text(((W - 30 - bw / 2), 38), rs, font=font(17, 1), fill=rc, anchor="ma")
+    d.text((W - 30 - bw / 2, 76), "RANKED SOLO", font=font(9), fill=MUTED, anchor="ma")
+    # win bar + record
+    bx, by, bw2 = 32, 66, 240
+    _rrect(d, (bx, by, bx + bw2, by + 9), 4, fill=(46, 50, 64))
+    wfrac = max(0.0, min(1.0, p["wr"] / 100.0))
+    if wfrac > 0:
+        _rrect(d, (bx, by, bx + int(bw2 * wfrac), by + 9), 4, fill=GREEN if p["wr"] >= 50 else REDWR)
+    d.text((bx, 80), f"{p['wins']}W {p['losses']}L", font=font(12, 1), fill=TEXT)
+    d.text((bx + 70, 80), f"{p['wr']}% · last {p['n']}", font=font(12), fill=MUTED)
+    # avg score
+    sc_col = GRADE_COLOR["A"] if p["avg_score"] >= 58 else (REDWR if p["avg_score"] < 45 else TAN)
+    d.text((bx + 300, 60), str(p["avg_score"]), font=font(30, 1), fill=sc_col)
+    d.text((bx + 300, 92), "AVG GAME SCORE", font=font(9), fill=MUTED)
+    # headline
     for ln in _wrap(_profile_headline(p), font(12), W - 40)[:1]:
-        d.text((20, 70), ln, font=font(12), fill=TAN)
-    d.line([16, 94, W - 16, 94], fill=(40, 42, 50))
-    # top champions
-    d.text((20, 104), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
-    x = 20
+        d.text((18, 104), ln, font=font(12), fill=TAN)
+
+    # ---- top champions ----
+    cy = HEAD + 8
+    d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
+    x, cw = 14, (W - 28) // max(1, min(6, len(p.get("champs", [])) or 1))
+    cw = min(cw, 150)
     for c in p.get("champs", [])[:6]:
         cid = dd["name2id"].get(dd["norm"](c["champ"]))
-        ic = get_icon(dd, cid, 40)
+        _rrect(d, (x, cy + 18, x + cw - 8, cy + 66), 10, fill=PCARD, outline=PEDGE, width=1)
+        ic = get_icon(dd, cid, 36)
         if ic:
-            img.paste(ic, (x, 124), ic)
-        d.text((x + 48, 124), dd["id2name"].get(cid, c["champ"])[:9], font=font(13, 1), fill=TEXT)
+            img.paste(ic, (x + 10, cy + 24), ic)
+        d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=font(12, 1), fill=TEXT)
         wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
-        d.text((x + 48, 144), f"{c['wr']}%  {c['g']}g", font=font(11), fill=wcol)
-        x += 148
-    d.line([16, 174, W - 16, 174], fill=(40, 42, 50))
-    d.text((20, 182), "RECENT GAMES", font=font(11, 1), fill=GOLD)
-    d.text((W - 20, 182), "score = your game graded vs all 10 players", font=font(10), fill=(120, 118, 110), anchor="ra")
-    yy = 200
+        d.text((x + 54, cy + 44), f"{c['wr']}%", font=font(13, 1), fill=wcol)
+        d.text((x + 90, cy + 46), f"{c['g']}g", font=font(10), fill=MUTED)
+        x += cw
+
+    # ---- recent games (card rows) ----
+    d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
+    d.text((W - 20, games_top - 21), "score = your game graded vs all 10 players",
+           font=font(10), fill=(118, 116, 108), anchor="ra")
+    yy = games_top
     for g in games:
+        acc = GREEN if g["win"] else REDWR
+        _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))  # accent base
+        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=PCARD2)          # card on top -> left accent strip
         cid = dd["name2id"].get(dd["norm"](g["champ"]))
-        ic = get_icon(dd, cid, 28)
+        ic = get_icon(dd, cid, 32)
         if ic:
-            img.paste(ic, (20, yy), ic)
-        d.text((56, yy + 5), "W" if g["win"] else "L", font=font(14, 1), fill=GREEN if g["win"] else REDWR)
-        d.text((80, yy + 5), dd["id2name"].get(cid, g["champ"])[:11], font=font(12, 1), fill=TEXT)
-        d.text((232, yy + 5), f"{g['k']}/{g['d']}/{g['a']}", font=font(12), fill=TEXT)
+            img.paste(ic, (30, yy + 6), ic)
+        d.text((70, yy + 13), "W" if g["win"] else "L", font=font(15, 1), fill=acc)
+        d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=font(13, 1), fill=TEXT)
+        d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=font(11), fill=MUTED)
         gc = GRADE_COLOR.get(g["letter"], TAN)
-        d.text((330, yy + 4), g["letter"], font=font(14, 1), fill=gc)
-        d.text((366, yy + 6), str(g["score"]), font=font(12, 1), fill=gc)
-        d.text((406, yy + 6), f"#{g['rank']}/10", font=font(10), fill=MUTED)
-        d.text((470, yy + 5), g["label"], font=font(11), fill=MUTED)
-        yy += 34
-    d.text((16, yy + 6), "your last ranked games   ·   open the overlay in champ select or a game for the live board",
-            font=font(11), fill=(120, 118, 110))
+        _rrect(d, (300, yy + 9, 360, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
+        d.text((312, yy + 13), g["letter"], font=font(14, 1), fill=gc)
+        d.text((338, yy + 15), str(g["score"]), font=font(12, 1), fill=gc)
+        d.text((378, yy + 15), f"#{g['rank']}/10", font=font(11), fill=MUTED)
+        d.text((452, yy + 14), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        yy += 50
     img.hitmap = []
     return img
 

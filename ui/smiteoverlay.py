@@ -124,12 +124,22 @@ def restore_foreground(target):
 
 
 def main():
-    if not acquire_single_instance():
-        return  # another overlay is already up
     argv = sys.argv[1:]
     wait = "--wait" in argv
     if wait:
         argv.remove("--wait")
+    # A manual open OUTSIDE a game -> the home/profile window instead of the in-game board.
+    if not wait:
+        try:
+            import phasecheck
+            if phasecheck.phase() not in sc.ACTIVE_PHASES:
+                import smiteprofile
+                smiteprofile.main()
+                return
+        except Exception:
+            pass
+    if not acquire_single_instance():
+        return  # another overlay is already up
     count = None                                 # None -> smitecard.run uses the saved scout-depth setting
     if "--count" in argv:
         i = argv.index("--count")
