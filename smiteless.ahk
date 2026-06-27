@@ -14,6 +14,9 @@
 
 ; --- CONFIG -------------------------------------------------
 PY := "python"                  ; Python 3 + Pillow. Set to your python.exe if not on PATH.
+PYW := RegExReplace(PY, "i)python(\.exe)?$", "pythonw$1")   ; windowless python -> no console flash
+if (InStr(PYW, "\") && !FileExist(PYW))                     ; full path that doesn't exist -> fall back
+    PYW := PY
 SCRIPTS := A_ScriptDir          ; the .py files live in core/ ui/ tools/ under this dir
 ; ------------------------------------------------------------
 
@@ -41,19 +44,19 @@ RefreshAutoCheck()
 ^!b::OpenWidget()
 
 OpenSmiteless(autoMode := false) {
-    global PY, SCRIPTS
+    global PYW, SCRIPTS
     waitFlag := autoMode ? " --wait" : ""       ; auto-open stays hidden until champs are present
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smiteoverlay.py"' waitFlag ' 2>nul"', , "Hide")
+    Run('"' PYW '" "' SCRIPTS '\ui\smiteoverlay.py"' waitFlag, , "Hide")
 }
 
 OpenWidget() {
-    global PY, SCRIPTS                           ; small floating in-game item helper (single-instance)
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smitewidget.py" 2>nul"', , "Hide")
+    global PYW, SCRIPTS                           ; small floating in-game item helper (single-instance)
+    Run('"' PYW '" "' SCRIPTS '\ui\smitewidget.py"', , "Hide")
 }
 
 OpenSettings() {
-    global PY, SCRIPTS
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\ui\smitesettings.py" 2>nul"', , "Hide")
+    global PYW, SCRIPTS
+    Run('"' PYW '" "' SCRIPTS '\ui\smitesettings.py"', , "Hide")
 }
 
 ToggleAuto(ItemName, *) {
@@ -78,7 +81,7 @@ RefreshAutoCheck() {
 g_smiteOpened := false
 g_widgetOpened := false
 SmiteWatch() {
-    global g_smiteOpened, g_widgetOpened, PY, SCRIPTS, NOAUTO
+    global g_smiteOpened, g_widgetOpened, PYW, SCRIPTS, NOAUTO
     if FileExist(NOAUTO)                         ; auto-open disabled
         return
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
@@ -89,7 +92,7 @@ SmiteWatch() {
     out := A_Temp "\smiteless_phase.txt"
     ph := ""
     try ph := Trim(FileRead(out), " `t`r`n")     ; strip CR/LF (Trim's default omits them)
-    Run(A_ComSpec ' /c ""' PY '" "' SCRIPTS '\tools\phasecheck.py" > "' out '" 2>nul"', , "Hide")
+    Run('"' PYW '" "' SCRIPTS '\smiteless_main.py" phase "' out '"', , "Hide")   ; writes phase to file (no console)
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active) {
