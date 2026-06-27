@@ -18,6 +18,7 @@ import lolbuild as lb
 import lolgame as lg
 import lolscout as ls
 import lolmatchup as lm
+import lolprofile as lp
 import phasecheck
 import smiteconfig as cfg
 
@@ -99,6 +100,25 @@ def font(size, bold=False):
             _FONTS[key] = ImageFont.truetype(fp, size)
         except Exception:
             _FONTS[key] = ImageFont.load_default()
+    return _FONTS[key]
+
+
+def name_font(size, text):
+    """Bold Segoe UI for Latin names; a CJK-capable font for names with CJK chars (so a
+    Chinese/Japanese/Korean summoner name renders instead of tofu boxes)."""
+    if all(ord(ch) < 0x2E00 for ch in text):
+        return font(size, True)
+    key = ("cjk", size)
+    if key not in _FONTS:
+        for fp in (r"C:\Windows\Fonts\msyhbd.ttc", r"C:\Windows\Fonts\msyh.ttc",
+                   r"C:\Windows\Fonts\malgun.ttf", r"C:\Windows\Fonts\YuGothB.ttc"):
+            try:
+                _FONTS[key] = ImageFont.truetype(fp, size)
+                break
+            except Exception:
+                continue
+        else:
+            _FONTS[key] = font(size, True)
     return _FONTS[key]
 
 
@@ -318,6 +338,78 @@ def rank_str(r):
     if t in ("MASTER", "GRANDMASTER", "CHALLENGER"):
         return f"{ab} {r.get('lp', 0)}LP", col
     return f"{ab}{_DIVNUM.get(r.get('div', ''), '')} {r.get('lp', 0)}LP", col
+
+
+GRADE_COLOR = {"S+": (232, 202, 124), "S": (95, 196, 122), "A": (95, 196, 122),
+               "B": (120, 166, 232), "C": (210, 150, 90), "D": (200, 80, 88)}
+
+
+def _profile_headline(p):
+    """One friendly line about how you've been doing."""
+    best = p["champs"][0] if p["champs"] else None
+    if p["n"] < 3:
+        return "Play a few ranked games and your form, scores and best champs show up here."
+    if p["wr"] >= 60:
+        tail = f"  {best['champ']} is your best at {best['wr']}%." if best and best["g"] >= 2 else ""
+        return f"You're on a {p['wr']}% run over your last {p['n']} — keep riding it.{tail}"
+    if p["wr"] <= 40:
+        tail = f"  Lean on {best['champ']} ({best['wr']}%)." if best and best["wr"] >= 55 else ""
+        return f"Rough stretch ({p['wr']}% of {p['n']}). Tighten up — avg game score {p['avg_score']}/100.{tail}"
+    if p["avg_score"] >= 62:
+        return f"You've been playing well (avg score {p['avg_score']}/100) — the wins will follow."
+    return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; the score grades each game vs the whole lobby."
+
+
+def render_profile(dd, p):
+    """The 'home' page: who you are, rank, recent form, champ win rates, and per-game scores
+    graded against the whole lobby. Shown when you open the overlay outside a game."""
+    games = p.get("games", [])
+    H = 196 + 22 + max(1, len(games)) * 34 + 30
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+    name = p.get("riot_id", "?").split("#")[0]
+    d.text((20, 14), name, font=name_font(22, name), fill=TEXT)
+    rs, rc = rank_str(p.get("rank"))
+    d.text((W - 20, 18), rs, font=font(18, 1), fill=rc, anchor="ra")
+    d.text((20, 48), f"last {p['n']} ranked   ·   {p['wins']}W {p['losses']}L   ·   {p['wr']}%   ·   avg score {p['avg_score']}/100",
+            font=font(12), fill=MUTED)
+    for ln in _wrap(_profile_headline(p), font(12), W - 40)[:1]:
+        d.text((20, 70), ln, font=font(12), fill=TAN)
+    d.line([16, 94, W - 16, 94], fill=(40, 42, 50))
+    # top champions
+    d.text((20, 104), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
+    x = 20
+    for c in p.get("champs", [])[:6]:
+        cid = dd["name2id"].get(dd["norm"](c["champ"]))
+        ic = get_icon(dd, cid, 40)
+        if ic:
+            img.paste(ic, (x, 124), ic)
+        d.text((x + 48, 124), dd["id2name"].get(cid, c["champ"])[:9], font=font(13, 1), fill=TEXT)
+        wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
+        d.text((x + 48, 144), f"{c['wr']}%  {c['g']}g", font=font(11), fill=wcol)
+        x += 148
+    d.line([16, 174, W - 16, 174], fill=(40, 42, 50))
+    d.text((20, 182), "RECENT GAMES", font=font(11, 1), fill=GOLD)
+    d.text((W - 20, 182), "score = your game graded vs all 10 players", font=font(10), fill=(120, 118, 110), anchor="ra")
+    yy = 200
+    for g in games:
+        cid = dd["name2id"].get(dd["norm"](g["champ"]))
+        ic = get_icon(dd, cid, 28)
+        if ic:
+            img.paste(ic, (20, yy), ic)
+        d.text((56, yy + 5), "W" if g["win"] else "L", font=font(14, 1), fill=GREEN if g["win"] else REDWR)
+        d.text((80, yy + 5), dd["id2name"].get(cid, g["champ"])[:11], font=font(12, 1), fill=TEXT)
+        d.text((232, yy + 5), f"{g['k']}/{g['d']}/{g['a']}", font=font(12), fill=TEXT)
+        gc = GRADE_COLOR.get(g["letter"], TAN)
+        d.text((330, yy + 4), g["letter"], font=font(14, 1), fill=gc)
+        d.text((366, yy + 6), str(g["score"]), font=font(12, 1), fill=gc)
+        d.text((406, yy + 6), f"#{g['rank']}/10", font=font(10), fill=MUTED)
+        d.text((470, yy + 5), g["label"], font=font(11), fill=MUTED)
+        yy += 34
+    d.text((16, yy + 6), "your last ranked games   ·   open the overlay in champ select or a game for the live board",
+            font=font(11), fill=(120, 118, 110))
+    img.hitmap = []
+    return img
 
 
 def _abbr_pts(p):
@@ -626,6 +718,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
     shown = False                         # have we rendered a real session (champ select / game)?
     inactive = 0                          # consecutive reads with the client out of an active phase
+    profile_img, profile_tried = None, False   # the home/profile page (manual open, out of game)
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
         n_scout = count if count is not None else settings["scout_games"]
@@ -642,8 +735,19 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     return
         info, err = lg.resolve(dd)
         if err:                            # not in champ select / a game yet
-            if not wait:                   # manual press shows status; auto-open stays hidden
-                emit(info_image(err))
+            if not wait:                   # manual open, out of a game -> the home / profile page
+                if not shown:
+                    if not profile_tried:
+                        profile_tried = True
+                        emit(info_image("loading your profile…"))   # show something immediately
+                        try:
+                            _pr = lp.build_profile(dd)
+                            profile_img = render_profile(dd, _pr) if (_pr and _pr.get("games")) else None
+                        except Exception:
+                            profile_img = None
+                    emit(profile_img or info_image(err))
+                else:
+                    emit(info_image(err))
             time.sleep(3)
             continue
         shown = True                       # resolve succeeded -> we're in a session

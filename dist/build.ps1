@@ -24,7 +24,7 @@ function Invoke-Ahk2Exe($inFile, $outFile) {
     # Ahk2Exe is a GUI app, so '&' returns before it finishes - Start-Process -Wait blocks properly.
     Remove-Item $outFile -Force -ErrorAction SilentlyContinue
     $a = @("/in", "`"$inFile`"", "/out", "`"$outFile`"", "/base", "`"$ahk`"", "/icon", "`"$ico`"")
-    $p = Start-Process -FilePath $ahk2exe -ArgumentList $a -Wait -PassThru
+    $p = Start-Process -FilePath $ahk2exe -ArgumentList $a -Wait -PassThru -WindowStyle Hidden
     if (-not (Test-Path $outFile)) { throw "Ahk2Exe produced nothing for $inFile (exit $($p.ExitCode))" }
 }
 
@@ -35,7 +35,7 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Write-Host "==> freeze Python app (PyInstaller)" -ForegroundColor Cyan
 $hidden = @("smiteoverlay","smitewidget","smitesettings","phasecheck","smiteupdate","selftest",
             "smitecard","smiteconfig","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
-            "claudecli","PIL._tkinter_finder")
+            "lolprofile","claudecli","PIL._tkinter_finder")
 $pyiArgs = @("--noconfirm","--onedir","--windowed","--name","SmitelessApp","--icon",$ico,
              "--paths",(Join-Path $repo "core"),"--paths",(Join-Path $repo "ui"),"--paths",(Join-Path $repo "tools"),
              "--distpath",(Join-Path $build "pyi"),"--workpath",(Join-Path $build "pyiwork"),"--specpath",$build)
