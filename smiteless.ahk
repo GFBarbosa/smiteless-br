@@ -29,6 +29,7 @@ A_IconTip := "Smiteless"
 tray := A_TrayMenu
 tray.Delete()                                   ; replace the default AHK menu
 tray.Add("Open overlay", (*) => OpenSmiteless(false))
+tray.Add("Profile / home", (*) => OpenProfile())
 tray.Add("Item widget", (*) => OpenWidget())
 tray.Add("Settings", (*) => OpenSettings())
 tray.Add()
@@ -52,6 +53,11 @@ OpenSmiteless(autoMode := false) {
 OpenWidget() {
     global PYW, SCRIPTS                           ; small floating in-game item helper (single-instance)
     Run('"' PYW '" "' SCRIPTS '\ui\smitewidget.py"', , "Hide")
+}
+
+OpenProfile() {
+    global PYW, SCRIPTS                           ; the home / profile window
+    Run('"' PYW '" "' SCRIPTS '\ui\smiteprofile.py"', , "Hide")
 }
 
 OpenSettings() {

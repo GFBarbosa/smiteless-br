@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""smiteprofile.py - the home / profile window (shown when you open Smiteless out of a game).
+"""smiteprofile.py - the home / profile window (opened out of game, or from the tray/hotkey).
 
-A normal, focusable, SCROLLABLE window: your rank, recent form, champ win rates, and your
-games each scored against the lobby - rendered by smitecard.render_profile and shown in a
-scrolling canvas with a "Load more" button that pulls in more games.
+A normal, focusable, landscape, SCROLLABLE window: your rank, recent form, champ win rates,
+and your games each scored against the lobby. Click a game to expand its 10-player breakdown
+in place (click again to collapse); "Load more" pulls in older games.
 """
 import sys, os, threading, ctypes
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +17,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
             pass
 import lolbuild as lb
 import lolprofile as lp
+import lolscout as ls
 import smitecard as sc
 import smiteconfig as cfg
 
@@ -34,7 +35,7 @@ def _single_instance():
 def _center(root, w, h):
     try:
         sw, sh = _user32.GetSystemMetrics(0), _user32.GetSystemMetrics(1)
-        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2 - 30)}")
+        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2 - 40)}")
     except Exception:
         root.geometry(f"{w}x{h}")
 
@@ -46,29 +47,30 @@ def main():
     from PIL import ImageTk
 
     dd = lb.ddragon()
-    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo": None}
+    key = ls.read_key()
+    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo": None,
+          "prof": None, "expanded": set(), "details": {}, "hit": []}
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
     root.configure(bg=BG)
-    ico = os.path.join(_ROOT, "assets", "smiteless.ico")
     try:
+        ico = os.path.join(_ROOT, "assets", "smiteless.ico")
         if os.path.exists(ico):
             root.iconbitmap(ico)
     except Exception:
         pass
-    _center(root, sc.W + 22, 720)
-    root.minsize(sc.W + 22, 360)
+    _center(root, sc.W + 24, 600)              # landscape; the content scrolls
+    root.minsize(sc.W + 24, 360)
 
     body = tk.Frame(root, bg=BG)
     body.pack(side="top", fill="both", expand=True)
     vbar = tk.Scrollbar(body, orient="vertical")
     vbar.pack(side="right", fill="y")
-    canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set)
+    canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.W)
     canvas.pack(side="left", fill="both", expand=True)
     vbar.config(command=canvas.yview)
-    canvas.create_text(sc.W // 2, 60, text="loading your profile…", fill=MUTED,
-                       font=("Segoe UI", 13), tags="msg")
+    canvas.create_text(sc.W // 2, 60, text="loading your profile…", fill=MUTED, font=("Segoe UI", 13))
 
     bar = tk.Frame(root, bg=BAR)
     bar.pack(side="bottom", fill="x")
@@ -81,23 +83,32 @@ def main():
     loadbtn.bind("<Enter>", lambda e: loadbtn.config(bg=BTN_HOVER))
     loadbtn.bind("<Leave>", lambda e: loadbtn.config(bg=BTN))
 
+    def _render(keep_scroll=True):
+        prof = st["prof"]
+        if not prof:
+            return
+        pil = sc.render_profile(dd, prof, st["expanded"], st["details"])
+        photo = ImageTk.PhotoImage(pil)
+        st["photo"] = photo                    # keep a ref or Tk GC's it
+        top = canvas.yview()[0] if keep_scroll else 0.0
+        canvas.delete("all")
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        canvas.configure(scrollregion=(0, 0, pil.width, pil.height))
+        canvas.yview_moveto(top)
+        st["hit"] = getattr(pil, "hit_games", [])
+
     def _apply(prof):
         st["busy"] = False
         if not prof or not prof.get("games"):
             canvas.delete("all")
-            msg = (prof.get("error") if prof else None) or "no ranked games found (need a Riot API key)"
-            canvas.create_text(sc.W // 2, 60, text=msg, fill=MUTED, font=("Segoe UI", 12))
+            msg = (prof.get("error") if prof else None) or \
+                "couldn't read your profile — is the League client open, with a Riot key set?"
+            canvas.create_text(sc.W // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.W - 100)
             return
-        pil = sc.render_profile(dd, prof)
-        photo = ImageTk.PhotoImage(pil)
-        st["photo"] = photo                       # keep a ref or Tk GC's it (blank image)
-        top = canvas.yview()[0]
-        canvas.delete("all")
-        canvas.create_image(0, 0, anchor="nw", image=photo)
-        canvas.configure(scrollregion=(0, 0, pil.width, pil.height))
-        canvas.yview_moveto(top)                  # keep scroll position across "load more"
-        status.config(text=f"showing {len(prof['games'])} games")
-        more = len(prof["games"]) >= st["count"]  # there were at least as many as we asked for
+        st["prof"] = prof
+        _render(keep_scroll=False)
+        status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
+        more = len(prof["games"]) >= st["count"]
         loadbtn.config(state="normal" if more else "disabled",
                        text="Load more" if more else "no more games")
 
@@ -108,6 +119,7 @@ def main():
         if more:
             st["count"] += 10
             loadbtn.config(text="loading…", state="disabled")
+
         def work():
             try:
                 prof = lp.build_profile(dd, count=st["count"])
@@ -116,7 +128,32 @@ def main():
             root.after(0, lambda: _apply(prof))
         threading.Thread(target=work, daemon=True).start()
 
+    def _fetch_detail(mid):
+        def work():
+            try:
+                det = lp.match_detail(mid, key)
+            except Exception:
+                det = None
+            st["details"][mid] = det or {}
+            root.after(0, _render)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_click(event):
+        y = canvas.canvasy(event.y)
+        for y0, y1, idx in st["hit"]:
+            if y0 <= y <= y1:
+                if idx in st["expanded"]:
+                    st["expanded"].discard(idx)
+                else:
+                    st["expanded"].add(idx)
+                    mid = st["prof"]["games"][idx].get("mid")
+                    if mid and mid not in st["details"]:
+                        _fetch_detail(mid)       # loads, then re-renders
+                _render()
+                return
+
     loadbtn.config(command=lambda: _load(True))
+    canvas.bind("<Button-1>", _on_click)
     canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
     root.bind("<Escape>", lambda e: root.destroy())
     root.after(60, lambda: _load(False))

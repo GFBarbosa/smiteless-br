@@ -45,6 +45,9 @@ def main():
     elif cmd == "settings":
         import smitesettings
         smitesettings.main()
+    elif cmd == "profile":
+        import smiteprofile
+        smiteprofile.main()
     elif cmd == "phase":
         import tempfile
         import phasecheck

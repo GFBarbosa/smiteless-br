@@ -382,46 +382,82 @@ def _profile_headline(p):
     return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; the score grades each game vs the whole lobby."
 
 
-def render_profile(dd, p):
-    """The 'home' page: who you are, rank, recent form, champ win rates, and per-game scores
-    graded against the whole lobby. Carded layout; shown out of game (and in the profile window)."""
+DETAIL_H = 170          # height of an expanded game's 10-player breakdown
+
+
+def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w):
+    """The 10-player breakdown for an expanded game (KDA + damage bars, both teams)."""
+    _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
+    me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
+    myteam = me["team"] if me else 100
+    maxd = max((pl["dmg"] for pl in parts), default=1) or 1
+    pad, colw = 16, (w - 48) // 2
+    teams = [[pl for pl in parts if pl["team"] == myteam],
+             [pl for pl in parts if pl["team"] != myteam]]
+    for ci, team in enumerate(teams):
+        cx = x0 + pad + ci * (colw + 16)
+        d.text((cx, y0 + 9), "YOUR TEAM" if ci == 0 else "ENEMY", font=font(10, 1),
+               fill=(125, 166, 216) if ci == 0 else (216, 130, 130))
+        ry = y0 + 30
+        for pl in team[:5]:
+            cid = dd["name2id"].get(dd["norm"](pl["champ"]))
+            ic = get_icon(dd, cid, 22)
+            if ic:
+                img.paste(ic, (cx, ry), ic)
+            mine = pl["puuid"] == my_puuid
+            d.text((cx + 28, ry + 3), f"{pl['k']}/{pl['d']}/{pl['a']}",
+                   font=font(11, 1 if mine else 0), fill=GOLD if mine else TEXT)
+            bx, bw = cx + 96, colw - 138
+            _rrect(d, (bx, ry + 7, bx + bw, ry + 13), 3, fill=(40, 44, 56))
+            _rrect(d, (bx, ry + 7, bx + max(2, int(bw * pl["dmg"] / maxd)), ry + 13), 3, fill=(214, 130, 96))
+            d.text((cx + colw - 4, ry + 2), f"{pl['dmg'] // 1000}k", font=font(10), fill=MUTED, anchor="ra")
+            ry += 26
+
+
+def render_profile(dd, p, expanded=None, details=None):
+    """The home page: rank, recent form, champ win rates, and per-game scores graded vs the
+    lobby. Carded; games in `expanded` (indices) show the 10-player breakdown from `details`
+    (mid -> parts). Sets img.hit_games = [(y0, y1, index)] for click-to-expand."""
+    expanded = expanded or set()
+    details = details or {}
     games = p.get("games", [])
-    HEAD, CHAMPS = 116, 96
+    HEAD, CHAMPS = 118, 96
     games_top = HEAD + CHAMPS + 34
-    H = games_top + max(1, len(games)) * 50 + 16
+    H = games_top + 16
+    for i in range(len(games)):
+        H += 50 + (DETAIL_H + 8 if i in expanded else 0)
+    H = max(H, games_top + 60)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
     # ---- header card ----
-    _rrect(d, (14, 12, W - 14, 100), 14, fill=PCARD, outline=PEDGE, width=1)
+    _rrect(d, (14, 12, W - 14, 104), 14, fill=PCARD, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
-    d.text((32, 24), name, font=name_font(25, name), fill=TEXT)
+    d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
     rs, rc = rank_str(p.get("rank"))
-    bw = 188
-    _rrect(d, (W - 30 - bw, 26, W - 30, 64), 9, fill=_dim(rc, 0.22), outline=_dim(rc, 0.55), width=1)
-    d.text(((W - 30 - bw / 2), 38), rs, font=font(17, 1), fill=rc, anchor="ma")
-    d.text((W - 30 - bw / 2, 76), "RANKED SOLO", font=font(9), fill=MUTED, anchor="ma")
+    d.text((30, 58), rs, font=font(14, 1), fill=rc)
     # win bar + record
-    bx, by, bw2 = 32, 66, 240
-    _rrect(d, (bx, by, bx + bw2, by + 9), 4, fill=(46, 50, 64))
-    wfrac = max(0.0, min(1.0, p["wr"] / 100.0))
-    if wfrac > 0:
-        _rrect(d, (bx, by, bx + int(bw2 * wfrac), by + 9), 4, fill=GREEN if p["wr"] >= 50 else REDWR)
-    d.text((bx, 80), f"{p['wins']}W {p['losses']}L", font=font(12, 1), fill=TEXT)
-    d.text((bx + 70, 80), f"{p['wr']}% · last {p['n']}", font=font(12), fill=MUTED)
-    # avg score
+    bx, by, bw2 = 30, 82, 230
+    _rrect(d, (bx, by, bx + bw2, by + 8), 4, fill=(46, 50, 64))
+    if p["wr"] > 0:
+        _rrect(d, (bx, by, bx + int(bw2 * min(1.0, p["wr"] / 100.0)), by + 8), 4,
+               fill=GREEN if p["wr"] >= 50 else REDWR)
+    d.text((bx + bw2 + 14, by - 4), f"{p['wins']}W {p['losses']}L  ·  {p['wr']}%  ·  last {p['n']}",
+           font=font(12, 1), fill=TEXT)
+    # rank badge (top-right) + avg score
     sc_col = GRADE_COLOR["A"] if p["avg_score"] >= 58 else (REDWR if p["avg_score"] < 45 else TAN)
-    d.text((bx + 300, 60), str(p["avg_score"]), font=font(30, 1), fill=sc_col)
-    d.text((bx + 300, 92), "AVG GAME SCORE", font=font(9), fill=MUTED)
+    d.text((W - 30, 30), str(p["avg_score"]), font=font(34, 1), fill=sc_col, anchor="ra")
+    d.text((W - 30, 74), "AVG GAME SCORE", font=font(9, 1), fill=MUTED, anchor="ra")
     # headline
-    for ln in _wrap(_profile_headline(p), font(12), W - 40)[:1]:
-        d.text((18, 104), ln, font=font(12), fill=TAN)
+    for ln in _wrap(_profile_headline(p), font(12), W - 60)[:1]:
+        d.text((30, 116), ln, font=font(12), fill=TAN)
 
     # ---- top champions ----
-    cy = HEAD + 8
+    cy = HEAD + 6
     d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
-    x, cw = 14, (W - 28) // max(1, min(6, len(p.get("champs", [])) or 1))
-    cw = min(cw, 150)
+    nch = max(1, min(6, len(p.get("champs", [])) or 1))
+    cw = min(150, (W - 28) // nch)
+    x = 14
     for c in p.get("champs", [])[:6]:
         cid = dd["name2id"].get(dd["norm"](c["champ"]))
         _rrect(d, (x, cy + 18, x + cw - 8, cy + 66), 10, fill=PCARD, outline=PEDGE, width=1)
@@ -431,18 +467,18 @@ def render_profile(dd, p):
         d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=font(12, 1), fill=TEXT)
         wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
         d.text((x + 54, cy + 44), f"{c['wr']}%", font=font(13, 1), fill=wcol)
-        d.text((x + 90, cy + 46), f"{c['g']}g", font=font(10), fill=MUTED)
+        d.text((x + 92, cy + 46), f"{c['g']}g", font=font(10), fill=MUTED)
         x += cw
 
-    # ---- recent games (card rows) ----
+    # ---- recent games ----
     d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
-    d.text((W - 20, games_top - 21), "score = your game graded vs all 10 players",
+    d.text((W - 20, games_top - 21), "click a game to expand  ·  score = graded vs all 10",
            font=font(10), fill=(118, 116, 108), anchor="ra")
-    yy = games_top
-    for g in games:
+    hit_games, yy = [], games_top
+    for i, g in enumerate(games):
         acc = GREEN if g["win"] else REDWR
-        _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))  # accent base
-        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=PCARD2)          # card on top -> left accent strip
+        _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))
+        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=PCARD2)
         cid = dd["name2id"].get(dd["norm"](g["champ"]))
         ic = get_icon(dd, cid, 32)
         if ic:
@@ -451,12 +487,24 @@ def render_profile(dd, p):
         d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=font(13, 1), fill=TEXT)
         d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=font(11), fill=MUTED)
         gc = GRADE_COLOR.get(g["letter"], TAN)
-        _rrect(d, (300, yy + 9, 360, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
-        d.text((312, yy + 13), g["letter"], font=font(14, 1), fill=gc)
-        d.text((338, yy + 15), str(g["score"]), font=font(12, 1), fill=gc)
-        d.text((378, yy + 15), f"#{g['rank']}/10", font=font(11), fill=MUTED)
-        d.text((452, yy + 14), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        _rrect(d, (300, yy + 9, 362, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
+        d.text((312, yy + 14), g["letter"], font=font(14, 1), fill=gc)
+        d.text((340, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
+        d.text((384, yy + 16), f"#{g['rank']}/10", font=font(11), fill=MUTED)
+        d.text((456, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13), fill=MUTED, anchor="ra")
+        hit_games.append((yy, yy + 44, i))
         yy += 50
+        if i in expanded:
+            parts = (details.get(g.get("mid")) or {}).get("parts")
+            if parts:
+                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28)
+            else:
+                _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
+                d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),
+                       fill=MUTED, anchor="mm")
+            yy += DETAIL_H + 8
+    img.hit_games = hit_games
     img.hitmap = []
     return img
 
@@ -776,25 +824,15 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         # opening the overlay out of game shows the PREVIOUS game instead of the home page.
         ph = phasecheck.phase()
         if ph not in ACTIVE_PHASES:
-            if ph == "":                   # no League client reachable (closed, or a mid-game lag blip)
-                if not wait and not shown:
-                    emit(info_image("waiting for the League client…"))
+            if ph == "":                   # client unreachable (closed, or a mid-game lag blip) -> wait
                 time.sleep(3)
                 continue
-            if monitor and shown:          # we were in a champ select / game and it's over -> close
+            if monitor and shown:          # we were in champ select / a game and it's over -> close
                 inactive += 1
                 if inactive >= 2:
                     return
-            elif not wait:                 # opened cold, OUT OF GAME -> the home / profile page
-                if not profile_tried:
-                    profile_tried = True
-                    emit(info_image("loading your profile…"))
-                    try:
-                        _pr = lp.build_profile(dd)
-                        profile_img = render_profile(dd, _pr) if (_pr and _pr.get("games")) else None
-                    except Exception:
-                        profile_img = None
-                emit(profile_img or info_image("open champ select or a game for the live board"))
+            elif not wait:                 # opened out of a game -> the Profile WINDOW handles this
+                return
             time.sleep(3)
             continue
         inactive = 0

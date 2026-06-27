@@ -25,6 +25,7 @@ A_IconTip := "Smiteless"
 tray := A_TrayMenu
 tray.Delete()
 tray.Add("Open overlay", (*) => Launch("overlay"))
+tray.Add("Profile / home", (*) => Launch("profile"))
 tray.Add("Item widget", (*) => Launch("widget"))
 tray.Add("Settings", (*) => Launch("settings"))
 tray.Add()

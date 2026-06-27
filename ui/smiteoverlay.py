@@ -123,18 +123,31 @@ def restore_foreground(target):
         pass
 
 
+def _open_profile():
+    """Open the Profile window as its own process (works frozen or as dev scripts)."""
+    import subprocess
+    try:
+        if getattr(sys, "frozen", False):
+            subprocess.Popen([sys.executable, "profile"], close_fds=True)   # SmitelessApp.exe profile
+        else:
+            prof = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smiteprofile.py")
+            subprocess.Popen([sys.executable, prof], close_fds=True)         # pythonw smiteprofile.py
+    except Exception:
+        pass
+
+
 def main():
     argv = sys.argv[1:]
     wait = "--wait" in argv
     if wait:
         argv.remove("--wait")
-    # A manual open OUTSIDE a game -> the home/profile window instead of the in-game board.
+    # A manual open OUTSIDE a game -> the home/profile window (a separate process) instead of
+    # the in-game board.
     if not wait:
         try:
             import phasecheck
             if phasecheck.phase() not in sc.ACTIVE_PHASES:
-                import smiteprofile
-                smiteprofile.main()
+                _open_profile()
                 return
         except Exception:
             pass

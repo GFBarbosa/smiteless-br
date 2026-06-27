@@ -145,7 +145,8 @@ def build_profile(dd, key=None, count=14):
         score, letter, label, lobby_rank = _grade_game(d["parts"], mine, d["dur"])
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
-                      "rank": lobby_rank, "pos": mine["pos"]})
+                      "rank": lobby_rank, "pos": mine["pos"], "mid": mid,
+                      "dur": d.get("dur", 0)})
         wins += 1 if mine["win"] else 0
         cs = champ.setdefault(mine["champ"], {"g": 0, "w": 0, "score": 0})
         cs["g"] += 1
@@ -156,7 +157,7 @@ def build_profile(dd, key=None, count=14):
         ({"champ": c, "g": v["g"], "w": v["w"], "wr": round(v["w"] / v["g"] * 100),
           "avg": round(v["score"] / v["g"])} for c, v in champ.items()),
         key=lambda x: (-x["g"], -x["wr"]))
-    return {"riot_id": rid, "rank": rk, "n": n, "wins": wins, "losses": n - wins,
+    return {"riot_id": rid, "puuid": puuid, "rank": rk, "n": n, "wins": wins, "losses": n - wins,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-            "champs": champs[:6], "games": games[:10]}
+            "champs": champs[:6], "games": games}
