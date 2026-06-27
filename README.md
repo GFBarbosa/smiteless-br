@@ -60,6 +60,10 @@ The overlay has:
    item vs magic, anti-heal vs a healer) **only when the enemy's actual built damage + who's
    fed calls for it** — dropping each suggestion the moment you own it. Real op.gg items, no
    generic tables, no AI. See [Floating item widget](#floating-item-widget) below.
+8. **Home / profile page** — open the overlay **outside a game** and instead of a "no game"
+   message you get your profile: rank, recent ranked form, champion win rates, a friendly
+   headline read, and your **last games each scored 0–100 against the whole lobby** (hard
+   carry / carried / rough one / could've done better). Needs a Riot key.
 
 Everything that states a number traces to a real source (op.gg or the Riot API).
 
@@ -204,6 +208,8 @@ had to change when the files moved into folders.
 - `core/lolitems.py` — in-game item logic: pulls your champ's real item pool from op.gg, reads
   the live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed),
   and picks the next item + the right defensive piece from that pool. No AI, no generic tables.
+- `core/lolprofile.py` — the home page: who you are (live client) + Riot-API rank, recent form,
+  champ win rates, and each recent game scored 0–100 against the whole lobby.
 - `core/lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
 - `core/claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);

@@ -28,7 +28,7 @@ That's it — Smiteless is installed and running. ✅
 ## Step 3 — Using it
 - Look for a little **gold "S"** icon near the clock (bottom-right of your screen). If you don't see it, click the small **`^`** arrow next to the clock — it's hiding there. You can drag it out to keep it visible.
 - **It opens by itself** when you're in champ select and in a game.
-- To open it any time, press **`Ctrl` + `Alt` + `X`**.
+- To open it any time, press **`Ctrl` + `Alt` + `X`**. Open it **outside a game** and you get your **profile** — rank, recent win rates, and how you scored in your last games (needs the free Riot key from Step 4).
 - The **item helper** (a small window that tells you what to build) opens by itself in-game, or press **`Ctrl` + `Alt` + `B`**. You can drag it anywhere.
 - **Important:** set League to **Borderless** mode (Settings → Graphics → Window Mode → Borderless), or the overlay won't show over the game.
 - Smiteless **starts automatically** every time you turn on your computer.
