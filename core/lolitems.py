@@ -18,6 +18,11 @@ AP_CHAMPS = {"Akali", "Ekko", "Fizz", "Diana", "Katarina", "Evelynn", "Gwen", "T
 HEAL_CHAMPS = {"Soraka", "Vladimir", "Aatrox", "DrMundo", "Swain", "Yuumi", "Nami",
               "Warwick", "Sylas", "Sett", "Fiora", "Briar", "Sona", "Renekton", "Illaoi",
               "Taric", "Yorick", "Olaf", "Gangplank", "Irelia", "Kayn", "Ramus"}
+# Heal-CENTRIC champs: sustain is core to their fights, so anti-heal is worth it whenever
+# they're not behind. The rest of HEAL_CHAMPS heal a bit, but only warrant anti-heal once
+# they're fed (or are the enemy you're actually fighting) - otherwise it's just noise.
+HEAVY_HEAL = {"Soraka", "Vladimir", "Aatrox", "DrMundo", "Swain", "Yuumi", "Nami",
+             "Warwick", "Sylas", "Briar", "Fiora", "Sona", "Taric", "Sett"}
 CC_CHAMPS = {"Leona", "Nautilus", "Maokai", "Sejuani", "Morgana", "Lux", "Ashe", "Amumu",
             "Rell", "Ornn", "Sion", "Malphite", "Lissandra", "Annie", "Veigar", "Zoe",
             "Ahri", "JarvanIV", "Rammus", "Skarner", "Neeko", "Galio", "Thresh",
@@ -184,7 +189,7 @@ def live_state(dd):
         if key in CC_CHAMPS:
             cc += 1
         elist.append({"name": name, "dtype": dtype, "dmg": int(dmg), "crit": crit, "heals": heals,
-                      "k": k, "d": dth, "lead": lead, "danger": danger})
+                      "heavy": key in HEAVY_HEAL, "k": k, "d": dth, "lead": lead, "danger": danger})
     if not elist:
         return None
     ad_score = sum(e["danger"] for e in elist if e["dtype"] == "AD")
@@ -193,11 +198,20 @@ def live_state(dd):
     primary = max(elist, key=lambda e: e["danger"])                        # scariest enemy overall
     of_type = [e for e in elist if e["dtype"] == threat]
     main = max(of_type, key=lambda e: e["danger"]) if of_type else primary  # scariest of the threat type
+    # Anti-heal is only worth it when the healing actually matters - not just because some
+    # enemy can heal. A healer counts if they're heal-CENTRIC and not behind, OR they're fed,
+    # OR they're the enemy you're building against. Two+ healers also stack into a threat.
+    heal_sig = [e["name"] for e in elist if e["heals"]
+                and ((e["heavy"] and e["lead"] >= 0) or e["lead"] >= 4 or e is main)]
+    n_healers = sum(1 for e in elist if e["heals"])
+    heal_threat = bool(heal_sig) or n_healers >= 2
+    heal_names = heal_sig or [e["name"] for e in elist if e["heals"]]
     return {"my_cid": my_cid, "my_role": (me.get("position") or "").lower(), "my_items": my_items,
             "my_gold": my_gold, "threat": threat,
             "e_ad": int(sum(e["dmg"] for e in elist if e["dtype"] == "AD")),
             "e_ap": int(sum(e["dmg"] for e in elist if e["dtype"] == "AP")),
             "healers": healers, "heal_items": heal_items, "cc": cc,
+            "heal_threat": heal_threat, "heal_names": heal_names,
             "primary": primary, "main": main}
 
 
@@ -264,10 +278,11 @@ def recommend(dd, st=None):
         cand = _pick_counter(dd, cands, threat, main, play)
         if cand:
             add("counter", cand, f"{nm(cand)}  ·  {_why(main, threat)}")
-    # 2) anti-heal if the enemy sustains and you don't already have it
-    if (st["healers"] or st["heal_items"]) and not has("antiheal", owned):
+    # 2) anti-heal - ONLY when the healing actually matters (a fed / heal-centric enemy, or
+    #    the one you're fighting), not just because someone on the team can heal a little
+    if st["heal_threat"] and not has("antiheal", owned):
         ah = next((i for i in pool["seq"] if "antiheal" in pool["cats"].get(i, set()) and i not in used), None) if pool else None
-        tag = ", ".join(st["healers"][:2]) or "lifesteal"
+        tag = ", ".join(st["heal_names"][:2]) or "lifesteal"
         add("antiheal", ah, f"{nm(ah) if ah else 'Grievous Wounds item'}  ·  cut {tag} healing")
     # 3) the next standard build item (advances as you buy)
     if pool:
