@@ -266,6 +266,7 @@ def apply_settings():
     'streak influence' dial scales the form weight, streak compounding, and the extreme
     override together (50 = the defaults above). Called each render so changes apply live."""
     global GANK_W_FORM, GANK_STREAK_COMP, GANK_EXTREME, GANK_W_CHAMP, GANK_OFFCHAMP, GANK_T
+    global GANK_KIT_ON, DUO_ON
     s = cfg.load()
     m = s["streak_influence"] / 50.0          # 0..2, default 1.0; scales all "enemy state" terms
     GANK_W_FORM = 0.15 * m
@@ -274,7 +275,13 @@ def apply_settings():
     GANK_OFFCHAMP = 4.0 * m
     GANK_EXTREME = min(32.0, 16.0 * m)        # at m=0 -> 0: pure champ matchup, ignore how they're doing
     GANK_T = float(s["gank_threshold"])
+    GANK_KIT_ON = s.get("gank_kit", True)     # feature toggles
+    DUO_ON = s.get("duo_detection", True)
     return s
+
+
+GANK_KIT_ON = True
+DUO_ON = True
 
 
 def _streak(form):
@@ -656,8 +663,8 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     else:
         d.text((W - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
     cxc = W // 2
-    my_kit = gank_kit(dd, my_cid)                 # your champ's CC/engage shifts every gank
-    duo_of = detect_duos(scout_map) if (roles_known and not champ_select) else {}
+    my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
+    duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build)
     for i, (role, lbl) in enumerate(ROLES):
@@ -837,8 +844,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         scout_map = {}
         patch = lm.patch_of(dd["ver"])
         opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
+        tips_on = settings.get("matchup_tips", True)
         tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
-                                      my_role, patch) if opp_cid else None)}
+                                      my_role, patch) if (tips_on and opp_cid) else None)}
         def paint(note=""):
             emit(render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
                  src, note, lane_tip=tip_box["tip"]))
@@ -848,7 +856,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         # blocks the scout - the board fills in while the tip is being written, and each
         # repaint picks it up once it's ready.
         tip_thread = None
-        if opp_cid and not tip_box["tip"]:
+        if tips_on and opp_cid and not tip_box["tip"]:
             def _gen_tip():
                 t, _e = lm.generate_tip(dd["id2name"].get(my_cid, ""), dd["id2key"].get(my_cid, ""),
                                         dd["id2name"].get(opp_cid, ""), dd["id2key"].get(opp_cid, ""),

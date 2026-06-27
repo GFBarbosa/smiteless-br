@@ -21,6 +21,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import lolbuild as lb
 import lolitems as li
 import phasecheck
+import smiteconfig as cfg
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
                           monitors, _kernel32)
 
@@ -60,6 +61,8 @@ def _save_pos(x, y):
 
 
 def main():
+    if not cfg.load().get("item_widget", True):
+        return                                           # item widget disabled in settings
     if not acquire_single_instance():
         return                                           # one widget already up
     import tkinter as tk

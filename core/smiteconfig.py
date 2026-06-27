@@ -15,12 +15,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 #   scales the enemy form weight, the streak compounding, and the extreme override).
 # gank_threshold: |score| cut for GANK / TOUGH (lower = more lanes tagged).
 # scout_games: recent ranked games pulled per player.
-DEFAULTS = {"streak_influence": 50, "gank_threshold": 6.0, "scout_games": 10}
-RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_games": (5, 20)}
+DEFAULTS = {"streak_influence": 50, "gank_threshold": 6.0, "scout_games": 10, "profile_games": 10}
+RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_games": (5, 20),
+          "profile_games": (5, 40)}
+# Feature toggles (read live by the relevant module).
+BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-game
+         "gank_kit": True,        # factor YOUR champ's CC/engage into the gank ratings
+         "duo_detection": True,   # show the duo / premade markers
+         "item_widget": True}     # the floating in-game item helper
 
 
 def load():
     s = dict(DEFAULTS)
+    s.update(BOOLS)
     try:
         raw = json.load(open(PATH, encoding="utf-8"))
         for k in DEFAULTS:
@@ -28,6 +35,9 @@ def load():
                 v = type(DEFAULTS[k])(raw[k])
                 lo, hi = RANGES[k]
                 s[k] = min(hi, max(lo, v))
+        for k in BOOLS:
+            if k in raw:
+                s[k] = bool(raw[k])
     except Exception:
         pass
     return s
@@ -42,6 +52,8 @@ def save(s):
             v = DEFAULTS[k]
         lo, hi = RANGES[k]
         clean[k] = min(hi, max(lo, v))
+    for k in BOOLS:
+        clean[k] = bool(s.get(k, BOOLS[k]))
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"

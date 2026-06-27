@@ -88,6 +88,9 @@ def main():
     scout = scale_row("Scout depth (games / player)",
                       "more games = steadier form read, but a slower first scout",
                       5, 20, 1, s["scout_games"], lambda v: f"{int(v)}")
+    pgames = scale_row("Profile: games to load",
+                       "how many recent games the home/profile page loads (and per 'Load more')",
+                       5, 40, 1, s["profile_games"], lambda v: f"{int(v)}")
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
     startwin = tk.BooleanVar(value=cfg.autostart_enabled())
@@ -97,8 +100,24 @@ def main():
                               activebackground=BG, activeforeground=TXT, font=("Segoe UI", 9),
                               bd=0, highlightthickness=0)
 
+    tips = tk.BooleanVar(value=s["matchup_tips"])
+    kit = tk.BooleanVar(value=s["gank_kit"])
+    duo = tk.BooleanVar(value=s["duo_detection"])
+    widget = tk.BooleanVar(value=s["item_widget"])
+
+    tk.Label(root, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    ffr = tk.Frame(root, bg=BG)
+    ffr.pack(fill="x", padx=16)
+    col1 = tk.Frame(ffr, bg=BG); col1.pack(side="left", fill="x", expand=True, anchor="n")
+    col2 = tk.Frame(ffr, bg=BG); col2.pack(side="left", fill="x", expand=True, anchor="n")
+    _chk(col1, "In-game item widget", widget).pack(anchor="w")
+    _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
+    _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
+    _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
+
+    tk.Label(root, text="STARTUP", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
     afr = tk.Frame(root, bg=BG)
-    afr.pack(fill="x", padx=16, pady=(8, 0))
+    afr.pack(fill="x", padx=16, pady=(0, 0))
     _chk(afr, "Auto-open at champ select", auto).pack(side="left")
     _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
@@ -106,18 +125,21 @@ def main():
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
-        cfg.save({"streak_influence": int(infl.get()),
-                  "gank_threshold": float(thr.get()),
-                  "scout_games": int(scout.get())})
+        cfg.save({"streak_influence": int(infl.get()), "gank_threshold": float(thr.get()),
+                  "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
+                  "matchup_tips": tips.get(), "gank_kit": kit.get(),
+                  "duo_detection": duo.get(), "item_widget": widget.get()})
         cfg.set_auto_open(auto.get())
         cfg.set_autostart(startwin.get())
-        status.config(text="saved ✓  (overlay updates live; auto-open next game)", fg=GREEN)
+        status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GREEN)
 
     def reset():
         infl.set(cfg.DEFAULTS["streak_influence"])
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
-        auto.set(True)
+        pgames.set(cfg.DEFAULTS["profile_games"])
+        for v in (tips, kit, duo, widget, auto):
+            v.set(True)
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)
 
     def mkbtn(parent, text, cmd, accent=False):

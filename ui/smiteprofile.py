@@ -18,6 +18,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import lolbuild as lb
 import lolprofile as lp
 import smitecard as sc
+import smiteconfig as cfg
 
 BG = "#0e1016"; BAR = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#8b897f"
 BTN = "#262b3b"; BTN_HOVER = "#333a52"
@@ -45,7 +46,7 @@ def main():
     from PIL import ImageTk
 
     dd = lb.ddragon()
-    st = {"count": 10, "busy": False, "photo": None}
+    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo": None}
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
