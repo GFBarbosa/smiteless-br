@@ -142,27 +142,33 @@ def main():
     q = queue.Queue()
 
     def worker():
-        seen, out = False, 0                             # out = consecutive reads with no game
+        seen, ended, stale = False, 0, 0
         while st["alive"]:
             try:
                 rec = li.recommend(dd)
             except Exception:
                 rec = None
-            # "live" = we have data, OR the client is still in an in-game phase. phasecheck
-            # reports InProgress whenever :2999 is up, so a brief mid-game hiccup in EITHER
-            # check just needs the next read to recover - we never close on a single blip.
-            live = rec is not None or phasecheck.phase() in INGAME_PHASES
-            if rec is not None:
-                seen = True
-            if live:
-                out = 0
+            ph = phasecheck.phase()
+            if rec is not None or ph in INGAME_PHASES:   # in a live game -> show + reset
+                seen, ended, stale = True, 0, 0
                 q.put(rec)                               # build lines, or None -> "waiting" while loading
-            else:
-                out += 1
+            elif ph == "":
+                # Client UNREACHABLE: during a teamfight/lag spike both :2999 and the LCU can
+                # time out for a while even though the game is still going. Do NOT disappear -
+                # hold the last frame. Only a very long dead stretch (client really gone) closes.
+                stale += 1
                 if not seen:
                     q.put(rec)                           # never saw a game -> show "waiting"
-                # if seen: keep the last build frame on screen through the blip (no update)
-                if out >= (3 if seen else 2):            # ~15s after a game / ~10s if it never started
+                if stale >= (36 if seen else 4):         # seen: ~3 min tolerance; not seen: ~20s
+                    q.put("__quit__")
+                    return
+            else:
+                # a DEFINITE non-game phase (Lobby / WaitingForStats / EndOfGame / None ...) ->
+                # the game is actually over -> close so the next champ select opens fresh.
+                ended += 1
+                if not seen:
+                    q.put(rec)
+                if ended >= (2 if seen else 3):          # ~10s confirmed over (seen) / ~15s otherwise
                     q.put("__quit__")
                     return
             for _ in range(POLL * 2):
