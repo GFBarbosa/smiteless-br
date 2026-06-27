@@ -12,6 +12,12 @@ import sys, os, json, threading, time, queue
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
+for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no console -> stdio is None
+    if getattr(sys, _s, None) is None:
+        try:
+            setattr(sys, _s, open(os.devnull, "w"))
+        except Exception:
+            pass
 import lolbuild as lb
 import lolitems as li
 import phasecheck

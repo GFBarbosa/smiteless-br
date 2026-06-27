@@ -23,6 +23,14 @@ if not getattr(sys, "frozen", False):
         sys.path.insert(0, os.path.join(_R, _d))
 
 
+for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no console -> stdio is None
+    if getattr(sys, _s, None) is None:
+        try:
+            setattr(sys, _s, open(os.devnull, "w"))
+        except Exception:
+            pass
+
+
 def main():
     cmd = (sys.argv[1] if len(sys.argv) > 1 else "overlay").lower()
     rest = sys.argv[2:]
