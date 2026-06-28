@@ -706,9 +706,30 @@ _ROLE_FALLBACK = {
 }
 
 
+def _ally_comp_bonus(dd, cid, ally_ids):
+    """Small draft-fit bonus based on what your team currently lacks."""
+    tags_by_id = dd.get("id2tags", {})
+    ally_tags = [set(tags_by_id.get(i, [])) for i in ally_ids if i]
+    have_tank = any("Tank" in t for t in ally_tags)
+    have_ap = any("Mage" in t for t in ally_tags)
+    have_ad = any(("Marksman" in t) or ("Assassin" in t) or ("Fighter" in t) for t in ally_tags)
+    have_engage = any(("Tank" in t) or ("Fighter" in t) for t in ally_tags)
+    ctags = set(tags_by_id.get(cid, []))
+    b = 0.0
+    if not have_tank and ("Tank" in ctags):
+        b += 7.0
+    if not have_ap and ("Mage" in ctags):
+        b += 4.0
+    if not have_ad and (("Marksman" in ctags) or ("Assassin" in ctags) or ("Fighter" in ctags)):
+        b += 4.0
+    if not have_engage and (("Tank" in ctags) or ("Fighter" in ctags)):
+        b += 3.0
+    return b
+
+
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
     """A few role-appropriate champ suggestions for champ select.
-    Scored by how well they counter known enemy picks in this draft (op.gg counters)."""
+    Scored by enemy counters (op.gg) + ally comp fit (frontline/AP-AD/engage needs)."""
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
     if role not in _ROLE_FALLBACK:
         return []
@@ -719,6 +740,7 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
         return _PICK_CACHE[ck]
     banned = set(ally_ids) | set(enemy_ids)
     scores = {}
+    # Enemy-adaptive score: champs that op.gg lists as strong into the locked enemy picks.
     for eid in enemy_ids:
         try:
             d = lb.opgg(eid, role)
@@ -731,14 +753,23 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
                 continue
             enemy_wr = (c.get("win", 0) / play) * 100.0
             ctr_wr = max(0.0, min(100.0, 100.0 - enemy_wr))
-            sc = scores.setdefault(cid, {"sum": 0.0, "n": 0, "play": 0})
+            sc = scores.setdefault(cid, {"sum": 0.0, "n": 0, "play": 0, "comp": 0.0})
             sc["sum"] += ctr_wr
             sc["n"] += 1
             sc["play"] += play
+    # Ally-adaptive score: prefer candidates that patch missing comp pieces.
+    for cid, sc in list(scores.items()):
+        sc["comp"] = _ally_comp_bonus(dd, cid, ally_ids)
+    for nm in _ROLE_FALLBACK[role]:
+        cid = dd["name2id"].get(dd["norm"](nm))
+        if not cid or cid in banned:
+            continue
+        sc = scores.setdefault(cid, {"sum": 50.0, "n": 1, "play": 0, "comp": 0.0})
+        sc["comp"] = max(sc.get("comp", 0.0), _ally_comp_bonus(dd, cid, ally_ids))
     picked = []
     if scores:
         ranked = sorted(scores.items(),
-                        key=lambda kv: (kv[1]["sum"] / max(1, kv[1]["n"]), kv[1]["play"]),
+                        key=lambda kv: ((kv[1]["sum"] / max(1, kv[1]["n"])) + kv[1].get("comp", 0.0), kv[1]["play"]),
                         reverse=True)
         picked = [cid for cid, _ in ranked if cid not in banned][:topn]
     if len(picked) < topn:
