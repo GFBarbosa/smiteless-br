@@ -63,25 +63,102 @@ def latest_release():
     return (tag, url) if tag and url else None
 
 
-def _download(url, dest):
+def _download(url, dest, on_progress=None):
     ctx = ssl.create_default_context()
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=60, context=ctx) as r, open(dest, "wb") as f:
+        total = 0
+        try:
+            total = int(r.headers.get("Content-Length", "0") or "0")
+        except Exception:
+            total = 0
+        done = 0
         while True:
             chunk = r.read(65536)
             if not chunk:
                 break
             f.write(chunk)
+            done += len(chunk)
+            if on_progress:
+                on_progress(done, total)
 
 
-def _run_setup(cur, tag, url):
+def _run_setup(cur, tag, url, with_progress=False):
+    prog = None
+    update_text = None
+    update_bar = None
+
+    if with_progress:
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+            prog = tk.Tk()
+            prog.title("Smiteless update")
+            prog.configure(bg="#11131a")
+            prog.resizable(False, False)
+            try:
+                prog.attributes("-topmost", True)
+            except Exception:
+                pass
+            frm = tk.Frame(prog, bg="#11131a")
+            frm.pack(padx=18, pady=14)
+            tk.Label(frm, text=f"Updating to {tag}", fg="#c8aa6e", bg="#11131a",
+                     font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            update_text = tk.StringVar(value="Preparing update...")
+            tk.Label(frm, textvariable=update_text, fg="#d8d6cf", bg="#11131a",
+                     font=("Segoe UI", 9)).pack(anchor="w", pady=(4, 8))
+            update_bar = ttk.Progressbar(frm, orient="horizontal", mode="determinate", length=320, maximum=100)
+            update_bar.pack(fill="x")
+            prog.update_idletasks()
+            prog.eval("tk::PlaceWindow . center")
+            prog.update()
+        except Exception:
+            prog = None
+            update_text = None
+            update_bar = None
+
+    def _set_status(msg, pct=None):
+        if not prog:
+            return
+        try:
+            if update_text is not None:
+                update_text.set(msg)
+            if update_bar is not None:
+                if pct is None:
+                    update_bar.config(mode="indeterminate")
+                    update_bar.start(20)
+                else:
+                    update_bar.stop()
+                    update_bar.config(mode="determinate")
+                    update_bar["value"] = max(0, min(100, pct))
+            prog.update_idletasks()
+            prog.update()
+        except Exception:
+            pass
+
     setup = os.path.join(tempfile.gettempdir(), "SmitelessSetup.exe")
     try:
-        _download(url, setup)
+        _set_status("Downloading installer...", 0)
+        _download(url, setup, on_progress=lambda done, total: _set_status(
+            f"Downloading installer... {int(done * 100 / total)}%" if total > 0 else "Downloading installer...",
+            (done * 100 / total) if total > 0 else None))
     except Exception:
+        if prog:
+            try:
+                prog.destroy()
+            except Exception:
+                pass
         return False
     # /upgrade tells the installer to close the running app, overwrite, and relaunch silently
+    _set_status("Starting installer...", None)
     subprocess.Popen([setup, "/upgrade"], close_fds=True)
+    if prog:
+        _set_status("Installer started. Smiteless will relaunch when done.", 100)
+        try:
+            prog.after(1200, prog.destroy)
+            prog.mainloop()
+        except Exception:
+            pass
     return True
 
 
@@ -105,9 +182,9 @@ def _dialog(cur, tag, url):
     btns.pack(anchor="e")
 
     def do_update():
-        for w in wrap.winfo_children():
-            w.configure(state="disabled") if isinstance(w, tk.Button) else None
-        ok = _run_setup(cur, tag, url)
+        later_btn.configure(state="disabled")
+        update_btn.configure(state="disabled")
+        ok = _run_setup(cur, tag, url, with_progress=True)
         root.destroy()
         if not ok:
             try:
@@ -115,13 +192,17 @@ def _dialog(cur, tag, url):
                 mb.showerror("Smiteless", "Couldn't download the update. Try again later.")
             except Exception:
                 pass
+        else:
+            _info("Update started. Smiteless will restart automatically when installation finishes.")
 
-    tk.Button(btns, text="Later", width=10, command=root.destroy,
-              bg="#262b3b", fg="#d8d6cf", activebackground="#333a52",
-              relief="flat", font=("Segoe UI", 9)).pack(side="right", padx=(8, 0))
-    tk.Button(btns, text="Update now", width=12, command=do_update,
-              bg="#c8aa6e", fg="#11131a", activebackground="#d8bd86",
-              relief="flat", font=("Segoe UI", 9, "bold")).pack(side="right")
+    later_btn = tk.Button(btns, text="Later", width=10, command=root.destroy,
+                          bg="#262b3b", fg="#d8d6cf", activebackground="#333a52",
+                          relief="flat", font=("Segoe UI", 9))
+    later_btn.pack(side="right", padx=(8, 0))
+    update_btn = tk.Button(btns, text="Update now", width=12, command=do_update,
+                           bg="#c8aa6e", fg="#11131a", activebackground="#d8bd86",
+                           relief="flat", font=("Segoe UI", 9, "bold"))
+    update_btn.pack(side="right")
     root.update_idletasks()
     root.eval("tk::PlaceWindow . center")
     root.mainloop()
@@ -169,7 +250,7 @@ def main(args=None):
             _info(f"You're on the latest version ({cur}).")
         return                                     # up to date
     if "--apply" in args:                          # headless apply (no prompt)
-        _run_setup(cur, tag, url)
+        _run_setup(cur, tag, url, with_progress=False)
     else:
         _dialog(cur, tag, url)
 
