@@ -22,3 +22,6 @@ cache/
 build/
 dist/payload.zip
 *.exe
+
+# stale pre-folder-reorg root duplicates (shadowed PyInstaller; archived, not used)
+/_attic/
