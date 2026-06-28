@@ -126,7 +126,7 @@ def main():
     duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
-    flashd = tk.BooleanVar(value=s.get("flash_on_d", True))
+    flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
     ffr = tk.Frame(body, bg=BG)
@@ -136,9 +136,27 @@ def main():
     _chk(col1, "In-game item widget", widget).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
-    _chk(col1, "Put Flash on D", flashd).pack(anchor="w")
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
+
+    fkey = tk.Frame(body, bg=PANEL)
+    fkey.pack(fill="x", padx=14, pady=(6, 2))
+    tk.Label(fkey, text="FLASH KEY", bg=PANEL, fg=TXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
+    row = tk.Frame(fkey, bg=PANEL)
+    row.pack(fill="x", padx=12, pady=(2, 8))
+    tk.Label(row, text="D", bg=PANEL, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(side="left")
+    fscale = tk.Scale(row, from_=0, to=1, resolution=1, orient="horizontal", showvalue=0,
+                      variable=flash_side, bg=PANEL, fg=TXT, troughcolor=TROUGH, highlightthickness=0,
+                      bd=0, activebackground=GOLD, sliderrelief="flat", length=180)
+    fscale.pack(side="left", padx=8)
+    tk.Label(row, text="F", bg=PANEL, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(side="left")
+    fstat = tk.StringVar()
+    tk.Label(row, textvariable=fstat, bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left", padx=(10, 0))
+
+    def _upd_flash(_=None):
+        fstat.set("Flash on D" if flash_side.get() == 0 else "Flash on F")
+    fscale.config(command=_upd_flash)
+    _upd_flash()
 
     tk.Label(body, text="STARTUP", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
     afr = tk.Frame(body, bg=BG)
@@ -228,7 +246,7 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
-                  "auto_accept": autoq.get(), "flash_on_d": flashd.get()})
+                  "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
@@ -239,8 +257,10 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
-        for v in (tips, kit, duo, widget, autoq, flashd, auto, homeonstart):
+        for v in (tips, kit, duo, widget, autoq, auto, homeonstart):
             v.set(True)
+        flash_side.set(0)
+        _upd_flash()
         autoq.set(False)
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)
 
