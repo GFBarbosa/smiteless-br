@@ -85,6 +85,12 @@ OpenHomeOnStartup() {
     Launch("profile")
 }
 
+AutoUpdateOnLaunch() {
+    global APP
+    ; Always attempt background update apply on startup. If already current/offline, it exits quietly.
+    Run('"' APP '" update --apply', , "Hide")
+}
+
 ; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
 ; version exists - on launch AND every few minutes (so it notifies mid-session, not just at
 ; boot). It also renames the menu item to "Update to vX" and flags the icon tooltip. The
@@ -110,6 +116,7 @@ CheckUpdate() {
 }
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
 SetTimer(CheckUpdate, 5 * 60 * 1000)           ; then every 5 minutes
+SetTimer(AutoUpdateOnLaunch, -7000)            ; auto-apply update attempt on launch
 SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after startup
 SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accept if enabled
 
@@ -122,13 +129,14 @@ AutoAcceptTick() {
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
 g_overlayOpened := false
 g_widgetOpened := false
+g_wasInGame := false
 SmiteWatch() {
-    global g_overlayOpened, g_widgetOpened, APP, NOAUTO
-    if FileExist(NOAUTO)
-        return
+    global g_overlayOpened, g_widgetOpened, g_wasInGame, APP, NOAUTO
+    autoOpen := !FileExist(NOAUTO)
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_overlayOpened := false
         g_widgetOpened := false
+        g_wasInGame := false
         return
     }
     out := A_Temp "\smiteless_phase.txt"
@@ -137,7 +145,7 @@ SmiteWatch() {
     Run('"' APP '" phase "' out '"', , "Hide")
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
-    if (active) {
+    if (active && autoOpen) {
         if (!g_overlayOpened) {
             g_overlayOpened := true
             Launch("overlay --wait")
@@ -145,13 +153,17 @@ SmiteWatch() {
     } else {
         g_overlayOpened := false
     }
-    if (ingame) {
+    if (ingame && autoOpen) {
         if (!g_widgetOpened) {
             g_widgetOpened := true
             Launch("widget")
         }
     } else {
         g_widgetOpened := false
+        if (g_wasInGame) {
+            Launch("profile")
+        }
     }
+    g_wasInGame := ingame
 }
 SetTimer(SmiteWatch, 4000)

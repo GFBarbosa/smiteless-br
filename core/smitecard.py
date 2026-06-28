@@ -426,16 +426,17 @@ def _profile_headline(p):
     return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; the score grades each game vs the whole lobby."
 
 
-DETAIL_H = 170          # height of an expanded game's 10-player breakdown
+DETAIL_H = 190          # height of an expanded game's 10-player breakdown + quick review
 
 
-def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w):
+def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None):
     """The 10-player breakdown for an expanded game (KDA + damage bars, both teams)."""
     _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
     myteam = me["team"] if me else 100
     maxd = max((pl["dmg"] for pl in parts), default=1) or 1
-    pad, colw = 16, (w - 48) // 2
+    pad, rw = 16, 232
+    colw = (w - (pad * 2) - rw - 24) // 2
     teams = [[pl for pl in parts if pl["team"] == myteam],
              [pl for pl in parts if pl["team"] != myteam]]
     for ci, team in enumerate(teams):
@@ -456,6 +457,17 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w):
             _rrect(d, (bx, ry + 7, bx + max(2, int(bw * pl["dmg"] / maxd)), ry + 13), 3, fill=(214, 130, 96))
             d.text((cx + colw - 4, ry + 2), f"{pl['dmg'] // 1000}k", font=font(10), fill=MUTED, anchor="ra")
             ry += 26
+    rx = x0 + w - rw - 12
+    _rrect(d, (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), 8, fill=(23, 27, 37), outline=PEDGE, width=1)
+    d.text((rx + 12, y0 + 18), "POST-GAME REVIEW", font=font(10, 1), fill=GOLD)
+    d.text((rx + 12, y0 + 34), "3 things to improve", font=font(10), fill=MUTED)
+    tips = list(review or [])
+    if not tips:
+        tips = ["Loading role-specific review..."]
+    yy = y0 + 54
+    for t in tips[:3]:
+        d.text((rx + 12, yy), "• " + t[:78], font=font(10), fill=TEXT)
+        yy += 40
 
 
 def render_profile(dd, p, expanded=None, details=None):
@@ -542,7 +554,7 @@ def render_profile(dd, p, expanded=None, details=None):
         if i in expanded:
             parts = (details.get(g.get("mid")) or {}).get("parts")
             if parts:
-                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28)
+                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28, g.get("review"))
             else:
                 _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),

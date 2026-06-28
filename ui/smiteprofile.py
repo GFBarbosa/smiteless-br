@@ -120,7 +120,11 @@ def main():
             return
         st["prof"] = prof
         _render(keep_scroll=False)
-        status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
+        latest = (prof.get("games") or [{}])[0].get("review") or []
+        if latest:
+            status.config(text=f"{len(prof['games'])} games  ·  latest review: {latest[0]}")
+        else:
+            status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
         loadbtn.config(state="normal", text="Load more")
 
     def _load(more=False):
