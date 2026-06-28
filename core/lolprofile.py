@@ -85,37 +85,74 @@ def match_detail(mid, key):
 
 
 def _grade_game(parts, mine, dur):
-    """Score 0-100 + letter + label for `mine`, ranked against everyone in the lobby."""
+    """Role-aware, lobby-relative score (can exceed 100 for true carry games)."""
     mins = max(1.0, (dur or 0) / 60.0)
-    team_k = {1: 0, 200: 0}
+    def clamp(v, lo=0.0, hi=1.25):
+        return max(lo, min(hi, float(v)))
+
+    role = (mine.get("pos") or "").upper()
+    if role == "MIDDLE":
+        role = "MID"
+    t = _ROLE_TARGETS.get(role, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
+
+    team_k = {}
+    team_dmg = {}
+    team_gold = {}
+    team_obj = {}
     for p in parts:
-        team_k[p["team"]] = team_k.get(p["team"], 0) + p["k"]
-    mx = lambda key: max((p[key] for p in parts), default=1) or 1
-    md, mg, mc = mx("dmg"), mx("gold"), mx("cs")
+        tm = int(p.get("team") or 0)
+        team_k[tm] = team_k.get(tm, 0.0) + float(p.get("k") or 0)
+        team_dmg[tm] = team_dmg.get(tm, 0.0) + float(p.get("dmg") or 0)
+        team_gold[tm] = team_gold.get(tm, 0.0) + float(p.get("gold") or 0)
+        team_obj[tm] = team_obj.get(tm, 0.0) + float(p.get("obj") or 0)
 
-    def composite(p):
-        kda = (p["k"] + p["a"]) / max(1, p["d"])
-        kp = (p["k"] + p["a"]) / max(1, team_k.get(p["team"], 1))
-        return (0.30 * min(kda / 5.0, 1.0) + 0.25 * min(kp, 1.0)
-                + 0.25 * p["dmg"] / md + 0.10 * p["gold"] / mg + 0.10 * p["cs"] / mc)
+    def raw_points(p):
+        tm = int(p.get("team") or 0)
+        k = float(p.get("k") or 0)
+        a = float(p.get("a") or 0)
+        d = float(p.get("d") or 0)
+        kda = (k + a) / max(1.0, d)
+        kp = (k + a) / max(1.0, team_k.get(tm, 1.0))
+        dmg_share = float(p.get("dmg") or 0) / max(1.0, team_dmg.get(tm, 1.0))
+        obj_share = float(p.get("obj") or 0) / max(1.0, team_obj.get(tm, 1.0))
+        csm = float(p.get("cs") or 0) / mins
+        vpm = float(p.get("vision") or 0) / mins
+        d10 = d / mins * 10.0
+        base = (
+            22.0 * clamp(kda / 4.0) +
+            18.0 * clamp(kp / max(0.01, t["kp"])) +
+            14.0 * clamp(dmg_share / max(0.01, t["dmg"])) +
+            10.0 * (1.0 if team_obj.get(tm, 0.0) < 3 else clamp(obj_share / max(0.01, t["obj"]), 0.0, 1.35)) +
+            8.0 * clamp(csm / max(0.01, t["csm"]), 0.0, 1.20) +
+            6.0 * clamp(vpm / max(0.01, t["vpm"]), 0.0, 1.20)
+        )
+        death_pen = max(0.0, d10 - t["d10"]) * 5.0
+        return max(0.0, base - death_pen)
 
-    scores = sorted((composite(p) for p in parts), reverse=True)
-    c = composite(mine)
+    raw = [raw_points(p) for p in parts]
+    c = raw_points(mine)
+    scores = sorted(raw, reverse=True)
     rank = 1 + sum(1 for s in scores if s > c + 1e-9)        # 1 = best in lobby
-    score = int(round(c * 100))
-    if score >= 82:
+    lobby_avg = sum(raw) / max(1, len(raw))
+    lobby_top = max(raw) if raw else c
+    carry_bonus = max(0.0, c - lobby_avg) * 0.45
+    if bool(mine.get("win")) and rank <= 2:
+        carry_bonus += max(0.0, c - (lobby_top * 0.92)) * 0.7
+    score = int(round(c + carry_bonus))
+
+    if score >= 115:
         letter = "S+"
-    elif score >= 72:
+    elif score >= 100:
         letter = "S"
-    elif score >= 60:
+    elif score >= 85:
         letter = "A"
-    elif score >= 46:
+    elif score >= 70:
         letter = "B"
-    elif score >= 32:
+    elif score >= 55:
         letter = "C"
     else:
         letter = "D"
-    if mine["win"] and rank <= 2 and score >= 78:
+    if mine["win"] and rank <= 2 and score >= 104:
         label = "hard carry"
     elif mine["win"] and rank <= 3:
         label = "carried"
