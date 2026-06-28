@@ -90,6 +90,7 @@ W = 920; ROWH = 66; TOP = 96
 ICONCACHE = os.path.expanduser("~/.claude/cache/icons")
 _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
+_SPLASH = {}  # (cid, (w,h)) -> cropped RGB splash art
 
 
 def font(size, bold=False):
@@ -149,6 +150,45 @@ def get_icon(dd, cid, size):
     except Exception:
         try:
             os.remove(fp)                             # corrupt cached icon -> re-download next time
+        except Exception:
+            pass
+        return None
+
+
+def get_splash(dd, cid, size):
+    ck = (cid, size)
+    if ck in _SPLASH:
+        return _SPLASH[ck]
+    key = dd.get("id2key", {}).get(cid)
+    if not key:
+        return None
+    d = os.path.join(ICONCACHE, "_splash")
+    os.makedirs(d, exist_ok=True)
+    fp = os.path.join(d, key + "_0.jpg")
+    if not os.path.exists(fp):
+        url = f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{key}_0.jpg"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
+            data = urllib.request.urlopen(req, timeout=8).read()
+            tmp = f"{fp}.{os.getpid()}.tmp"
+            open(tmp, "wb").write(data)
+            os.replace(tmp, fp)
+        except Exception:
+            return None
+    try:
+        tw, th = size
+        im = Image.open(fp).convert("RGB")
+        sw, sh = im.size
+        scale = max(float(tw) / max(1, sw), float(th) / max(1, sh))
+        rw, rh = max(1, int(sw * scale)), max(1, int(sh * scale))
+        im = im.resize((rw, rh), Image.LANCZOS)
+        x0, y0 = (rw - tw) // 2, (rh - th) // 2
+        im = im.crop((x0, y0, x0 + tw, y0 + th))
+        _SPLASH[ck] = im
+        return im
+    except Exception:
+        try:
+            os.remove(fp)
         except Exception:
             pass
         return None
@@ -540,7 +580,23 @@ def render_profile(dd, p, expanded=None, details=None):
     d = ImageDraw.Draw(img)
 
     # ---- header card ----
-    _rrect(d, (14, 12, W - 14, 122), 14, fill=PCARD, outline=PEDGE, width=1)
+    hx0, hy0, hx1, hy1 = 14, 12, W - 14, 122
+    _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=PCARD, outline=None, width=1)
+    best = (p.get("champs") or [{}])[0].get("champ")
+    best_cid = dd["name2id"].get(dd["norm"](best)) if best else 0
+    if best_cid:
+        splash = get_splash(dd, best_cid, (hx1 - hx0, hy1 - hy0))
+        if splash:
+            mask = Image.new("L", (hx1 - hx0, hy1 - hy0), 0)
+            md = ImageDraw.Draw(mask)
+            try:
+                md.rounded_rectangle((0, 0, hx1 - hx0, hy1 - hy0), radius=14, fill=255)
+            except Exception:
+                md.rectangle((0, 0, hx1 - hx0, hy1 - hy0), fill=255)
+            img.paste(splash, (hx0, hy0), mask)
+            shade = Image.new("RGBA", (hx1 - hx0, hy1 - hy0), (12, 15, 22, 150))
+            img.paste(shade, (hx0, hy0), mask)
+    _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=None, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
     d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
     rs, rc = rank_str(p.get("rank"))
