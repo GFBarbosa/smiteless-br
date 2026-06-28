@@ -453,43 +453,6 @@ def _rrect(d, box, r, fill=None, outline=None, width=1):
         d.rectangle(box, fill=fill, outline=outline)
 
 
-def _draw_avg_score_emblem(d, score, cx, cy):
-    """Tiered visual badge for AVG GAME SCORE (higher score => more intense emblem)."""
-    s = int(score or 0)
-    if s >= 100:
-        # Legendary: gold core + triple flame aura + crown
-        d.ellipse([cx - 26, cy - 26, cx + 26, cy + 26], fill=(56, 32, 14), outline=(236, 206, 128), width=2)
-        d.polygon([(cx, cy - 40), (cx - 10, cy - 24), (cx + 10, cy - 24)], fill=(255, 186, 74))
-        d.polygon([(cx - 16, cy - 34), (cx - 8, cy - 22), (cx - 22, cy - 22)], fill=(236, 156, 58))
-        d.polygon([(cx + 16, cy - 34), (cx + 8, cy - 22), (cx + 22, cy - 22)], fill=(236, 156, 58))
-        d.polygon([(cx - 16, cy - 54), (cx - 8, cy - 44), (cx, cy - 54), (cx + 8, cy - 44), (cx + 16, cy - 54),
-                   (cx + 16, cy - 40), (cx - 16, cy - 40)], fill=(232, 206, 124), outline=(120, 90, 34))
-    elif s >= 85:
-        # S/A-hot: strong fire aura
-        d.ellipse([cx - 24, cy - 24, cx + 24, cy + 24], fill=(58, 28, 20), outline=(236, 156, 92), width=2)
-        d.polygon([(cx, cy - 36), (cx - 9, cy - 22), (cx + 9, cy - 22)], fill=(236, 144, 74))
-        d.polygon([(cx - 12, cy - 30), (cx - 5, cy - 20), (cx - 18, cy - 20)], fill=(206, 104, 64))
-        d.polygon([(cx + 12, cy - 30), (cx + 5, cy - 20), (cx + 18, cy - 20)], fill=(206, 104, 64))
-    elif s >= 70:
-        # B: ember
-        d.ellipse([cx - 22, cy - 22, cx + 22, cy + 22], fill=(42, 30, 24), outline=(214, 156, 92), width=2)
-        d.polygon([(cx, cy - 28), (cx - 7, cy - 16), (cx + 7, cy - 16)], fill=(214, 130, 92))
-    elif s >= 55:
-        # C: stable
-        d.ellipse([cx - 20, cy - 20, cx + 20, cy + 20], fill=(30, 40, 56), outline=(120, 166, 232), width=2)
-        d.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=(160, 196, 244))
-    elif s >= 40:
-        # Low: cracked
-        d.ellipse([cx - 20, cy - 20, cx + 20, cy + 20], fill=(42, 36, 34), outline=(164, 134, 112), width=2)
-        d.line([cx - 8, cy - 10, cx + 2, cy + 2, cx - 2, cy + 11], fill=(210, 170, 140), width=2)
-    else:
-        # Very low: danger skull-ish icon
-        d.ellipse([cx - 21, cy - 21, cx + 21, cy + 21], fill=(42, 20, 24), outline=(206, 86, 94), width=2)
-        d.ellipse([cx - 10, cy - 6, cx - 3, cy + 1], fill=(236, 196, 196))
-        d.ellipse([cx + 3, cy - 6, cx + 10, cy + 1], fill=(236, 196, 196))
-        d.rectangle([cx - 8, cy + 5, cx + 8, cy + 11], fill=(236, 196, 196))
-
-
 def _profile_headline(p):
     """One friendly line about how you've been doing."""
     best = p["champs"][0] if p["champs"] else None
@@ -639,9 +602,20 @@ def render_profile(dd, p, expanded=None, details=None):
                fill=GREEN if p["wr"] >= 50 else REDWR)
     d.text((bx + bw2 + 14, by - 4), f"{p['wins']}W {p['losses']}L  ·  {p['wr']}%  ·  last {p['n']}",
            font=font(12, 1), fill=TEXT)
-    # rank badge (top-right) + avg score
-    sc_col = GRADE_COLOR["A"] if p["avg_score"] >= 58 else (REDWR if p["avg_score"] < 45 else TAN)
-    _draw_avg_score_emblem(d, p["avg_score"], W - 130, 54)
+    # top-right avg score (color-only, no icon)
+    avg = int(p.get("avg_score", 0) or 0)
+    if avg >= 115:
+        sc_col = GRADE_COLOR["S+"]
+    elif avg >= 100:
+        sc_col = GRADE_COLOR["S"]
+    elif avg >= 85:
+        sc_col = GRADE_COLOR["A"]
+    elif avg >= 70:
+        sc_col = GRADE_COLOR["B"]
+    elif avg >= 55:
+        sc_col = GRADE_COLOR["C"]
+    else:
+        sc_col = GRADE_COLOR["D"]
     d.text((W - 30, 30), str(p["avg_score"]), font=font(34, 1), fill=sc_col, anchor="ra")
     d.text((W - 30, 74), "AVG GAME SCORE", font=font(9, 1), fill=MUTED, anchor="ra")
     # headline
