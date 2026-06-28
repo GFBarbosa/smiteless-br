@@ -290,18 +290,26 @@ def main():
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
         audio_on = _cfg.get("dragon_audio", True)
-        dragon = {"prev": None, "fired": set()}          # dragon-spawn audio cue state
+        dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         if audio_on:                                     # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t) for t in (45, 30, 15)], daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
-                dragon["prev"], dragon["fired"] = None, set()
+                dragon["prev"], dragon["fired"], dragon["last_up_ping"] = None, set(), 0.0
                 return
             thr = _dragon_due(dragon["prev"], secs, dragon["fired"])
             dragon["prev"] = secs
             if thr is not None:
                 threading.Thread(target=_beep, args=(thr,), daemon=True).start()
+            # Once drake is up, keep replaying the final cue every ~5s until it dies.
+            if secs <= 0:
+                t = time.monotonic()
+                if (t - float(dragon.get("last_up_ping") or 0.0)) >= 4.8:
+                    dragon["last_up_ping"] = t
+                    threading.Thread(target=_beep, args=(15,), daemon=True).start()
+            else:
+                dragon["last_up_ping"] = 0.0
 
         while st["alive"]:
             try:                                         # one :2999 read shared by build + intel

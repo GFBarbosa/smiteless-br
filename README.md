@@ -104,9 +104,10 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
 - **Dragon spawn reminder** — the item widget plays a soft **Zelda/OoT-style ocarina chime at
-  ~45s, 30s, and 15s** before the next elemental drake spawns (the arpeggio lengthens and
-  resolves higher as it nears; it stops once a team has soul). Synthesized to a real WAV and
-  played through your normal audio device, so it's actually audible. Toggle in Settings.
+  ~45s, 30s, and 15s** before the next elemental drake spawns, then repeats the final
+  cue every ~5s while the drake is up (the arpeggio lengthens and resolves higher as it
+  nears; it stops once a team has soul). Synthesized to a real WAV and played through your
+  normal audio device, so it's actually audible. Toggle in Settings.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
   closes it; it **auto-closes** shortly after the match ends so the next game is fresh.
