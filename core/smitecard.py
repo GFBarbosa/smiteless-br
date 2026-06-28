@@ -483,6 +483,7 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
         yy += tip_gap
         if yy > y0 + DETAIL_H - 18:
             break
+    return (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8)
 
 
 def render_profile(dd, p, expanded=None, details=None):
@@ -545,7 +546,7 @@ def render_profile(dd, p, expanded=None, details=None):
     d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
     d.text((W - 20, games_top - 21), "click a game to expand  ·  score = graded vs all 10",
            font=font(10), fill=(118, 116, 108), anchor="ra")
-    hit_games, yy = [], games_top
+    hit_games, hit_reviews, yy = [], [], games_top
     for i, g in enumerate(games):
         acc = GREEN if g["win"] else REDWR
         _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))
@@ -569,8 +570,10 @@ def render_profile(dd, p, expanded=None, details=None):
         if i in expanded:
             parts = (details.get(g.get("mid")) or {}).get("parts")
             if parts:
-                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
-                                   g.get("review"), g.get("review_kind", "improve"))
+                rb = _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
+                                        g.get("review"), g.get("review_kind", "improve"))
+                if rb:
+                    hit_reviews.append((rb[0], rb[1], rb[2], rb[3], i))
             else:
                 _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),
@@ -588,6 +591,7 @@ def render_profile(dd, p, expanded=None, details=None):
         pass
 
     img.hit_games = hit_games
+    img.hit_reviews = hit_reviews
     img.hitmap = []
     img.profile_split_y = max(120, games_top - 30)   # top card stays fixed; games section scrolls
     return img

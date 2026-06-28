@@ -49,7 +49,7 @@ def main():
     dd = lb.ddragon()
     key = ls.read_key()
     st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo_top": None, "photo_bottom": None,
-          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": []}
+          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": [], "hit_reviews": []}
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
@@ -108,6 +108,8 @@ def main():
         canvas.yview_moveto(top_pos)
         st["hit"] = [(max(0, y0 - split), max(0, y1 - split), idx)
                      for y0, y1, idx in getattr(pil, "hit_games", []) if y1 > split]
+        st["hit_reviews"] = [(x0, max(0, y0 - split), x1, max(0, y1 - split), idx)
+                             for x0, y0, x1, y1, idx in getattr(pil, "hit_reviews", []) if y1 > split]
 
     def _apply(prof):
         st["busy"] = False
@@ -153,8 +155,41 @@ def main():
             root.after(0, _render)
         threading.Thread(target=work, daemon=True).start()
 
+    def _show_review(game):
+        import tkinter as tk
+        tips = list(game.get("review") or [])
+        kind = game.get("review_kind", "improve")
+        head = "What you did well" if kind == "positive" else "3 things to improve"
+        win = tk.Toplevel(root)
+        win.title("Smiteless — Full review")
+        win.configure(bg=BG)
+        win.minsize(560, 360)
+        tk.Label(win, text=f"{game.get('champ', '?')} ({game.get('pos', '?')})", bg=BG, fg=GOLD,
+                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(12, 2))
+        tk.Label(win, text=head, bg=BG, fg=(TXT if kind == "positive" else MUTED),
+                 font=("Segoe UI", 10)).pack(anchor="w", padx=14, pady=(0, 8))
+        wrap = tk.Frame(win, bg=BG)
+        wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        sb = tk.Scrollbar(wrap, orient="vertical")
+        sb.pack(side="right", fill="y")
+        tx = tk.Text(wrap, bg="#131722", fg=TXT, relief="flat", wrap="word", yscrollcommand=sb.set,
+                     font=("Segoe UI", 10), padx=12, pady=10)
+        tx.pack(side="left", fill="both", expand=True)
+        sb.config(command=tx.yview)
+        if not tips:
+            tips = ["No review available yet."]
+        for i, t in enumerate(tips, 1):
+            tx.insert("end", f"{i}. {t}\n\n")
+        tx.config(state="disabled")
+
     def _on_click(event):
+        x = canvas.canvasx(event.x)
         y = canvas.canvasy(event.y)
+        for x0, y0, x1, y1, idx in st["hit_reviews"]:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                gm = st["prof"]["games"][idx]
+                _show_review(gm)
+                return
         for y0, y1, idx in st["hit"]:
             if y0 <= y <= y1:
                 # in-canvas "Load more" region (special hit index)
