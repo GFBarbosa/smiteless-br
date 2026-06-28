@@ -67,8 +67,10 @@ The overlay has:
 9. **Post-game review engine** — each recent game gets role/champion-aware review notes from
    deaths, KP, damage share, objective participation (plus farm/vision/lane pressure context);
    **A/S** games switch to positive "what you did well" notes.
-10. **Scoring overhaul** — lobby-relative score that can exceed 100 for hard-carry games.
-    Grades: **S = 100+**, **A = 85–99**, **B = 70–84**, **C = 55–69**, **D < 55**.
+10. **Per-game score** — graded against your **role's own benchmarks** (KDA, kill
+    participation, damage, objectives, CS, vision, deaths), **never against the lobby** — the
+    same game scores the same no matter how the other nine did, so a hard-carry loss still
+    scores high. Grades: **S = 100+**, **A = 85–99**, **B = 70–84**, **C = 55–69**, **D < 55**.
 11. **Champ-select helpers** — "Good this game" suggested champions rail, one-click
     **Import runes + summs** in the build block, and Flash key preference support.
 12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
@@ -99,8 +101,10 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
 - **Profile auto-opens after game end** so recent-game review is immediately visible.
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
-- **Dragon spawn reminder** — plays system-sound reminders at about **45s, 30s, and 15s**
-  before the next elemental dragon spawns while you're in-game.
+- **Dragon spawn reminder** — the item widget plays rising **audio beeps at ~45s, 30s, and 15s**
+  before the next elemental drake spawns (it stops once a team has soul). Toggle in Settings.
+- **Profile auto-opens after the game on your second monitor** (if you have one), and the
+  in-game board closes itself promptly so it doesn't linger over the post-game screen.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.

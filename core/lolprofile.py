@@ -185,9 +185,13 @@ def match_detail(mid, key):
 
 
 def _grade_game(parts, mine, dur):
-    """Role-aware, lobby-relative score (can exceed 100 for true carry games)."""
+    """ABSOLUTE, goal-based score: how YOU performed against your role's benchmarks - never
+    ranked against the lobby, so the same game scores the same no matter how the other nine
+    did. KP / damage share / objective share are your personal participation measured against
+    a role TARGET (a standard stat you control by playing well), not a comparison of who
+    out-scored whom. ~85 = you hit your role's goals; 100+ = you blew past them; <55 = off."""
     mins = max(1.0, (dur or 0) / 60.0)
-    def clamp(v, lo=0.0, hi=1.25):
+    def clamp(v, lo=0.0, hi=1.5):
         return max(lo, min(hi, float(v)))
 
     role = (mine.get("pos") or "").upper()
@@ -195,88 +199,45 @@ def _grade_game(parts, mine, dur):
         role = "MID"
     t = _ROLE_TARGETS.get(role, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
 
-    team_k = {}
-    team_dmg = {}
-    team_gold = {}
-    team_obj = {}
-    for p in parts:
-        tm = int(p.get("team") or 0)
-        team_k[tm] = team_k.get(tm, 0.0) + float(p.get("k") or 0)
-        team_dmg[tm] = team_dmg.get(tm, 0.0) + float(p.get("dmg") or 0)
-        team_gold[tm] = team_gold.get(tm, 0.0) + float(p.get("gold") or 0)
-        team_obj[tm] = team_obj.get(tm, 0.0) + float(p.get("obj") or 0)
+    team = int(mine.get("team") or 0)
+    team_k = sum(float(p.get("k") or 0) for p in parts if int(p.get("team") or 0) == team)
+    team_dmg = sum(float(p.get("dmg") or 0) for p in parts if int(p.get("team") or 0) == team)
+    team_obj = sum(float(p.get("obj") or 0) for p in parts if int(p.get("team") or 0) == team)
 
-    def raw_points(p):
-        tm = int(p.get("team") or 0)
-        k = float(p.get("k") or 0)
-        a = float(p.get("a") or 0)
-        d = float(p.get("d") or 0)
-        kda = (k + a) / max(1.0, d)
-        kp = (k + a) / max(1.0, team_k.get(tm, 1.0))
-        dmg_share = float(p.get("dmg") or 0) / max(1.0, team_dmg.get(tm, 1.0))
-        obj_share = float(p.get("obj") or 0) / max(1.0, team_obj.get(tm, 1.0))
-        csm = float(p.get("cs") or 0) / mins
-        vpm = float(p.get("vision") or 0) / mins
-        d10 = d / mins * 10.0
-        base = (
-            22.0 * clamp(kda / 4.0) +
-            18.0 * clamp(kp / max(0.01, t["kp"])) +
-            14.0 * clamp(dmg_share / max(0.01, t["dmg"])) +
-            10.0 * (1.0 if team_obj.get(tm, 0.0) < 3 else clamp(obj_share / max(0.01, t["obj"]), 0.0, 1.35)) +
-            8.0 * clamp(csm / max(0.01, t["csm"]), 0.0, 1.20) +
-            6.0 * clamp(vpm / max(0.01, t["vpm"]), 0.0, 1.20)
-        )
-        death_pen = max(0.0, d10 - t["d10"]) * 5.0
-        return max(0.0, base - death_pen)
+    k = float(mine.get("k") or 0)
+    a = float(mine.get("a") or 0)
+    d = float(mine.get("d") or 0)
+    kda = (k + a) / max(1.0, d)
+    kp = (k + a) / max(1.0, team_k)
+    dmg_share = float(mine.get("dmg") or 0) / max(1.0, team_dmg)
+    obj_share = float(mine.get("obj") or 0) / max(1.0, team_obj)
+    csm = float(mine.get("cs") or 0) / mins
+    vpm = float(mine.get("vision") or 0) / mins
+    d10 = d / mins * 10.0
 
-    raw = [raw_points(p) for p in parts]
-    c = raw_points(mine)
-    scores = sorted(raw, reverse=True)
-    rank = 1 + sum(1 for s in scores if s > c + 1e-9)        # 1 = best in lobby
-    lobby_avg = sum(raw) / max(1, len(raw))
-    lobby_top = max(raw) if raw else c
-    carry_bonus = max(0.0, c - lobby_avg) * 0.45
-    if bool(mine.get("win")) and rank <= 2:
-        carry_bonus += max(0.0, c - (lobby_top * 0.92)) * 0.7
-    score = int(round(c + carry_bonus))
+    base = (
+        24.0 * clamp(kda / 4.0) +
+        20.0 * clamp(kp / max(0.01, t["kp"])) +
+        16.0 * clamp(dmg_share / max(0.01, t["dmg"])) +
+        12.0 * (1.0 if team_obj < 3 else clamp(obj_share / max(0.01, t["obj"]))) +
+        8.0 * clamp(csm / max(0.01, t["csm"]), 0.0, 1.3) +
+        6.0 * clamp(vpm / max(0.01, t["vpm"]), 0.0, 1.3)
+    )
+    death_pen = max(0.0, d10 - t["d10"]) * 5.0
+    raw = max(0.0, base - death_pen) + (6.0 if mine.get("win") else -2.0)   # winning is the goal
+    score = int(round(max(0.0, raw)))
 
-    if score >= 115:
-        letter = "S+"
-    elif score >= 100:
-        letter = "S"
-    elif score >= 85:
-        letter = "A"
-    elif score >= 70:
-        letter = "B"
-    elif score >= 55:
-        letter = "C"
+    letter = ("S+" if score >= 115 else "S" if score >= 100 else "A" if score >= 85
+              else "B" if score >= 70 else "C" if score >= 55 else "D")
+    if mine.get("win"):
+        label = ("hard carry" if score >= 115 else "carried" if score >= 100
+                 else "great game" if score >= 85 else "solid win" if score >= 70
+                 else "decent game" if score >= 55 else "scrappy win")
     else:
-        letter = "D"
-    if mine["win"]:
-        if rank == 1 and score >= 130:
-            label = "1v9 god mode"
-        elif rank <= 2 and score >= 115:
-            label = "unstoppable carry"
-        elif rank <= 3 and score >= 100:
-            label = "MVP takeover"
-        elif rank <= 3 and score >= 90:
-            label = "hard carry"
-        elif rank <= 4 and score >= 75:
-            label = "strong game"
-        else:
-            label = "solid win" if score >= 55 else "scrappy win"
-    else:
-        if rank <= 2 and score >= 95:
-            label = "hero game, team lost"
-        elif rank <= 3 and score >= 80:
-            label = "tried to carry"
-        elif rank >= 9 and score < 55:
-            label = "rough one"
-        elif rank >= 7:
-            label = "could've done better"
-        else:
-            label = "solid" if score >= 55 else "okay"
-    return score, letter, label, rank
+        label = ("carried, lost" if score >= 100 else "great game, lost" if score >= 85
+                 else "kept fighting" if score >= 70 else "tough loss" if score >= 55
+                 else "rough game")
+    return score, letter, label
 
 
 _ROLE_LABEL = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid", "BOTTOM": "adc", "UTILITY": "support"}
@@ -319,7 +280,7 @@ def review_for_player(parts, my_puuid, dur):
     role_cfg = _ROLE_TARGETS.get(pos, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
     champ = mine.get("champ", "your champ")
     role_name = _ROLE_LABEL.get(pos, "role")
-    score, letter, _label, _rank = _grade_game(parts, mine, dur)
+    score, letter, _label = _grade_game(parts, mine, dur)
     positive = letter in ("A", "S", "S+")
     lane_opp = next((p for p in parts if int(p.get("team") or 0) != team and (p.get("pos") or "").upper() == pos), None)
     cands = []
@@ -404,11 +365,11 @@ def build_profile(dd, key=None, count=14):
         mine = next((p for p in d["parts"] if p["puuid"] == puuid), None)
         if not mine:
             continue
-        score, letter, label, lobby_rank = _grade_game(d["parts"], mine, d["dur"])
+        score, letter, label = _grade_game(d["parts"], mine, d["dur"])
         review = review_for_player(d["parts"], puuid, d.get("dur", 0))
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
-                      "rank": lobby_rank, "pos": mine["pos"], "mid": mid,
+                      "pos": mine["pos"], "mid": mid,
                       "dur": d.get("dur", 0), "review": review.get("tips", []),
                       "review_kind": review.get("kind", "improve")})
         wins += 1 if mine["win"] else 0

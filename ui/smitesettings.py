@@ -127,6 +127,7 @@ def main():
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
+    dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
@@ -137,6 +138,7 @@ def main():
     col2 = tk.Frame(ffr, bg=BG); col2.pack(side="left", fill="x", expand=True, anchor="n")
     _chk(col1, "In-game item widget", widget).pack(anchor="w")
     _chk(col1, "Live game intel (timers + win read)", intel).pack(anchor="w")
+    _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
@@ -250,7 +252,8 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
-                  "game_intel": intel.get(), "dodge_alerts": dodge.get(),
+                  "game_intel": intel.get(), "dragon_audio": dragon.get(),
+                  "dodge_alerts": dodge.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
@@ -262,7 +265,7 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
-        for v in (tips, kit, duo, widget, intel, dodge, autoq, auto, homeonstart):
+        for v in (tips, kit, duo, widget, intel, dragon, dodge, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)
         _upd_flash()

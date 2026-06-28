@@ -8,7 +8,7 @@ form bar per player. Renders progressively (build + lanes first, scout fills in)
 Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
-import sys, os, time, threading, urllib.request, urllib.parse, io, json, ssl
+import sys, os, time, threading, urllib.request, urllib.parse, io, json
 from PIL import Image, ImageDraw, ImageFont
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,9 +92,6 @@ _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
 _SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
 _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
-_LIVE_CTX = ssl._create_unverified_context()
-_DRAGON_TYPES = {"air", "water", "earth", "fire", "hextech", "chemtech"}
-_DRAGON_ALERT_STEPS = (45, 30, 15)
 
 
 def font(size, bold=False):
@@ -481,20 +478,21 @@ GRADE_COLOR = {"S+": (236, 206, 128), "S": (236, 206, 128), "A": (95, 200, 126),
                "B": (120, 166, 232), "C": (214, 156, 92), "D": (206, 86, 94)}
 PCARD = (25, 28, 38); PCARD2 = (31, 35, 47); PEDGE = (46, 50, 64)
 LABEL_COL = {
-    "1v9 god mode": (255, 214, 122),
-    "unstoppable carry": (255, 196, 108),
-    "MVP takeover": (236, 206, 128),
-    "hard carry": (224, 196, 118),
-    "strong game": (118, 214, 150),
+    # wins
+    "hard carry": (255, 214, 122),
+    "carried": (236, 206, 128),
+    "great game": (118, 214, 150),
     "solid win": (95, 200, 126),
-    "scrappy win": (168, 206, 132),
-    "hero game, team lost": (120, 166, 232),
-    "tried to carry": (144, 182, 238),
-    "rough one": (206, 86, 94),
-    "could've done better": (214, 156, 92),
-    "solid": (192, 190, 180),
-    "okay": (162, 158, 146),
+    "decent game": (168, 206, 132),
+    "scrappy win": (160, 180, 140),
+    # losses
+    "carried, lost": (120, 166, 232),
+    "great game, lost": (130, 170, 225),
+    "kept fighting": (150, 165, 200),
+    "tough loss": (210, 150, 104),
+    "rough game": (206, 86, 94),
 }
+_POS_ABBR = {"TOP": "TOP", "JUNGLE": "JG", "MIDDLE": "MID", "MID": "MID", "BOTTOM": "ADC", "UTILITY": "SUP"}
 
 
 def _dim(c, f):
@@ -572,7 +570,7 @@ def _profile_headline(p):
         return f"Rough stretch ({p['wr']}% of {p['n']}). Tighten up — avg game score {p['avg_score']}/100.{tail}"
     if p["avg_score"] >= 62:
         return f"You've been playing well (avg score {p['avg_score']}/100) — the wins will follow."
-    return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; the score grades each game vs the whole lobby."
+    return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; each game is graded against your role's benchmarks."
 
 
 def _champ_id_from_name(dd, name):
@@ -761,7 +759,7 @@ def render_profile(dd, p, expanded=None, details=None):
 
     # ---- recent games ----
     d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
-    d.text((W - 20, games_top - 21), "click a game to expand  ·  score = graded vs all 10",
+    d.text((W - 20, games_top - 21), "click a game to expand  ·  score = vs your role's goals",
            font=font(10), fill=(118, 116, 108), anchor="ra")
     hit_games, hit_reviews, yy = [], [], games_top
     for i, g in enumerate(games):
@@ -779,7 +777,7 @@ def render_profile(dd, p, expanded=None, details=None):
         _rrect(d, (300, yy + 9, 362, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
         d.text((312, yy + 14), g["letter"], font=font(14, 1), fill=gc)
         d.text((340, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
-        d.text((384, yy + 16), f"#{g['rank']}/10", font=font(11), fill=MUTED)
+        d.text((388, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
         d.text((456, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
         d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13), fill=MUTED, anchor="ra")
         hit_games.append((yy, yy + 44, i))
@@ -1158,17 +1156,18 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         elif champ_select:
             d.text((388, y + 24), lbl, font=font(10), fill=(120, 118, 110), anchor="la")
     if champ_select and suggestions:
-        # Draw this AFTER the team rows so it can't be covered by row backgrounds.
+        # Draw this AFTER the team rows so it can't be covered by row backgrounds. Header and
+        # icons are flush top-left of the rail; tight vertical step fits 5 suggestions.
         sx, sy = 6, TOP + 2
-        _rrect(d, (sx, sy, sx + 82, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
-        d.text((sx + 41, sy + 12), "GOOD THIS", font=font(9, 1), fill=GOLD, anchor="ma")
-        d.text((sx + 41, sy + 24), "GAME", font=font(9, 1), fill=GOLD, anchor="ma")
-        yy = sy + 42
-        for cid in suggestions[:4]:
-            ic = get_icon(dd, cid, 34)
+        _rrect(d, (sx, sy, sx + 78, sy + 322), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
+        d.text((sx + 9, sy + 9), "GOOD THIS", font=font(9, 1), fill=GOLD, anchor="la")
+        d.text((sx + 9, sy + 21), "GAME", font=font(9, 1), fill=GOLD, anchor="la")
+        yy = sy + 40
+        for cid in suggestions[:5]:
+            ic = get_icon(dd, cid, 36)
             if ic:
-                img.paste(ic, (sx + 24, yy), ic)
-            yy += 66
+                img.paste(ic, (sx + 9, yy), ic)
+            yy += 56
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)
@@ -1221,50 +1220,6 @@ def _takeflag(argv, name, default=None):
         i = argv.index(name); v = argv[i + 1] if i + 1 < len(argv) else None
         del argv[i:i + 2]; return v
     return default
-
-
-def _live_json(path, timeout=1.6):
-    req = urllib.request.Request(f"https://127.0.0.1:2999/liveclientdata/{path}",
-                                 headers={"User-Agent": lb.UA, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout, context=_LIVE_CTX) as r:
-        raw = r.read()
-    if not raw:
-        return None
-    return json.loads(raw.decode("utf-8"))
-
-
-def _next_dragon_spawn():
-    """(next_spawn_time_sec, game_time_sec) or (None, now) if no elemental dragon is pending."""
-    gs = _live_json("gamestats")
-    ev = _live_json("eventdata")
-    now = float((gs or {}).get("gameTime") or 0.0)
-    events = (ev or {}).get("Events") or []
-    elem = []
-    elder_seen = False
-    for e in events:
-        if (e or {}).get("EventName") != "DragonKill":
-            continue
-        dt = str((e or {}).get("DragonType") or "").lower()
-        if dt == "elder":
-            elder_seen = True
-            continue
-        if dt in _DRAGON_TYPES:
-            try:
-                elem.append(float((e or {}).get("EventTime") or 0.0))
-            except Exception:
-                pass
-    if elder_seen or len(elem) >= 4:  # soul reached (elder cycle), so no more elemental-dragon spawns
-        return None, now
-    nxt = (max(elem) + 300.0) if elem else 300.0
-    return nxt, now
-
-
-def _play_dragon_soon_alert():
-    try:
-        import winsound
-        winsound.MessageBeep(0x00000030)  # MB_ICONWARNING system sound
-    except Exception:
-        pass
 
 
 def run(emit, count=None, wait=False, stop=None, monitor=False):
@@ -1334,7 +1289,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 if sig != last_cs_sig:
                     ally_ids = [c for c, _ in allies if c]
                     enemy_ids = [c for c, _ in enemies if c]
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=4)
+                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5)
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
@@ -1398,37 +1353,23 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         #   new champ select   -> refresh this same window to the new draft (don't go stale)
         #   game over (lobby)  -> close, so the next champ select opens fresh
         # Phase-driven, because lg.resolve can keep returning stale data after a session ends.
-        miss, restart = 0, False
-        dragon_alert = {"spawn": None, "fired": set()}
+        miss, blip, restart = 0, 0, False
         while not stop():
             time.sleep(5)
             ph = phasecheck.phase()
             if ph in ("InProgress", "GameStart", "Reconnect"):
-                miss = 0                              # still in this game
-                try:
-                    nxt, now = _next_dragon_spawn()
-                    if nxt is not None:
-                        if dragon_alert["spawn"] != nxt:
-                            dragon_alert = {"spawn": nxt, "fired": set()}
-                        eta = float(nxt - now)
-                        for i, sec in enumerate(_DRAGON_ALERT_STEPS):
-                            if sec in dragon_alert["fired"]:
-                                continue
-                            low = _DRAGON_ALERT_STEPS[i + 1] if i + 1 < len(_DRAGON_ALERT_STEPS) else 0.0
-                            if low < eta <= (sec + 0.5):
-                                dragon_alert["fired"].add(sec)
-                                threading.Thread(target=_play_dragon_soon_alert, daemon=True).start()
-                                break
-                    else:
-                        dragon_alert = {"spawn": None, "fired": set()}
-                except Exception:
-                    pass
+                miss = blip = 0                       # still in this game
                 continue
             if ph == "ChampSelect":                   # a NEW champ select -> refresh, don't close
                 restart = True
                 break
-            miss += 1                                 # WaitingForStats / EndOfGame / Lobby / None
-            if miss >= 3:                             # ~15s out of game -> match over, close
+            if ph == "":                              # client unreachable (lag spike / closing) -> tolerate
+                blip += 1
+                if blip >= 6:                         # ~30s truly gone -> close out
+                    return
+                continue
+            miss += 1                                 # a DEFINITE end phase (WaitingForStats/EndOfGame/Lobby/None)
+            if miss >= 2:                             # ~10s after the game ends -> close so the profile takes over
                 return
         if not restart:
             return                                    # stop() requested -> close

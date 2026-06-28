@@ -65,9 +65,14 @@ def objectives(data):
         out.append({"label": label, "secs": secs, "up": secs <= 0,
                     "urgent": 0 < secs <= ALERT_LEAD})
 
-    # Dragon: first at 5:00, then 5:00 after each kill (Elder/soul timing ignored - still "drake").
-    last_d = _last_time(ev, "DragonKill")
-    add("Drake", (last_d + DRAGON_RESPAWN) if last_d is not None else DRAGON_FIRST)
+    # Dragon: first at 5:00, then 5:00 after each kill. Once a team has soul (4 elemental
+    # kills) or Elder has spawned, there are no more elemental drakes -> drop the timer.
+    drags = [e for e in ev if e.get("EventName") == "DragonKill"]
+    elder = any(str(e.get("DragonType") or "").lower() == "elder" for e in drags)
+    elem = [e.get("EventTime") for e in drags
+            if str(e.get("DragonType") or "").lower() != "elder" and e.get("EventTime") is not None]
+    if not (elder or len(elem) >= 4):
+        add("Drake", (max(elem) + DRAGON_RESPAWN) if elem else DRAGON_FIRST)
 
     # Void grubs: 6:00, one respawn 4:00 after a clear, gone by ~14:45.
     if gt < GRUBS_DESPAWN:

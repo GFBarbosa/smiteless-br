@@ -25,6 +25,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "duo_detection": True,   # show the duo / premade markers
          "item_widget": True,     # the floating in-game item helper
          "game_intel": True,      # widget: live win read + objective timers + spike alerts
+         "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "auto_accept": False,    # auto-accept queue ready checks
          "flash_on_d": True}      # import puts Flash on D (off = put Flash on F)

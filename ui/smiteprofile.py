@@ -33,11 +33,20 @@ def _single_instance():
 
 
 def _center(root, w, h):
+    """Center on the SECOND monitor if there is one (so it lands beside the game, like the
+    overlay), else the primary."""
     try:
-        sw, sh = _user32.GetSystemMetrics(0), _user32.GetSystemMetrics(1)
-        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2 - 40)}")
+        from smiteoverlay import target_monitor
+        l, t, r, b = target_monitor()
+        x = l + ((r - l) - w) // 2
+        y = t + max(0, ((b - t) - h) // 2 - 40)
+        root.geometry(f"{w}x{h}+{x}+{y}")
     except Exception:
-        root.geometry(f"{w}x{h}")
+        try:
+            sw, sh = _user32.GetSystemMetrics(0), _user32.GetSystemMetrics(1)
+            root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2 - 40)}")
+        except Exception:
+            root.geometry(f"{w}x{h}")
 
 
 def main():

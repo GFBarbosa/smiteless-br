@@ -35,6 +35,36 @@ KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 5                                                  # seconds between live reads
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
+_DRAGON_TONES = {45: (660, 150), 30: (780, 150), 15: (920, 220)}   # rising pitch as it nears
+
+
+def _beep(thr):
+    """A real generated tone (winsound.Beep), not a system event sound - so it plays even if
+    the user has Windows notification sounds turned off."""
+    try:
+        import winsound
+        f, ms = _DRAGON_TONES.get(thr, (700, 150))
+        winsound.Beep(f, ms)
+        if thr == 15:
+            winsound.Beep(f, ms)                          # double-beep the final 15s warning
+    except Exception:
+        pass
+
+
+def _dragon_due(prev, secs, fired):
+    """Which step (45/30/15) to beep right now as the dragon countdown CROSSES it, or None.
+    Mutates `fired`. Crossing-based so a 5s poll or joining mid-window never double-beeps; a
+    jump upward (a drake just died -> next spawn) resets the fired steps."""
+    if prev is None or secs is None:
+        return None
+    if secs > prev + 20:
+        fired.clear()
+        return None
+    for thr in (45, 30, 15):
+        if thr not in fired and prev > thr >= secs:
+            fired.add(thr)
+            return thr
+    return None
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
 
 
@@ -184,7 +214,20 @@ def main():
 
     def worker():
         seen, ended, stale = False, 0, 0
-        intel_on = cfg.load().get("game_intel", True)
+        _cfg = cfg.load()
+        intel_on = _cfg.get("game_intel", True)
+        audio_on = _cfg.get("dragon_audio", True)
+        dragon = {"prev": None, "fired": set()}          # dragon-spawn audio cue state
+
+        def dragon_audio(secs):
+            if secs is None:
+                dragon["prev"], dragon["fired"] = None, set()
+                return
+            thr = _dragon_due(dragon["prev"], secs, dragon["fired"])
+            dragon["prev"] = secs
+            if thr is not None:
+                threading.Thread(target=_beep, args=(thr,), daemon=True).start()
+
         while st["alive"]:
             try:                                         # one :2999 read shared by build + intel
                 raw = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata",
@@ -197,14 +240,18 @@ def main():
                 rec = None
             ph = phasecheck.phase()
             pulse = None
-            if intel_on and (rec is not None or ph in INGAME_PHASES):
+            if (intel_on or audio_on) and (rec is not None or ph in INGAME_PHASES):
                 try:
                     pulse = ll.pulse(dd, data=raw)
                 except Exception:
                     pulse = None
+            if audio_on:                                 # dragon spawn reminder (45/30/15s)
+                drake = next((o for o in (pulse.get("objectives") or [])
+                              if o.get("label") == "Drake"), None) if pulse else None
+                dragon_audio(drake["secs"] if drake else None)
             if rec is not None or ph in INGAME_PHASES:   # in a live game -> show + reset
                 seen, ended, stale = True, 0, 0
-                q.put({"rec": rec, "pulse": pulse})      # build lines (+intel), or rec None while loading
+                q.put({"rec": rec, "pulse": pulse if intel_on else None})   # visual intel gated; audio used above
             elif ph == "":
                 # Client UNREACHABLE: during a teamfight/lag spike both :2999 and the LCU can
                 # time out for a while even though the game is still going. Do NOT disappear -
