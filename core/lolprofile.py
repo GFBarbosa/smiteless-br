@@ -3,6 +3,8 @@
 recent form, champion win rates, and a per-game performance SCORE graded against the whole
 lobby (how hard did you carry?). Pure Riot API via lolscout's rate-limited client.
 """
+import os
+import time
 import json
 import ssl
 import base64
@@ -12,6 +14,100 @@ import lolscout as ls
 import phasecheck
 
 _ctx = ssl._create_unverified_context()
+
+# ---- rank -> single monotonic value, for the LP trend sparkline and session LP swing ----
+_TIER_ORDER = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
+               "MASTER", "GRANDMASTER", "CHALLENGER"]
+_DIV_VAL = {"IV": 0, "III": 1, "II": 2, "I": 3, "": 3}
+LP_HISTORY = os.path.expanduser("~/.claude/cache/lol_lp_history.json")
+SESSION_GAP = 3 * 3600       # a >3h break starts a new "session"
+TILT_STREAK = 3              # this many losses in a row trips the take-a-break nudge
+
+
+def _rank_value(rk):
+    """One number that orders any rank (tier*div*lp) so we can graph it / diff a session."""
+    if not rk or not rk.get("tier"):
+        return None
+    t = (rk["tier"] or "").upper()
+    if t not in _TIER_ORDER:
+        return None
+    base = _TIER_ORDER.index(t) * 400
+    if t in ("MASTER", "GRANDMASTER", "CHALLENGER"):
+        return base + int(rk.get("lp", 0) or 0)          # apex: no division, lp can exceed 100
+    return base + _DIV_VAL.get(rk.get("div", ""), 0) * 100 + int(rk.get("lp", 0) or 0)
+
+
+def _lp_history(rk):
+    """Append a snapshot of the current rank (deduped) and return the full history list."""
+    try:
+        hist = json.load(open(LP_HISTORY))
+        if not isinstance(hist, list):
+            hist = []
+    except Exception:
+        hist = []
+    rv = _rank_value(rk)
+    if rv is not None:
+        w, l = int((rk or {}).get("w", 0) or 0), int((rk or {}).get("l", 0) or 0)
+        last = hist[-1] if hist else None
+        changed = (not last) or last.get("rv") != rv or last.get("w") != w or last.get("l") != l
+        if changed:
+            hist.append({"ts": int(time.time()), "rv": rv, "w": w, "l": l,
+                         "lp": int(rk.get("lp", 0) or 0), "tier": rk.get("tier"), "div": rk.get("div")})
+            hist = hist[-250:]
+            try:
+                os.makedirs(os.path.dirname(LP_HISTORY), exist_ok=True)
+                json.dump(hist, open(LP_HISTORY, "w"))
+            except Exception:
+                pass
+    return hist
+
+
+def _session(hist, games):
+    """{games, wins, losses, lp_delta, streak, tilt} for the current play session.
+    Session = the contiguous run of recent snapshots with no >SESSION_GAP break. Streak/tilt
+    come from the games list (most-recent first), which is exact even with no rank history."""
+    streak = 0
+    if games:
+        first = games[0]["win"]
+        for g in games:
+            if g["win"] == first:
+                streak += 1
+            else:
+                break
+    streak_signed = streak if (games and games[0]["win"]) else -streak
+    tilt = bool(games and not games[0]["win"] and streak >= TILT_STREAK)
+    out = {"games": 0, "wins": 0, "losses": 0, "lp_delta": None,
+           "streak": streak_signed, "tilt": tilt}
+    if len(hist) >= 2:
+        start = hist[-1]
+        for i in range(len(hist) - 1, 0, -1):
+            if hist[i]["ts"] - hist[i - 1]["ts"] > SESSION_GAP:
+                start = hist[i]
+                break
+            start = hist[i - 1]
+        cur = hist[-1]
+        out["wins"] = max(0, cur.get("w", 0) - start.get("w", 0))
+        out["losses"] = max(0, cur.get("l", 0) - start.get("l", 0))
+        out["games"] = out["wins"] + out["losses"]
+        if cur.get("rv") is not None and start.get("rv") is not None:
+            out["lp_delta"] = cur["rv"] - start["rv"]
+    return out
+
+
+def _coach(champs):
+    """{more, less} pool advice from per-champ win rates: lean into your best, ease off your
+    worst - only when there's a real sample and a real gap. Either side may be absent."""
+    pool = [c for c in champs if c.get("g", 0) >= 2]
+    if len(pool) < 2:
+        return None
+    best = max(pool, key=lambda c: (c["wr"], c["g"]))
+    worst = min(pool, key=lambda c: (c["wr"], -c["g"]))
+    out = {}
+    if best["wr"] >= 55:
+        out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
+    if worst["wr"] <= 45 and worst["champ"] != best["champ"]:
+        out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
+    return out or None
 
 
 def current_riot_id():
@@ -321,7 +417,10 @@ def build_profile(dd, key=None, count=14):
         ({"champ": c, "g": v["g"], "w": v["w"], "wr": round(v["w"] / v["g"] * 100),
           "avg": round(v["score"] / v["g"])} for c, v in champ.items()),
         key=lambda x: (-x["g"], -x["wr"]))
+    hist = _lp_history(rk)
+    trend = [h["rv"] for h in hist[-24:] if h.get("rv") is not None]   # LP sparkline (#8)
     return {"riot_id": rid, "puuid": puuid, "rank": rk, "n": n, "wins": wins, "losses": n - wins,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-            "champs": champs[:6], "games": games}
+            "champs": champs[:6], "games": games,
+            "session": _session(hist, games), "coach": _coach(champs), "lp_trend": trend}

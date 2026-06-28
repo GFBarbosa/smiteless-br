@@ -126,6 +126,8 @@ def main():
     duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
+    intel = tk.BooleanVar(value=s.get("game_intel", True))
+    dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
@@ -134,10 +136,12 @@ def main():
     col1 = tk.Frame(ffr, bg=BG); col1.pack(side="left", fill="x", expand=True, anchor="n")
     col2 = tk.Frame(ffr, bg=BG); col2.pack(side="left", fill="x", expand=True, anchor="n")
     _chk(col1, "In-game item widget", widget).pack(anchor="w")
+    _chk(col1, "Live game intel (timers + win read)", intel).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
+    _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
 
     fkey = tk.Frame(body, bg=PANEL)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
@@ -246,6 +250,7 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
+                  "game_intel": intel.get(), "dodge_alerts": dodge.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
@@ -257,7 +262,7 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
-        for v in (tips, kit, duo, widget, autoq, auto, homeonstart):
+        for v in (tips, kit, duo, widget, intel, dodge, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)
         _upd_flash()

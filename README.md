@@ -73,8 +73,20 @@ The overlay has:
     **Import runes + summs** in the build block, and Flash key preference support.
 12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
     WR, excluding your own account and detected duo from ally averaging.
+13. **Live game intel** (in the item widget) — a transparent **win read** (logistic on net
+    item-gold + level + drake/baron lead), **objective spawn timers** (drake / void grubs /
+    baron, event-driven off the Live Client so respawns stay correct), and a **power-spike
+    alert** when an enemy carry has completed items *and* is fed. No model, no key — straight
+    off the :2999 Live Client API.
+14. **Dodge alerts** — a high-confidence "**consider dodging**" banner in champ select when
+    op.gg lane matchups say the draft is lost across most lanes. Deliberately strict (it has
+    to clear an average-disadvantage, losing-lane-count, hard-counter, and no-carry-lane gate
+    all at once) because a free dodge is scarce.
+15. **Profile session + coach** — the home page tracks your **session** (W-L, LP swing, win/loss
+    streak, and a take-a-break **tilt** nudge after a loss streak), a **pool coach** ("play more
+    X / ease off Y" from your champ win rates), and an **LP-trend sparkline**.
 
-Everything that states a number traces to a real source (op.gg or the Riot API).
+Everything that states a number traces to a real source (op.gg, the Riot API, or the Live Client).
 
 ## Behavior
 
@@ -116,6 +128,9 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
 - **Auto-open at champ select** — same toggle as the tray menu.
 - **Open profile/home on startup** — toggle startup landing behavior.
 - **Auto-accept queue** — optional ready-check auto-accept.
+- **Live game intel** — the widget's win read + objective timers + spike alert (toggle off for a
+  bare item helper).
+- **Dodge alerts** — the champ-select "consider dodging" banner.
 - **Flash key preference** — slider: left = Flash on D, right = Flash on F (applied on import).
 - **Start with Windows** — adds/removes a registry Run key so the tray launches at login.
 
