@@ -98,18 +98,18 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, the player scout, and duo markers — all updating in the same window.
-- **Profile auto-opens after game end** so recent-game review is immediately visible.
+- **Profile auto-opens after the game** (on your **second monitor** if you have one) so
+  recent-game review is immediately visible, and the in-game board closes itself promptly so
+  it doesn't linger over the post-game screen.
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
-- **Dragon spawn reminder** — the item widget plays a soft **pentatonic bell chime at ~45s, 30s,
-  and 15s** before the next elemental drake spawns (the motif lengthens/brightens as it nears; it
-  stops once a team has soul). Synthesized to a real WAV and played through your normal audio
-  device, so it's actually audible. Toggle in Settings.
-- **Profile auto-opens after the game on your second monitor** (if you have one), and the
-  in-game board closes itself promptly so it doesn't linger over the post-game screen.
+- **Dragon spawn reminder** — the item widget plays a soft **Zelda/OoT-style ocarina chime at
+  ~45s, 30s, and 15s** before the next elemental drake spawns (the arpeggio lengthens and
+  resolves higher as it nears; it stops once a team has soul). Synthesized to a real WAV and
+  played through your normal audio device, so it's actually audible. Toggle in Settings.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
-  closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
+  closes it; it **auto-closes** shortly after the match ends so the next game is fresh.
 - **Updates**: startup auto-apply attempt + periodic background checks; tray notifies when a
   newer release exists.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
@@ -138,6 +138,7 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
 - **Auto-accept queue** — optional ready-check auto-accept.
 - **Live game intel** — the widget's win read + objective timers + spike alert (toggle off for a
   bare item helper).
+- **Dragon spawn audio** — the 45/30/15s ocarina chime before a drake spawns.
 - **Dodge alerts** — the champ-select "consider dodging" banner.
 - **Flash key preference** — slider: left = Flash on D, right = Flash on F (applied on import).
 - **Start with Windows** — adds/removes a registry Run key so the tray launches at login.
@@ -171,7 +172,7 @@ threshold and the per-champ kit table live at the top of `smitecard.py` (`GANK_W
 
 A separate compact window (`smitewidget.py`) — always-on-top, never steals focus, draggable,
 and it **remembers where you drop it**. It auto-opens in-game (or **Ctrl+Alt+B** / tray →
-*Item widget*) and closes itself ~1.5 min after the game ends. Leave it in a corner and glance
+*Item widget*) and closes itself shortly after the game ends. Leave it in a corner and glance
 at it on each back.
 
 It is **not** generic. The item pool is op.gg's real, per-champ build for your champ+role (the
@@ -248,8 +249,8 @@ had to change when the files moved into folders.
   the live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed),
   and picks the next item + the right defensive piece from that pool. No AI, no generic tables.
 - `core/lolprofile.py` — the home page: who you are (live client) + Riot-API rank, recent form,
-  champ win rates, upgraded lobby-relative scoring (100+ possible), and role/champ-specific
-  post-game review notes.
+  champ win rates, **absolute role-benchmark scoring** (each game vs your role's goals, not the
+  lobby), session/tilt + pool-coach + LP trend, and role/champ-specific post-game review notes.
 - `core/lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
 - `core/claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);

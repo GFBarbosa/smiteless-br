@@ -42,37 +42,53 @@ POLL = 5                                                  # seconds between live
 import math, struct, wave, tempfile
 
 _SR = 44100
-_CHIME_VER = "v2"
-# A-major pentatonic (warm, consonant - the "nice" station-jingle feel)
-_HZ = {"E5": 659.25, "F#5": 739.99, "A5": 880.00, "B5": 987.77, "C#6": 1108.73, "E6": 1318.51}
-_CUE_NOTES = {                       # ascending motifs; more/brighter notes = more urgent
-    45: ["E5", "A5"],
-    30: ["E5", "F#5", "A5"],
-    15: ["A5", "B5", "C#6", "E6"],
+_CHIME_VER = "v4"
+# G-major (the bright, triumphant Zelda-jingle key). Music-box / ocarina timbre, ascending
+# arpeggios that resolve up to a held final note - that N64 "secret found / item get" feel.
+_HZ = {"G4": 392.00, "A4": 440.00, "B4": 493.88, "C5": 523.25, "D5": 587.33, "E5": 659.25,
+       "G5": 783.99, "A5": 880.00, "B5": 987.77, "D6": 1174.66}
+# (onset_step, [(note, ring_seconds), ...]) - last note rings long and gets a soft sub-octave.
+_CUE = {
+    45: (0.22, [("D5", 0.18), ("G5", 0.44)]),
+    30: (0.17, [("G4", 0.15), ("B4", 0.15), ("D5", 0.17), ("G5", 0.50)]),
+    15: (0.12, [("D5", 0.12), ("E5", 0.12), ("G5", 0.12), ("A5", 0.12), ("B5", 0.55)]),
 }
 
 
-def _render_cue(notes, note_dur=0.20, step=0.235):
-    """Mallet/bell tone (fundamental + soft octave + faint 3rd partial, exponential decay)
-    per note, sequenced into one 16-bit mono PCM buffer, peak-normalized."""
-    n_total = int(_SR * (step * len(notes) + 0.45))
+def _voice(f, t, dur, last=False):
+    """Soft, rounded ocarina/music-box tone: mostly fundamental with a gentle octave and a
+    faint third - the harsh upper partials are dropped so it's mellow, not pingy. A slow
+    attack means it's breathed in rather than struck. The held final note adds a soft
+    sub-octave for body, like the resolved chord under a Zelda fanfare."""
+    env = math.exp(-t * (3.0 / dur))
+    atk = min(1.0, t / 0.018)                            # ~18ms gentle attack: no click, no ping
+    s = (1.00 * math.sin(2 * math.pi * f * t)
+         + 0.30 * math.sin(2 * math.pi * 2 * f * t) * math.exp(-t * 4)
+         + 0.10 * math.sin(2 * math.pi * 3 * f * t) * math.exp(-t * 8))
+    if last:
+        s += 0.28 * math.sin(2 * math.pi * (f / 2) * t) * math.exp(-t * 2.5)
+    return s * env * atk
+
+
+def _render_cue(cue):
+    """Sequence a cue's notes (onset = i*step, each rings its own length) into one 16-bit
+    mono PCM buffer, peak-normalized."""
+    step, seq = cue
+    last_onset = (len(seq) - 1) * step
+    total = last_onset + seq[-1][1] + 0.12
+    n_total = int(_SR * (total + 0.05))
     buf = [0.0] * n_total
-    for i, nm in enumerate(notes):
+    for i, (nm, ring) in enumerate(seq):
         f = _HZ[nm]
         start = int(_SR * i * step)
-        for k in range(int(_SR * (note_dur + 0.30))):
+        last = (i == len(seq) - 1)
+        for k in range(int(_SR * ring)):
             idx = start + k
             if idx >= n_total:
                 break
-            t = k / _SR
-            env = math.exp(-t * (3.2 / note_dur))
-            atk = min(1.0, t / 0.006)                     # tiny attack so there's no click
-            s = (math.sin(2 * math.pi * f * t)
-                 + 0.45 * math.sin(2 * math.pi * 2 * f * t) * math.exp(-t * 6)
-                 + 0.18 * math.sin(2 * math.pi * 3 * f * t) * math.exp(-t * 9))
-            buf[idx] += s * env * atk
+            buf[idx] += _voice(f, k / _SR, ring, last)
     peak = max(1e-6, max(abs(x) for x in buf))
-    amp = 0.72 / peak
+    amp = 0.52 / peak                                    # softer overall level
     return b"".join(struct.pack("<h", int(max(-1.0, min(1.0, x * amp)) * 32767)) for x in buf)
 
 
@@ -85,7 +101,7 @@ def _cue_path(thr):
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(_SR)
-            w.writeframes(_render_cue(_CUE_NOTES[thr]))
+            w.writeframes(_render_cue(_CUE[thr]))
     except Exception:
         return None
     return p
