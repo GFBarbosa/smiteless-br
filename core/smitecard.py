@@ -789,18 +789,6 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build)
-    if champ_select and suggestions:
-        sx, sy = 8, TOP + 2
-        _rrect(d, (sx, sy, sx + 80, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
-        d.text((sx + 40, sy + 12), "PICKS", font=font(10, 1), fill=GOLD, anchor="ma")
-        yy = sy + 28
-        for cid in suggestions[:4]:
-            ic = get_icon(dd, cid, 34)
-            if ic:
-                img.paste(ic, (sx + 8, yy), ic)
-            name = dd["id2name"].get(cid, "")[:8]
-            d.text((sx + 49, yy + 7), name, font=font(10, 1), fill=TEXT)
-            yy += 70
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -827,6 +815,19 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                 draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a, self_kit=my_kit)))
         elif champ_select:
             d.text((388, y + 24), lbl, font=font(10), fill=(120, 118, 110), anchor="la")
+    if champ_select and suggestions:
+        # Draw this AFTER the team rows so it can't be covered by row backgrounds.
+        sx, sy = 6, TOP + 2
+        _rrect(d, (sx, sy, sx + 82, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
+        d.text((sx + 41, sy + 12), "PICKS", font=font(10, 1), fill=GOLD, anchor="ma")
+        yy = sy + 28
+        for cid in suggestions[:4]:
+            ic = get_icon(dd, cid, 34)
+            if ic:
+                img.paste(ic, (sx + 8, yy), ic)
+            name = dd["id2name"].get(cid, "")[:8]
+            d.text((sx + 49, yy + 7), name, font=font(10, 1), fill=TEXT)
+            yy += 70
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)
