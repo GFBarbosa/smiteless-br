@@ -94,6 +94,7 @@ _SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
 _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
 _LIVE_CTX = ssl._create_unverified_context()
 _DRAGON_TYPES = {"air", "water", "earth", "fire", "hextech", "chemtech"}
+_DRAGON_ALERT_STEPS = (45, 30, 15)
 
 
 def font(size, bold=False):
@@ -1398,7 +1399,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         #   game over (lobby)  -> close, so the next champ select opens fresh
         # Phase-driven, because lg.resolve can keep returning stale data after a session ends.
         miss, restart = 0, False
-        dragon_alerted_at = None
+        dragon_alert = {"spawn": None, "fired": set()}
         while not stop():
             time.sleep(5)
             ph = phasecheck.phase()
@@ -1407,12 +1408,19 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 try:
                     nxt, now = _next_dragon_spawn()
                     if nxt is not None:
+                        if dragon_alert["spawn"] != nxt:
+                            dragon_alert = {"spawn": nxt, "fired": set()}
                         eta = float(nxt - now)
-                        if dragon_alerted_at != nxt and 0.0 < eta <= 30.5:
-                            dragon_alerted_at = nxt
-                            threading.Thread(target=_play_dragon_soon_alert, daemon=True).start()
+                        for i, sec in enumerate(_DRAGON_ALERT_STEPS):
+                            if sec in dragon_alert["fired"]:
+                                continue
+                            low = _DRAGON_ALERT_STEPS[i + 1] if i + 1 < len(_DRAGON_ALERT_STEPS) else 0.0
+                            if low < eta <= (sec + 0.5):
+                                dragon_alert["fired"].add(sec)
+                                threading.Thread(target=_play_dragon_soon_alert, daemon=True).start()
+                                break
                     else:
-                        dragon_alerted_at = None
+                        dragon_alert = {"spawn": None, "fired": set()}
                 except Exception:
                     pass
                 continue

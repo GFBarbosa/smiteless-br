@@ -99,8 +99,8 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
 - **Profile auto-opens after game end** so recent-game review is immediately visible.
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
-- **Dragon spawn reminder** — plays a system sound about 30 seconds before the next elemental
-  dragon spawns while you're in-game.
+- **Dragon spawn reminder** — plays system-sound reminders at about **45s, 30s, and 15s**
+  before the next elemental dragon spawns while you're in-game.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
