@@ -757,34 +757,37 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
     H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
-    img = Image.new("RGB", (W, H), BG)
+    rail_w = 96 if (champ_select and suggestions) else 0
+    W2 = W + rail_w
+    xoff = rail_w
+    img = Image.new("RGB", (W2, H), BG)
     d = ImageDraw.Draw(img)
     hits = []                                    # clickable icon rects -> op.gg URL
     # header
     ic = get_icon(dd, my_cid, 48)
     if ic:
-        img.paste(ic, (16, 9), ic)
+        img.paste(ic, (16 + xoff, 9), ic)
         msc = scout_map.get((my_cid, True))
         murl = _profile_url(msc.get("riot_id")) if msc else None
         if murl:
-            hits.append((16, 9, 64, 57, murl))
+            hits.append((16 + xoff, 9, 64 + xoff, 57, murl))
     if my_cid:
-        d.text((74, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
+        d.text((74 + xoff, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
     else:                                        # spectator / replay: no "you"
-        d.text((16, 12), "SPECTATING", font=font(18, 1), fill=GOLD)
-        d.text((16, 42), "both teams scouted — no personal build (replay/spectator mode)", font=font(11), fill=MUTED)
+        d.text((16 + xoff, 12), "SPECTATING", font=font(18, 1), fill=GOLD)
+        d.text((16 + xoff, 42), "both teams scouted — no personal build (replay/spectator mode)", font=font(11), fill=MUTED)
     if build:
         bl = f"{build['keystone']}   ·   " + " > ".join(x for x in build['core'] if x) + "   ·   " + " / ".join(build['summs'])
-        d.text((74, 40), bl[:104], font=font(12), fill=MUTED)
-        d.text((W - 16, 13), f"{build['wr']:.1f}%  {build['tier']}", font=font(15, 1), fill=TEXT, anchor="ra")
-    d.text((W - 16, 40), "SMITELESS  ·  " + source, font=font(11), fill=(110, 108, 100), anchor="ra")
-    d.line([16, 66, W - 16, 66], fill=(40, 42, 50), width=1)
-    d.text((26, 74), "YOUR TEAM", font=font(11, 1), fill=(125, 166, 216))
+        d.text((74 + xoff, 40), bl[:104], font=font(12), fill=MUTED)
+        d.text((W2 - 16, 13), f"{build['wr']:.1f}%  {build['tier']}", font=font(15, 1), fill=TEXT, anchor="ra")
+    d.text((W2 - 16, 40), "SMITELESS  ·  " + source, font=font(11), fill=(110, 108, 100), anchor="ra")
+    d.line([16 + xoff, 66, W2 - 16, 66], fill=(40, 42, 50), width=1)
+    d.text((26 + xoff, 74), "YOUR TEAM", font=font(11, 1), fill=(125, 166, 216))
     if champ_select:
-        d.text((W - 26, 74), "YOUR RUNES + BUILD", font=font(11, 1), fill=GOLD, anchor="ra")
+        d.text((W2 - 26, 74), "YOUR RUNES + BUILD", font=font(11, 1), fill=GOLD, anchor="ra")
     else:
-        d.text((W - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
-    cxc = W // 2
+        d.text((W2 - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
+    cxc = W2 // 2
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
     duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
@@ -792,19 +795,19 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
-        draw_player(d, img, dd, 16, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
-        draw_player(d, img, dd, W - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
+        draw_player(d, img, dd, 16 + xoff, y, a_cid, scout_map.get((a_cid, True)), a_cid == my_cid, "L", BLUE, ALLY_BG, live)
+        draw_player(d, img, dd, W2 - 16, y, e_cid, scout_map.get((e_cid, False)), False, "R", RED, ENEMY_BG, live)
         asc, esc = scout_map.get((a_cid, True)), scout_map.get((e_cid, False))
         aurl = _profile_url(asc.get("riot_id")) if (a_cid and asc) else None
         eurl = _profile_url(esc.get("riot_id")) if (e_cid and esc) else None
         if aurl:
-            hits.append((27, y + 13, 65, y + 51, aurl))     # ally icon (left)
+            hits.append((27 + xoff, y + 13, 65 + xoff, y + 51, aurl))     # ally icon (left)
         if eurl:
-            hits.append((855, y + 13, 893, y + 51, eurl))   # enemy icon (right)
+            hits.append((W2 - 65, y + 13, W2 - 27, y + 51, eurl))   # enemy icon (right)
         if a_cid and (a_cid, True) in duo_of:               # premade markers (shared color = same duo)
-            _duo_marker(d, 350, y + 18, duo_of[(a_cid, True)], "L")
+            _duo_marker(d, 350 + xoff, y + 18, duo_of[(a_cid, True)], "L")
         if e_cid and (e_cid, False) in duo_of:
-            _duo_marker(d, W - 350, y + 18, duo_of[(e_cid, False)], "R")
+            _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)], "R")
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
             if role == my_role or not e_cid:
@@ -831,14 +834,14 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)
-        draw_lane_panel(d, img, dd, 16, ly, W - 32, my_cid, my_role, opp,
+        draw_lane_panel(d, img, dd, 16 + xoff, ly, W2 - xoff - 32, my_cid, my_role, opp,
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16, ly), "rank · L10 W/L · mastery · ● duo = premade   |   gank = matchup + enemy form/streak + YOUR champ's kit   |   click → u.gg",
+    d.text((16 + xoff, ly), "rank · L10 W/L · mastery · ● duo = premade   |   gank = matchup + enemy form/streak + YOUR champ's kit   |   click → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
-        d.text((16, ly + 18), note, font=font(11), fill=(200, 150, 90))
+        d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
     img.hitmap = hits
     return img
 
