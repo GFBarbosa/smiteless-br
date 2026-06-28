@@ -4,7 +4,7 @@
 A normal (focusable) window - unlike the overlay - so you can tweak it like any dialog.
 Everything it saves is read live by the overlay (smitecard.apply_settings each frame).
 """
-import sys, os, ctypes
+import sys, os, ctypes, webbrowser
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
@@ -15,10 +15,13 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
         except Exception:
             pass
 import smiteconfig as cfg
+import lolscout as ls
 
 BG = "#11131a"; PANEL = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"
-GREEN = "#5fc47a"; TROUGH = "#0d0f16"; BTN = "#262b3b"; BTN_A = "#333a52"
+GREEN = "#5fc47a"; RED = "#d46d78"; TROUGH = "#0d0f16"; BTN = "#262b3b"; BTN_A = "#333a52"
+ENTRY_BG = "#0f1219"
 HERE = os.path.dirname(os.path.abspath(__file__))
+KEY_FILES = [os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")]
 
 
 def _single_instance():
@@ -35,19 +38,36 @@ def main():
     root = tk.Tk()
     root.title("Smiteless Settings")
     root.configure(bg=BG)
-    root.resizable(False, False)
+    root.resizable(True, True)
     try:
         root.iconbitmap(os.path.join(HERE, "smiteless.ico"))
     except Exception:
         pass
 
-    tk.Label(root, text="SMITELESS  SETTINGS", bg=BG, fg=GOLD,
+    shell = tk.Frame(root, bg=BG)
+    shell.pack(fill="both", expand=True)
+    vbar = tk.Scrollbar(shell, orient="vertical")
+    vbar.pack(side="right", fill="y")
+    canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, yscrollcommand=vbar.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    vbar.config(command=canvas.yview)
+    body = tk.Frame(canvas, bg=BG)
+    body_id = canvas.create_window((0, 0), window=body, anchor="nw")
+
+    def _sync_scroll(_=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.itemconfigure(body_id, width=canvas.winfo_width())
+    body.bind("<Configure>", _sync_scroll)
+    canvas.bind("<Configure>", _sync_scroll)
+    root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+
+    tk.Label(body, text="SMITELESS  SETTINGS", bg=BG, fg=GOLD,
              font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=18, pady=(16, 1))
-    tk.Label(root, text="Changes apply live - the overlay's gank tags update within a few seconds.",
+    tk.Label(body, text="Changes apply live - the overlay's gank tags update within a few seconds.",
              bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=18, pady=(0, 8))
 
     def scale_row(title, desc, lo, hi, res, val, fmt):
-        fr = tk.Frame(root, bg=PANEL)
+        fr = tk.Frame(body, bg=PANEL)
         fr.pack(fill="x", padx=14, pady=5)
         top = tk.Frame(fr, bg=PANEL)
         top.pack(fill="x", padx=12, pady=(8, 0))
@@ -105,8 +125,8 @@ def main():
     duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
 
-    tk.Label(root, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    ffr = tk.Frame(root, bg=BG)
+    tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    ffr = tk.Frame(body, bg=BG)
     ffr.pack(fill="x", padx=16)
     col1 = tk.Frame(ffr, bg=BG); col1.pack(side="left", fill="x", expand=True, anchor="n")
     col2 = tk.Frame(ffr, bg=BG); col2.pack(side="left", fill="x", expand=True, anchor="n")
@@ -115,13 +135,86 @@ def main():
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
 
-    tk.Label(root, text="STARTUP", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    afr = tk.Frame(root, bg=BG)
+    tk.Label(body, text="STARTUP", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    afr = tk.Frame(body, bg=BG)
     afr.pack(fill="x", padx=16, pady=(0, 0))
     _chk(afr, "Auto-open at champ select", auto).pack(side="left")
     _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
-    status = tk.Label(root, text="", bg=BG, fg=GREEN, font=("Segoe UI", 8))
+    tk.Label(body, text="RIOT API KEY", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
+    keyfr = tk.Frame(body, bg=PANEL)
+    keyfr.pack(fill="x", padx=14, pady=(0, 5))
+    top = tk.Frame(keyfr, bg=PANEL)
+    top.pack(fill="x", padx=12, pady=(8, 0))
+    tk.Label(top, text="Current key:", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
+    keylbl = tk.Label(top, text="", bg=PANEL, fg=MUTED, font=("Consolas", 9, "bold"))
+    keylbl.pack(side="left", padx=(6, 0))
+
+    row = tk.Frame(keyfr, bg=PANEL)
+    row.pack(fill="x", padx=10, pady=(6, 2))
+    key_entry = tk.Entry(row, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
+                         font=("Consolas", 9), width=44)
+    key_entry.pack(side="left", fill="x", expand=True, ipady=3)
+
+    key_status = tk.Label(keyfr, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 8),
+                          anchor="w", justify="left")
+    key_status.pack(fill="x", padx=12, pady=(2, 8))
+    tk.Label(keyfr, text="Saved to ~/.riot_api_key and ~/.riot_api_key.txt", bg=PANEL,
+             fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=12, pady=(0, 8))
+
+    def refresh_key_label():
+        k = ls.read_key()
+        if k and k.startswith("RGAPI-"):
+            keylbl.config(text=f"...{k[-4:]} set", fg=GREEN)
+        else:
+            keylbl.config(text="not set", fg=RED)
+
+    def open_dev_site():
+        webbrowser.open("https://developer.riotgames.com/")
+        key_status.config(text="log in, copy your key, then Paste + Save", fg=MUTED)
+
+    def paste_key():
+        try:
+            c = root.clipboard_get().strip()
+        except Exception:
+            key_status.config(text="clipboard is empty", fg=RED)
+            return
+        key_entry.delete(0, "end")
+        key_entry.insert(0, c)
+        key_status.config(text="pasted - review it, then Save", fg=MUTED)
+
+    def save_key():
+        k = key_entry.get().strip()
+        if not (k.startswith("RGAPI-") and len(k) >= 24):
+            key_status.config(text="that doesn't look like an RGAPI-... key", fg=RED)
+            return
+        for p in KEY_FILES:
+            try:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(k)
+            except Exception as e:
+                key_status.config(text=f"save failed: {e}", fg=RED)
+                return
+        key_entry.delete(0, "end")
+        refresh_key_label()
+        key_status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GREEN)
+
+    bfr = tk.Frame(keyfr, bg=PANEL)
+    bfr.pack(fill="x", padx=10, pady=(0, 8))
+
+    def _mkbtn(parent, text, cmd, accent=False):
+        return tk.Button(parent, text=text, command=cmd, bg=(GOLD if accent else BTN),
+                         fg=(BG if accent else TXT), activebackground=(GOLD if accent else BTN_A),
+                         activeforeground=(BG if accent else TXT), relief="flat", bd=0, padx=12, pady=4,
+                         font=("Segoe UI", 8, "bold"), cursor="hand2")
+
+    _mkbtn(bfr, "Get key ↗", open_dev_site).pack(side="left", padx=(0, 4))
+    _mkbtn(bfr, "Paste", paste_key).pack(side="left", padx=4)
+    _mkbtn(bfr, "Save key", save_key, accent=True).pack(side="left", padx=4)
+    key_entry.bind("<Return>", lambda e: save_key())
+    refresh_key_label()
+
+    status = tk.Label(body, text="", bg=BG, fg=GREEN, font=("Segoe UI", 8))
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
@@ -148,15 +241,17 @@ def main():
                          activeforeground=(BG if accent else TXT), relief="flat", bd=0, padx=16, pady=5,
                          font=("Segoe UI", 9, "bold"), cursor="hand2")
 
-    btns = tk.Frame(root, bg=BG)
+    btns = tk.Frame(body, bg=BG)
     btns.pack(fill="x", padx=14, pady=(10, 16))
     mkbtn(btns, "Save", save, accent=True).pack(side="left", padx=4)
     mkbtn(btns, "Reset", reset).pack(side="left", padx=4)
     mkbtn(btns, "Close", root.destroy).pack(side="right", padx=4)
 
     root.update_idletasks()
-    w, h = root.winfo_reqwidth(), root.winfo_reqheight()
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    w = max(560, root.winfo_reqwidth())
+    h = min(max(620, root.winfo_reqheight()), int(sh * 0.90))
+    root.minsize(560, 520)
     root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 3}")
     root.bind("<Escape>", lambda e: root.destroy())
     root.mainloop()

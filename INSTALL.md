@@ -44,7 +44,9 @@ free Riot key (it's free and takes 2 minutes). Each person needs their own.
 2. Click **Login** (top-right) and sign in with your normal League/Riot account.
 3. After logging in you'll see a box called **"Development API Key"**. Click **Regenerate API Key** if it's empty.
 4. Click **Copy** next to the key (it looks like `RGAPI-xxxxxxxx-xxxx-...`).
-5. Open Smiteless (press **`Ctrl` + `Alt` + `X`**). At the **bottom** of the window there's a key bar — click **Paste**, then **Save**.
+5. Open Smiteless (press **`Ctrl` + `Alt` + `X`**) and either:
+   - use the key bar at the bottom of the overlay/profile window (**Paste** → **Save**), or
+   - open **Settings** from the tray and use the **Riot API Key** section (**Paste** → **Save key**).
 6. Done. It works in your next game.
 
 > ⚠️ This free key **stops working after 24 hours** and you'll need to repeat steps 1–5. If
