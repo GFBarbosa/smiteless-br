@@ -24,6 +24,8 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "gank_kit": True,        # factor YOUR champ's CC/engage into the gank ratings
          "duo_detection": True,   # show the duo / premade markers
          "item_widget": True,     # the floating in-game item helper
+         "game_intel": True,      # widget: live win read + objective timers + spike alerts
+         "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "auto_accept": False,    # auto-accept queue ready checks
          "flash_on_d": True}      # import puts Flash on D (off = put Flash on F)
 

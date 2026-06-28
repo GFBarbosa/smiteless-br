@@ -411,6 +411,46 @@ def queue_prediction(my_cid, scout_map, duo_map):
     return {"text": txt, "fill": col, "bg": _dim(col, 0.24)}
 
 
+_DODGE_CACHE = {}
+# Dodge gate - deliberately STRICT (you get ~one free dodge a day, so only call it when the
+# draft is genuinely lost on paper). All four must hold across the known lanes.
+DODGE_MIN_LANES = 4        # need most of the draft locked + sampled before judging
+DODGE_AVG = -3.0           # average lane win-rate delta this far below 50%
+DODGE_LOSING = 3           # at least this many clearly-losing lanes
+DODGE_HARDCOUNTERS = 1     # at least one hard counter (>=6% under)
+DODGE_BEST_CAP = 5.0       # ...and no lane is hard-winning enough to carry the draft
+
+
+def dodge_read(dd, allies, enemies):
+    """High-confidence 'consider dodging' read from op.gg lane matchups (champ select).
+    Returns {reason, avg, worst} only when the draft is lost across most lanes; else None.
+    Conservative on purpose - a false dodge costs the user a real, scarce free dodge."""
+    sig = (tuple(sorted((c, r) for c, r in allies if c and r)),
+           tuple(sorted((c, r) for c, r in enemies if c and r)))
+    if sig in _DODGE_CACHE:
+        return _DODGE_CACHE[sig]
+    result = None
+    try:
+        rows = lb.gather_lane_matchups(dd, allies, enemies)
+    except Exception:
+        rows = []
+    deltas = [(role, ally, enemy, wr - 50.0) for ally, role, enemy, wr, g in rows
+              if wr is not None and g and g >= 20]
+    if len(deltas) >= DODGE_MIN_LANES:
+        ds = [x[3] for x in deltas]
+        avg = sum(ds) / len(ds)
+        losing = sum(1 for v in ds if v <= -3)
+        hard = sum(1 for v in ds if v <= -6)
+        best = max(ds)
+        if avg <= DODGE_AVG and losing >= DODGE_LOSING and hard >= DODGE_HARDCOUNTERS and best < DODGE_BEST_CAP:
+            worst = min(deltas, key=lambda x: x[3])
+            result = {"avg": avg, "losing": losing,
+                      "worst": (worst[1], worst[2], worst[3]),
+                      "reason": f"{losing}/{len(deltas)} lanes behind · worst {worst[1]} vs {worst[2]} ({worst[3]:+.0f}%)"}
+    _DODGE_CACHE[sig] = result
+    return result
+
+
 def _wr_color(wr):
     return GREEN if wr >= 55 else (REDWR if wr <= 42 else TAN)
 
@@ -465,6 +505,57 @@ def _rrect(d, box, r, fill=None, outline=None, width=1):
         d.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
     except Exception:
         d.rectangle(box, fill=fill, outline=outline)
+
+
+def _sparkline(d, x0, y0, w, h, vals):
+    """A tiny LP-over-time line; green if net-up, red if net-down. Endpoint dotted."""
+    if not vals or len(vals) < 2:
+        return
+    lo, hi = min(vals), max(vals)
+    rng = max(1, hi - lo)
+    n = len(vals)
+    pts = [(x0 + int(i / (n - 1) * w), y0 + h - int((v - lo) / rng * h)) for i, v in enumerate(vals)]
+    col = GREEN if vals[-1] >= vals[0] else REDWR
+    try:
+        d.line(pts, fill=col, width=2, joint="curve")
+    except Exception:
+        d.line(pts, fill=col, width=2)
+    ex, ey = pts[-1]
+    d.ellipse((ex - 2, ey - 2, ex + 2, ey + 2), fill=col)
+
+
+def _draw_session_coach(d, p, y):
+    """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right."""
+    f = font(11, 1)
+    sess = p.get("session") or {}
+    bits = []
+    if sess.get("games"):
+        bits.append(("SESSION", GOLD))
+        bits.append((f"{sess['wins']}W-{sess['losses']}L", TAN))
+        if sess.get("lp_delta") is not None:
+            dv = sess["lp_delta"]
+            bits.append((f"{dv:+d} LP", GREEN if dv >= 0 else REDWR))
+    stv = sess.get("streak", 0)
+    if abs(stv) >= 2:
+        bits.append((f"{'W' if stv > 0 else 'L'}{abs(stv)} streak", GREEN if stv > 0 else REDWR))
+    if not bits:
+        bits = [("SESSION", GOLD), ("play a ranked game to start tracking", MUTED)]
+    x = 20
+    for txt, col in bits:
+        d.text((x, y), txt, font=f, fill=col)
+        x += d.textlength(txt, font=f) + 12
+    if sess.get("tilt"):
+        d.text((x, y), "· take a breather, tilt risk", font=f, fill=REDWR)
+    coach = p.get("coach")
+    if coach:
+        cx = W - 22
+        order = [k for k in ("more", "less") if coach.get(k)]
+        for k in order:                                   # right-anchored, first = rightmost
+            c = coach[k]
+            txt = ("▸ play more " if k == "more" else "▸ ease off ") + f"{c['champ']} {c['wr']}%"
+            col = GREEN if k == "more" else REDWR
+            d.text((cx, y), txt, font=f, fill=col, anchor="ra")
+            cx -= d.textlength(txt, font=f) + 16
 
 
 def _profile_headline(p):
@@ -564,8 +655,8 @@ def render_profile(dd, p, expanded=None, details=None):
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
-    HEAD, CHAMPS = 132, 96
-    games_top = HEAD + CHAMPS + 34
+    HEAD, CHAMPS, BAND = 132, 96, 30
+    games_top = HEAD + BAND + CHAMPS + 34
     H = games_top + 16
     for i in range(len(games)):
         H += 50 + (DETAIL_H + 8 if i in expanded else 0)
@@ -633,11 +724,24 @@ def render_profile(dd, p, expanded=None, details=None):
     d.text((W - 30, 30), str(p["avg_score"]), font=font(34, 1), fill=sc_col, anchor="ra")
     d.text((W - 30, 74), "AVG GAME SCORE", font=font(9, 1), fill=MUTED, anchor="ra")
     # headline
-    for ln in _wrap(_profile_headline(p), font(12), W - 60)[:1]:
+    for ln in _wrap(_profile_headline(p), font(12), W - 360)[:1]:
         d.text((30, 98), ln, font=font(12), fill=TAN)
+    # LP trend sparkline (bottom-right of the header card)
+    trend = p.get("lp_trend") or []
+    if len(trend) >= 2:
+        spw, sph, sy = 150, 18, 94
+        sx = W - 30 - spw
+        d.text((W - 30, sy - 12), "LP TREND", font=font(8, 1), fill=MUTED, anchor="ra")
+        _sparkline(d, sx, sy, spw, sph, trend)
+        net = trend[-1] - trend[0]
+        d.text((sx - 8, sy + sph // 2), f"{net:+d}", font=font(11, 1),
+               fill=GREEN if net >= 0 else REDWR, anchor="rm")
+
+    # ---- session + pool-coach band ----
+    _draw_session_coach(d, p, HEAD - 2)
 
     # ---- top champions ----
-    cy = HEAD + 6
+    cy = HEAD + BAND + 6
     d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
     cw = min(150, (W - 28) // nch)
@@ -971,7 +1075,7 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
     return picked
 
 
-def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None):
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
@@ -1017,6 +1121,13 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         qx0, qx1 = cxc - (tw / 2) - 10, cxc + (tw / 2) + 10
         _rrect(d, (qx0, 69, qx1, 87), 8, fill=qr["bg"], outline=PEDGE, width=1)
         d.text((cxc, 78), qr["text"], font=qf, fill=qr["fill"], anchor="mm")
+    if champ_select and dodge:
+        bf = font(12, 1)
+        txt = "⚠ CONSIDER DODGING — " + dodge["reason"]
+        tw = d.textlength(txt, font=bf)
+        bx0, bx1 = cxc - tw / 2 - 12, cxc + tw / 2 + 12
+        _rrect(d, (bx0, 68, bx1, 92), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
+        d.text((cxc, 80), txt, font=bf, fill=(240, 150, 150), anchor="mm")
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build, hits=hits)
     for i, (role, lbl) in enumerate(ROLES):
@@ -1217,14 +1328,17 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 if wait and not (my_cid or ally_role):
                     time.sleep(2)
                     continue
-                sig = (my_cid, my_role, tuple(sorted(ally_role.items())), bool(build))
+                sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
+                       tuple(sorted((c, r) for c, r in enemies if c)), bool(build))
                 if sig != last_cs_sig:
                     ally_ids = [c for c, _ in allies if c]
                     enemy_ids = [c for c, _ in enemies if c]
                     sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=4)
+                    # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
+                    dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                          "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                         roles_known=True, live=False, champ_select=True, suggestions=sugg))
+                         roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge))
                     last_cs_sig = sig
                 time.sleep(2)
                 continue

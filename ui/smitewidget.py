@@ -20,6 +20,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
             pass
 import lolbuild as lb
 import lolitems as li
+import lollive as ll
 import phasecheck
 import smiteconfig as cfg
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
@@ -28,10 +29,12 @@ from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
 INGAME_PHASES = ("GameStart", "InProgress", "Reconnect")   # widget belongs on screen only here
 
 BG = "#11131a"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#7f7d75"
-RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"
+RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"; GREEN = "#5fc47a"; TEAL = "#4cc0b0"
 KIND_COLOR = {"counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
 KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 5                                                  # seconds between live reads
+# objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
+# widget honest when the user turns them off.
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
 
 
@@ -88,16 +91,50 @@ def main():
     champ.pack(fill="x", padx=9)
     body = tk.Frame(outer, bg=BG)
     body.pack(fill="x", padx=9, pady=(3, 2))
+    intel = tk.Frame(outer, bg=BG)                        # live win read + objective timers + spike
+    intel.pack(fill="x", padx=9, pady=(0, 1))
     summ = tk.Label(outer, text="open in-game or a replay to see suggestions",
                     font=("Segoe UI", 8), fg=MUTED, bg=BG, anchor="w", justify="left")
     summ.pack(fill="x", padx=9, pady=(0, 7))
 
-    def render(rec):
+    def _fmt(secs):
+        return "UP" if secs <= 0 else f"{secs // 60}:{secs % 60:02d}"
+
+    def render_intel(pulse):
+        for w in intel.winfo_children():
+            w.destroy()
+        if not pulse:
+            return
+        wp = pulse.get("winprob")
+        if wp:
+            lab = "WIN" if wp["ahead"] else "BEHIND"
+            row = tk.Frame(intel, bg=BG)
+            row.pack(fill="x")
+            tk.Label(row, text=f"{lab} {wp['pct']}%", font=("Segoe UI", 9, "bold"),
+                     fg=(GREEN if wp["ahead"] else RED), bg=BG, anchor="w").pack(side="left")
+            tk.Label(row, text=f"  {wp['basis']}", font=("Segoe UI", 8), fg=MUTED, bg=BG,
+                     anchor="w").pack(side="left")
+        objs = pulse.get("objectives") or []
+        if objs:
+            row = tk.Frame(intel, bg=BG)
+            row.pack(fill="x")
+            tk.Label(row, text="⟳", font=("Segoe UI", 9), fg=TEAL, bg=BG).pack(side="left")
+            for o in objs[:3]:
+                col = GOLD if o["urgent"] else (TEAL if o["up"] else MUTED)
+                tk.Label(row, text=f" {o['label']} {_fmt(o['secs'])} ", font=("Segoe UI", 9,
+                         "bold" if o["urgent"] else "normal"), fg=col, bg=BG).pack(side="left")
+        sp = pulse.get("spike")
+        if sp:
+            tk.Label(intel, text=f"⚠ {sp['name']} spiked — {sp['items']} items, {sp['k']}/{sp['d']}",
+                     font=("Segoe UI", 9), fg=RED, bg=BG, anchor="w").pack(fill="x")
+
+    def render(rec, pulse=None):
         for w in body.winfo_children():
             w.destroy()
         if not rec:
             champ.config(text="waiting for a live game…", fg=MUTED)
             summ.config(text="open in-game or a replay to see suggestions")
+            render_intel(None)
             return
         champ.config(text=rec["champ"], fg=TXT)
         if not rec["lines"]:
@@ -109,6 +146,7 @@ def main():
         if rec.get("no_pool"):
             tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
                      fg=MUTED, bg=BG, anchor="w").pack(fill="x")
+        render_intel(pulse)
         summ.config(text=rec["summary"])
 
     # --- drag anywhere on the chrome; persist where you drop it ---
@@ -146,22 +184,34 @@ def main():
 
     def worker():
         seen, ended, stale = False, 0, 0
+        intel_on = cfg.load().get("game_intel", True)
         while st["alive"]:
+            try:                                         # one :2999 read shared by build + intel
+                raw = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata",
+                              timeout=3, insecure=True)
+            except Exception:
+                raw = None
             try:
-                rec = li.recommend(dd)
+                rec = li.recommend(dd, data=raw)
             except Exception:
                 rec = None
             ph = phasecheck.phase()
+            pulse = None
+            if intel_on and (rec is not None or ph in INGAME_PHASES):
+                try:
+                    pulse = ll.pulse(dd, data=raw)
+                except Exception:
+                    pulse = None
             if rec is not None or ph in INGAME_PHASES:   # in a live game -> show + reset
                 seen, ended, stale = True, 0, 0
-                q.put(rec)                               # build lines, or None -> "waiting" while loading
+                q.put({"rec": rec, "pulse": pulse})      # build lines (+intel), or rec None while loading
             elif ph == "":
                 # Client UNREACHABLE: during a teamfight/lag spike both :2999 and the LCU can
                 # time out for a while even though the game is still going. Do NOT disappear -
                 # hold the last frame. Only a very long dead stretch (client really gone) closes.
                 stale += 1
                 if not seen:
-                    q.put(rec)                           # never saw a game -> show "waiting"
+                    q.put({"rec": rec, "pulse": None})   # never saw a game -> show "waiting"
                 if stale >= (36 if seen else 4):         # seen: ~3 min tolerance; not seen: ~20s
                     q.put("__quit__")
                     return
@@ -170,7 +220,7 @@ def main():
                 # the game is actually over -> close so the next champ select opens fresh.
                 ended += 1
                 if not seen:
-                    q.put(rec)
+                    q.put({"rec": rec, "pulse": None})
                 if ended >= (2 if seen else 3):          # ~10s confirmed over (seen) / ~15s otherwise
                     q.put("__quit__")
                     return
@@ -190,7 +240,10 @@ def main():
                 if msg == "__quit__":
                     quit_()
                     return
-                render(msg)
+                if isinstance(msg, dict) and "rec" in msg:
+                    render(msg["rec"], msg.get("pulse"))
+                else:
+                    render(msg)                          # backward-compatible: bare rec
         except queue.Empty:
             pass
         make_no_activate(toplevel_hwnd(root.winfo_id()))

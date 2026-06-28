@@ -72,9 +72,14 @@ def _ddragon_version():
         raise
 
 # ---------- ddragon (cached per patch) ----------
+_DD_MEMO = {}              # parse the static data once per process (it's the same all session)
+
+
 def ddragon():
-    os.makedirs(CACHE, exist_ok=True)
     ver = _ddragon_version()
+    if _DD_MEMO.get("ver") == ver and _DD_MEMO.get("dd") is not None:
+        return _DD_MEMO["dd"]
+    os.makedirs(CACHE, exist_ok=True)
     def load(name):
         fp = os.path.join(CACHE, f"{ver}_{name}.json")
         if os.path.exists(fp):
@@ -104,14 +109,42 @@ def ddragon():
         cid = int(c["key"]); id2name[cid] = c["name"]; id2key[cid] = c["id"]
         id2tags[cid] = c.get("tags", [])
         name2id[norm(c["name"])] = cid; name2id[norm(c["id"])] = cid
-    return dict(ver=ver, items=items, item_data=item_data, runes=runes, trees=trees, spells=spells,
-                name2id=name2id, id2name=id2name, id2key=id2key, id2tags=id2tags, norm=norm)
+    dd = dict(ver=ver, items=items, item_data=item_data, runes=runes, trees=trees, spells=spells,
+              name2id=name2id, id2name=id2name, id2key=id2key, id2tags=id2tags, norm=norm)
+    _DD_MEMO["ver"], _DD_MEMO["dd"] = ver, dd
+    return dd
 
 # ---------- op.gg ----------
+OPGG_CACHE = os.path.expanduser("~/.claude/cache/opgg")
+OPGG_TTL = 6 * 3600        # op.gg champ data only shifts patch-to-patch; 6h keeps champ select snappy
 def opgg(cid, role, tier=None):
+    """op.gg champ data, disk-cached per (champ, role, tier) for OPGG_TTL. On a network
+    hiccup it serves stale cache rather than failing the build/scout. Empty results aren't
+    cached, so a transient blank re-fetches next time."""
+    role = ROLE.get((role or "").lower(), (role or "").lower())
+    fp = os.path.join(OPGG_CACHE, f"{cid}_{role}_{tier or 'def'}.json")
+    try:
+        c = json.load(open(fp, encoding="utf-8"))
+        if time.time() - c.get("ts", 0) < OPGG_TTL:
+            return c.get("data", {})
+    except Exception:
+        pass
     url = f"https://lol-api-champion.op.gg/api/na/champions/ranked/{cid}/{role}"
     if tier: url += f"?tier={tier}"
-    return http(url, headers={"User-Agent": UA, "Accept": "application/json"}).get("data", {})
+    try:
+        data = http(url, headers={"User-Agent": UA, "Accept": "application/json"}).get("data", {})
+    except Exception:
+        try:                                   # serve stale on failure if we have any
+            return json.load(open(fp, encoding="utf-8")).get("data", {})
+        except Exception:
+            raise
+    if data:
+        try:
+            os.makedirs(OPGG_CACHE, exist_ok=True)
+            _atomic_json(fp, {"data": data, "ts": time.time()})
+        except Exception:
+            pass
+    return data
 
 
 # ---------- op.gg matchup win rates ----------
