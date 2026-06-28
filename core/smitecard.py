@@ -600,19 +600,27 @@ def render_profile(dd, p, expanded=None, details=None):
     hx0, hy0, hx1, hy1 = 14, 12, W - 14, 122
     _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=PCARD, outline=None, width=1)
     best = (p.get("champs") or [{}])[0].get("champ")
+    if not best:
+        best = (p.get("games") or [{}])[0].get("champ")
     best_cid = _champ_id_from_name(dd, best)
     if best_cid:
-        splash = get_splash(dd, best_cid, (hx1 - hx0, hy1 - hy0))
+        bw, bh = (hx1 - hx0), (hy1 - hy0)
+        splash = get_splash(dd, best_cid, (bw, bh))
+        if not splash:
+            # Hard fallback: use champion square art stretched into the banner so it never renders flat/black.
+            fic = get_icon(dd, best_cid, 512)
+            if fic:
+                splash = fic.convert("RGB").resize((bw, bh), Image.LANCZOS)
         if splash:
-            mask = Image.new("L", (hx1 - hx0, hy1 - hy0), 0)
+            mask = Image.new("L", (bw, bh), 0)
             md = ImageDraw.Draw(mask)
             try:
-                md.rounded_rectangle((0, 0, hx1 - hx0, hy1 - hy0), radius=14, fill=255)
+                md.rounded_rectangle((0, 0, bw, bh), radius=14, fill=255)
             except Exception:
-                md.rectangle((0, 0, hx1 - hx0, hy1 - hy0), fill=255)
+                md.rectangle((0, 0, bw, bh), fill=255)
             img.paste(splash, (hx0, hy0), mask)
-            shade = Image.new("RGBA", (hx1 - hx0, hy1 - hy0), (10, 14, 22, 95))
-            img.paste(shade, (hx0, hy0), mask)
+            shade_mask = mask.point(lambda v: int(v * 0.33))
+            img.paste((10, 14, 22), (hx0, hy0, hx1, hy1), shade_mask)
         else:
             # Fallback: enlarge champ icon so the header never appears blank.
             fic = get_icon(dd, best_cid, hy1 - hy0 - 8)
