@@ -86,7 +86,7 @@ OpenHomeOnStartup() {
 }
 
 ; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
-; version exists - on launch AND every few hours (so it notifies mid-session, not just at
+; version exists - on launch AND every few minutes (so it notifies mid-session, not just at
 ; boot). It also renames the menu item to "Update to vX" and flags the icon tooltip. The
 ; menu item runs the one-click installer.
 g_updateVer := ""
@@ -109,7 +109,7 @@ CheckUpdate() {
     }
 }
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
-SetTimer(CheckUpdate, 4 * 60 * 60 * 1000)      ; then every 4 hours
+SetTimer(CheckUpdate, 5 * 60 * 1000)           ; then every 5 minutes
 SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after startup
 SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accept if enabled
 
