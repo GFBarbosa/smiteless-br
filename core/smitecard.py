@@ -8,7 +8,7 @@ form bar per player. Renders progressively (build + lanes first, scout fills in)
 Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
-import sys, os, time, threading, urllib.request, urllib.parse, io
+import sys, os, time, threading, urllib.request, urllib.parse, io, json, ssl
 from PIL import Image, ImageDraw, ImageFont
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,6 +92,8 @@ _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
 _SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
 _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
+_LIVE_CTX = ssl._create_unverified_context()
+_DRAGON_TYPES = {"air", "water", "earth", "fire", "hextech", "chemtech"}
 
 
 def font(size, bold=False):
@@ -1109,6 +1111,50 @@ def _takeflag(argv, name, default=None):
     return default
 
 
+def _live_json(path, timeout=1.6):
+    req = urllib.request.Request(f"https://127.0.0.1:2999/liveclientdata/{path}",
+                                 headers={"User-Agent": lb.UA, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout, context=_LIVE_CTX) as r:
+        raw = r.read()
+    if not raw:
+        return None
+    return json.loads(raw.decode("utf-8"))
+
+
+def _next_dragon_spawn():
+    """(next_spawn_time_sec, game_time_sec) or (None, now) if no elemental dragon is pending."""
+    gs = _live_json("gamestats")
+    ev = _live_json("eventdata")
+    now = float((gs or {}).get("gameTime") or 0.0)
+    events = (ev or {}).get("Events") or []
+    elem = []
+    elder_seen = False
+    for e in events:
+        if (e or {}).get("EventName") != "DragonKill":
+            continue
+        dt = str((e or {}).get("DragonType") or "").lower()
+        if dt == "elder":
+            elder_seen = True
+            continue
+        if dt in _DRAGON_TYPES:
+            try:
+                elem.append(float((e or {}).get("EventTime") or 0.0))
+            except Exception:
+                pass
+    if elder_seen or len(elem) >= 4:  # soul reached (elder cycle), so no more elemental-dragon spawns
+        return None, now
+    nxt = (max(elem) + 300.0) if elem else 300.0
+    return nxt, now
+
+
+def _play_dragon_soon_alert():
+    try:
+        import winsound
+        winsound.MessageBeep(0x00000030)  # MB_ICONWARNING system sound
+    except Exception:
+        pass
+
+
 def run(emit, count=None, wait=False, stop=None, monitor=False):
     """Core loop: resolve the live game, render each frame, and hand the finished PIL
     Image to emit(img). Shared by the PNG CLI (main) and the live Tk overlay.
@@ -1238,11 +1284,23 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         #   game over (lobby)  -> close, so the next champ select opens fresh
         # Phase-driven, because lg.resolve can keep returning stale data after a session ends.
         miss, restart = 0, False
+        dragon_alerted_at = None
         while not stop():
             time.sleep(5)
             ph = phasecheck.phase()
             if ph in ("InProgress", "GameStart", "Reconnect"):
                 miss = 0                              # still in this game
+                try:
+                    nxt, now = _next_dragon_spawn()
+                    if nxt is not None:
+                        eta = float(nxt - now)
+                        if dragon_alerted_at != nxt and 0.0 < eta <= 30.5:
+                            dragon_alerted_at = nxt
+                            threading.Thread(target=_play_dragon_soon_alert, daemon=True).start()
+                    else:
+                        dragon_alerted_at = None
+                except Exception:
+                    pass
                 continue
             if ph == "ChampSelect":                   # a NEW champ select -> refresh, don't close
                 restart = True
