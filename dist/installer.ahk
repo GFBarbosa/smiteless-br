@@ -29,7 +29,7 @@ if (mode = "uninstall") {
     Uninstall()
     ExitApp()
 } else if (mode = "silent") {
-    DoInstall(true)            ; upgrade path: relaunch the tray after replacing files
+    DoInstall(true, true)            ; upgrade path: relaunch the tray after replacing files
     ExitApp()
 }
 
@@ -60,7 +60,7 @@ GuiInstall(*) {
     global g, btn, cancel, status, TARGET
     btn.Enabled := false, cancel.Enabled := false
     status.Value := "Installing..."
-    DoInstall(true)
+    DoInstall(true, false)
     status.Value := "Done!  Smiteless is starting and will run with Windows from now on."
     btn.Text := "Finish", btn.Enabled := true
     btn.OnEvent("Click", (*) => ExitApp())
@@ -70,7 +70,7 @@ GuiInstall(*) {
     ExitApp()
 }
 
-DoInstall(launch) {
+DoInstall(launch, upgraded := false) {
     global TARGET, REGKEY, APPNAME
     ; stop any running copy so files aren't locked
     RunWait(A_ComSpec ' /c taskkill /F /IM Smiteless.exe /IM SmitelessApp.exe >nul 2>nul', , "Hide")
@@ -99,6 +99,10 @@ DoInstall(launch) {
     ; Add/Remove Programs entry
     ver := "1.0.0"
     try ver := Trim(FileRead(TARGET "\VERSION"), " `t`r`n")
+    if (upgraded) {
+        try FileDelete(TARGET "\.updated_version")
+        try FileAppend(ver, TARGET "\.updated_version")
+    }
     RegWrite(APPNAME, "REG_SZ", REGKEY, "DisplayName")
     RegWrite('"' TARGET '\Uninstall.exe" /uninstall', "REG_SZ", REGKEY, "UninstallString")
     RegWrite(ico, "REG_SZ", REGKEY, "DisplayIcon")

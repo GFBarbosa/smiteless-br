@@ -17,6 +17,7 @@
 APP := A_ScriptDir "\app\SmitelessApp.exe"
 ICO := A_ScriptDir "\assets\smiteless.ico"
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
+UPDATED_MARK := A_ScriptDir "\.updated_version"
 
 if FileExist(ICO)
     TraySetIcon(ICO)
@@ -36,6 +37,7 @@ tray.Add("Reload", (*) => Reload())
 tray.Add("Exit", (*) => ExitApp())
 tray.Default := "Open overlay"
 RefreshAutoCheck()
+ShowPostUpdate()
 
 ; Global hotkeys: Ctrl+Alt+X = overlay, Ctrl+Alt+B = item widget
 ^!x::Launch("overlay")
@@ -61,6 +63,18 @@ RefreshAutoCheck() {
         A_TrayMenu.Uncheck("Auto-open at champ select")
     else
         A_TrayMenu.Check("Auto-open at champ select")
+}
+
+ShowPostUpdate() {
+    global UPDATED_MARK
+    if !FileExist(UPDATED_MARK)
+        return
+    ver := ""
+    try ver := Trim(FileRead(UPDATED_MARK), " `t`r`n")
+    try FileDelete(UPDATED_MARK)
+    if (ver != "") {
+        TrayTip("Updated to " ver, "Smiteless updated", 1)
+    }
 }
 
 ; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
