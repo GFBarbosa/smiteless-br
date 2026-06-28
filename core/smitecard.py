@@ -8,7 +8,7 @@ form bar per player. Renders progressively (build + lanes first, scout fills in)
 Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
-import sys, os, time, threading, urllib.request, urllib.parse
+import sys, os, time, threading, urllib.request, urllib.parse, io
 from PIL import Image, ImageDraw, ImageFont
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -90,7 +90,8 @@ W = 920; ROWH = 66; TOP = 96
 ICONCACHE = os.path.expanduser("~/.claude/cache/icons")
 _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
-_SPLASH = {}  # (cid, (w,h)) -> cropped RGB splash art
+_SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
+_SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
 
 
 def font(size, bold=False):
@@ -162,47 +163,37 @@ def get_splash(dd, cid, size):
     key = dd.get("id2key", {}).get(cid)
     if not key:
         return None
-    d = os.path.join(ICONCACHE, "_splash")
-    os.makedirs(d, exist_ok=True)
-    fp = os.path.join(d, key + "_0.jpg")
-    src = None
-    if not os.path.exists(fp):
+    if cid not in _SPLASH_RAW:
         urls = [
-            f"https://ddragon.leagueoflegends.com/cdn/img/champion/loading/{key}_0.jpg",  # closer face crop
             f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{key}_0.jpg",
+            f"https://ddragon.leagueoflegends.com/cdn/img/champion/loading/{key}_0.jpg",
         ]
+        base = None
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
                 data = urllib.request.urlopen(req, timeout=8).read()
-                tmp = f"{fp}.{os.getpid()}.tmp"
-                with open(tmp, "wb") as f:
-                    f.write(data)
-                os.replace(tmp, fp)
-                src = url
+                base = Image.open(io.BytesIO(data)).convert("RGB")
                 break
             except Exception:
                 continue
-        if src is None:
+        if base is None:
             return None
+        _SPLASH_RAW[cid] = base
     try:
         tw, th = size
-        im = Image.open(fp).convert("RGB")
+        im = _SPLASH_RAW[cid].copy()
         sw, sh = im.size
         scale = max(float(tw) / max(1, sw), float(th) / max(1, sh))
         rw, rh = max(1, int(sw * scale)), max(1, int(sh * scale))
         im = im.resize((rw, rh), Image.LANCZOS)
         x0 = (rw - tw) // 2
         # Bias crop slightly upward so faces (usually upper-half) stay in frame.
-        y0 = int(max(0, min(rh - th, (rh - th) * 0.28)))
+        y0 = int(max(0, min(rh - th, (rh - th) * 0.22)))
         im = im.crop((x0, y0, x0 + tw, y0 + th))
         _SPLASH[ck] = im
         return im
     except Exception:
-        try:
-            os.remove(fp)
-        except Exception:
-            pass
         return None
 
 
@@ -515,6 +506,20 @@ def _profile_headline(p):
     return f"{p['wr']}% over your last {p['n']}. Avg game score {p['avg_score']}/100; the score grades each game vs the whole lobby."
 
 
+def _champ_id_from_name(dd, name):
+    nm = (name or "").strip()
+    if not nm:
+        return 0
+    cid = dd["name2id"].get(dd["norm"](nm))
+    if cid:
+        return cid
+    nn = dd["norm"](nm)
+    for i, n in dd.get("id2name", {}).items():
+        if dd["norm"](n).startswith(nn) or nn.startswith(dd["norm"](n)):
+            return i
+    return 0
+
+
 DETAIL_H = 190          # height of an expanded game's 10-player breakdown + quick review
 
 
@@ -595,7 +600,7 @@ def render_profile(dd, p, expanded=None, details=None):
     hx0, hy0, hx1, hy1 = 14, 12, W - 14, 122
     _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=PCARD, outline=None, width=1)
     best = (p.get("champs") or [{}])[0].get("champ")
-    best_cid = dd["name2id"].get(dd["norm"](best)) if best else 0
+    best_cid = _champ_id_from_name(dd, best)
     if best_cid:
         splash = get_splash(dd, best_cid, (hx1 - hx0, hy1 - hy0))
         if splash:
@@ -606,7 +611,7 @@ def render_profile(dd, p, expanded=None, details=None):
             except Exception:
                 md.rectangle((0, 0, hx1 - hx0, hy1 - hy0), fill=255)
             img.paste(splash, (hx0, hy0), mask)
-            shade = Image.new("RGBA", (hx1 - hx0, hy1 - hy0), (12, 15, 22, 150))
+            shade = Image.new("RGBA", (hx1 - hx0, hy1 - hy0), (10, 14, 22, 95))
             img.paste(shade, (hx0, hy0), mask)
         else:
             # Fallback: enlarge champ icon so the header never appears blank.
