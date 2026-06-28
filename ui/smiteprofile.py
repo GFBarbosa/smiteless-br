@@ -60,8 +60,8 @@ def main():
             root.iconbitmap(ico)
     except Exception:
         pass
-    _center(root, sc.W + 24, 480)              # landscape; the content scrolls (shorter for a rectangular look)
-    root.minsize(sc.W + 24, 360)
+    _center(root, sc.W + 24, 780)              # default tall enough to show ~10 recent games before scrolling
+    root.minsize(sc.W + 24, 520)
 
     header = tk.Label(root, bg=BG, bd=0, highlightthickness=0)
     header.pack(side="top", fill="x")
