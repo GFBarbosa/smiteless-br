@@ -16,7 +16,8 @@ Python, AutoHotkey, or anything else. Works on **Windows 10/11 (64-bit)**. Run L
 **[INSTALL.md](INSTALL.md)** — written so anyone can follow it.
 
 Once installed it lives in your system tray (gold **S**), auto-opens at champ select and
-in-game, updates itself when a new version is out, and starts with Windows. Hotkeys:
+in-game, auto-checks GitHub for updates every few minutes, attempts update apply on launch,
+and starts with Windows. Hotkeys:
 **Ctrl+Alt+X** (overlay), **Ctrl+Alt+B** (item widget).
 
 The rest of this README is for building from source / hacking on it.
@@ -60,10 +61,18 @@ The overlay has:
    item vs magic, anti-heal vs a healer) **only when the enemy's actual built damage + who's
    fed calls for it** — dropping each suggestion the moment you own it. Real op.gg items, no
    generic tables, no AI. See [Floating item widget](#floating-item-widget) below.
-8. **Home / profile page** — open the overlay **outside a game** and instead of a "no game"
-   message you get your profile: rank, recent ranked form, champion win rates, a friendly
-   headline read, and your **last games each scored 0–100 against the whole lobby** (hard
-   carry / carried / rough one / could've done better). Needs a Riot key.
+8. **Home / profile page** — open outside a game and you get a dedicated profile window with
+   a fixed top section + scroll-only match history, in-card **Load more**, expandable game
+   details, and click-through full review panels.
+9. **Post-game review engine** — each recent game gets role/champion-aware review notes from
+   deaths, KP, damage share, objective participation (plus farm/vision/lane pressure context);
+   **A/S** games switch to positive "what you did well" notes.
+10. **Scoring overhaul** — lobby-relative score that can exceed 100 for hard-carry games.
+    Grades: **S = 100+**, **A = 85–99**, **B = 70–84**, **C = 55–69**, **D < 55**.
+11. **Champ-select helpers** — "Good this game" suggested champions rail, one-click
+    **Import runes + summs** in the build block, and Flash key preference support.
+12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
+    WR, excluding your own account and detected duo from ally averaging.
 
 Everything that states a number traces to a real source (op.gg or the Riot API).
 
@@ -75,11 +84,14 @@ Everything that states a number traces to a real source (op.gg or the Riot API).
   left, your full rune page + build (and skill order) on the right (enemies are hidden in
   champ select). At the loading screen / in-game it transitions to the full scoreboard,
   matchups, gank tags, the player scout, and duo markers — all updating in the same window.
+- **Profile auto-opens after game end** so recent-game review is immediately visible.
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
 - **Ctrl+Alt+X** opens the board manually (global). **Left-drag** moves it; **right-click or Esc**
   closes it; it **auto-closes** ~1.5 min after the match ends so the next game is fresh.
+- **Updates**: startup auto-apply attempt + periodic background checks; tray notifies when a
+  newer release exists.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
   hides all overlays — same requirement as Blitz/Porofessor).
@@ -100,7 +112,11 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
 - **Gank decisiveness** — the score threshold for the GANK / TOUGH tags (lower = more lanes
   tagged).
 - **Scout depth** — recent games pulled per player (more = steadier read, slower first scout).
+- **Profile: games to load** — how many games profile loads at once (and per Load more click).
 - **Auto-open at champ select** — same toggle as the tray menu.
+- **Open profile/home on startup** — toggle startup landing behavior.
+- **Auto-accept queue** — optional ready-check auto-accept.
+- **Flash key preference** — slider: left = Flash on D, right = Flash on F (applied on import).
 - **Start with Windows** — adds/removes a registry Run key so the tray launches at login.
 
 Saved to `~/.claude/smiteless_settings.json` (plain JSON you can also hand-edit).
@@ -209,7 +225,8 @@ had to change when the files moved into folders.
   the live game (your owned items, the enemy's *actual built* AD/AP, healing, CC, who's fed),
   and picks the next item + the right defensive piece from that pool. No AI, no generic tables.
 - `core/lolprofile.py` — the home page: who you are (live client) + Riot-API rank, recent form,
-  champ win rates, and each recent game scored 0–100 against the whole lobby.
+  champ win rates, upgraded lobby-relative scoring (100+ possible), and role/champ-specific
+  post-game review notes.
 - `core/lolmatchup.py` — per-matchup lane tips: generated once per patch via `claude` with web
   search (current, not stale), cached to `~/.claude/cache/matchups/` as editable text.
 - `core/claudecli.py` — thin shared wrapper around the logged-in `claude` CLI (no API key);
