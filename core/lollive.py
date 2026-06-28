@@ -194,9 +194,15 @@ def win_prob(dd, data):
     return {"pct": int(round(pct * 100)), "ahead": diff >= 0, "basis": kdiff + drk}
 
 
-def pulse(dd, data=None):
-    """One-shot live intel for the widget: {objectives, spike, winprob} or None if not in game."""
-    data = data if data is not None else _read()
+_UNSET = object()
+
+
+def pulse(dd, data=_UNSET):
+    """One-shot live intel for the widget: {objectives, spike, winprob} or None if not in game.
+    Pass `data` (an already-fetched allgamedata payload) to share one :2999 fetch; passing an
+    explicit None means 'no data this tick' and returns None without re-fetching."""
+    if data is _UNSET:
+        data = _read()
     if not data or not (data.get("allPlayers")):
         return None
     try:

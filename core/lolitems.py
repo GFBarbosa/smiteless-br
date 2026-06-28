@@ -130,12 +130,21 @@ def champ_pool(dd, cid, role):
     return pool
 
 
-def live_state(dd):
+_UNSET = object()
+
+
+def live_state(dd, data=_UNSET):
     """Read the live game: your champ/role/items/gold, plus the enemy's ACTUAL built
-    damage, healing, CC and who's fed. None if not in a game."""
-    try:
-        d = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata", timeout=3, insecure=True)
-    except Exception:
+    damage, healing, CC and who's fed. None if not in a game. Pass `data` (an already-
+    fetched allgamedata payload) to avoid a redundant :2999 round-trip."""
+    if data is _UNSET:
+        try:
+            d = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata", timeout=3, insecure=True)
+        except Exception:
+            return None
+    else:
+        d = data
+    if not d:
         return None
     players = d.get("allPlayers") or []
     if not players:
@@ -244,11 +253,11 @@ def _pick_counter(dd, cands, threat, main, play):
     return max(cands, key=lambda i: (fin(i), play.get(i, 0)))   # finished first, then most-built
 
 
-def recommend(dd, st=None):
+def recommend(dd, st=None, data=_UNSET):
     """The headline guidance for the widget. Returns dict with champ name + ordered lines
     [(kind, text)] from op.gg's real pool, prioritised by the BIGGEST live threat (fed-weighted).
-    None if not in game."""
-    st = st if st is not None else live_state(dd)
+    None if not in game. `data` lets the caller share one :2999 fetch with the live intel."""
+    st = st if st is not None else live_state(dd, data)
     if not st or not st["my_cid"]:
         return None
     role = st["my_role"] or primary_role(dd, st["my_cid"])   # Live Client often omits position

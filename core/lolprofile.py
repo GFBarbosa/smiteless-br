@@ -96,16 +96,20 @@ def _session(hist, games):
 
 def _coach(champs):
     """{more, less} pool advice from per-champ win rates: lean into your best, ease off your
-    worst - only when there's a real sample and a real gap. Either side may be absent."""
+    worst - on any champ with a real sample (>=2 games). Works for a one-trick too: a single
+    strong main shows 'play more', a single tanking main shows 'ease off'. Either side may be
+    absent; with one champ only one side can fire (it can't be both your best and worst pick)."""
     pool = [c for c in champs if c.get("g", 0) >= 2]
-    if len(pool) < 2:
+    if not pool:
         return None
     best = max(pool, key=lambda c: (c["wr"], c["g"]))
     worst = min(pool, key=lambda c: (c["wr"], -c["g"]))
     out = {}
     if best["wr"] >= 55:
         out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
-    if worst["wr"] <= 45 and worst["champ"] != best["champ"]:
+    # ease off your worst - including a solo main on a bad run (best==worst here, and a champ
+    # can't be both >=55 and <=45, so it never contradicts the 'more' pick).
+    if worst["wr"] <= 45 and worst["champ"] != (out.get("more") or {}).get("champ"):
         out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
     return out or None
 

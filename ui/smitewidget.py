@@ -186,15 +186,20 @@ def main():
         seen, ended, stale = False, 0, 0
         intel_on = cfg.load().get("game_intel", True)
         while st["alive"]:
+            try:                                         # one :2999 read shared by build + intel
+                raw = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata",
+                              timeout=3, insecure=True)
+            except Exception:
+                raw = None
             try:
-                rec = li.recommend(dd)
+                rec = li.recommend(dd, data=raw)
             except Exception:
                 rec = None
             ph = phasecheck.phase()
             pulse = None
             if intel_on and (rec is not None or ph in INGAME_PHASES):
                 try:
-                    pulse = ll.pulse(dd)
+                    pulse = ll.pulse(dd, data=raw)
                 except Exception:
                     pulse = None
             if rec is not None or ph in INGAME_PHASES:   # in a live game -> show + reset

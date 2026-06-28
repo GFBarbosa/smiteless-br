@@ -33,7 +33,9 @@ PLATFORM = "na1"           # summoner-v4 + league-v4 (platform routing)
 CACHE = os.path.expanduser("~/.claude/cache/riot")
 IDS_TTL = 600          # re-pull a player's match-id list at most every 10 min
 RANK_TTL = 1800        # re-pull a player's rank at most every 30 min
+KEYOK_TTL = 300        # cache a key's validity ~5 min so each scout doesn't re-ping Riot
 _CALLS = []            # sliding-window call timestamps for rate limiting
+_KEYOK = {}            # key -> (ts, True/False); only definitive results are cached
 
 
 def read_key():
@@ -55,6 +57,9 @@ def key_ok(key):
     None = couldn't tell (network). Lets us distinguish a bad key from a transient 403."""
     if not key:
         return False
+    cached = _KEYOK.get(key)
+    if cached and time.time() - cached[0] < KEYOK_TTL:
+        return cached[1]
     url = f"https://{PLATFORM}.api.riotgames.com/lol/status/v4/platform-data"
     last = None
     for _ in range(2):
@@ -63,12 +68,16 @@ def key_ok(key):
         try:
             with urllib.request.urlopen(req, timeout=8) as r:
                 r.read()
+            _KEYOK[key] = (time.time(), True)
             return True
         except urllib.error.HTTPError as e:
             last = (e.code in (401, 403))      # status host isn't Cloudflare-gated -> real auth result
         except Exception:
             last = None
-    return False if last else None
+    result = False if last else None
+    if result is not None:                     # cache only definitive verdicts, not transient outages
+        _KEYOK[key] = (time.time(), result)
+    return result
 
 
 def _throttle():
