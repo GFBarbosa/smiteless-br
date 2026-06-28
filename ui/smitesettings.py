@@ -126,6 +126,7 @@ def main():
     duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
+    flashd = tk.BooleanVar(value=s.get("flash_on_d", True))
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
     ffr = tk.Frame(body, bg=BG)
@@ -135,6 +136,7 @@ def main():
     _chk(col1, "In-game item widget", widget).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
+    _chk(col1, "Put Flash on D", flashd).pack(anchor="w")
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
 
@@ -226,7 +228,7 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
-                  "auto_accept": autoq.get()})
+                  "auto_accept": autoq.get(), "flash_on_d": flashd.get()})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
@@ -237,7 +239,7 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
-        for v in (tips, kit, duo, widget, autoq, auto, homeonstart):
+        for v in (tips, kit, duo, widget, autoq, flashd, auto, homeonstart):
             v.set(True)
         autoq.set(False)
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)

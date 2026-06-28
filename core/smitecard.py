@@ -823,6 +823,11 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build)
+        bix = min(W2 - 170, cxc + 272)
+        biy = TOP + 142
+        _rrect(d, (bix, biy, bix + 146, biy + 24), 7, fill=(30, 36, 52), outline=PEDGE, width=1)
+        d.text((bix + 73, biy + 12), "Import runes+summs", font=font(9, 1), fill=TEXT, anchor="ma")
+        hits.append((bix, biy, bix + 146, biy + 24, "action:import_build"))
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -853,14 +858,13 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         # Draw this AFTER the team rows so it can't be covered by row backgrounds.
         sx, sy = 6, TOP + 2
         _rrect(d, (sx, sy, sx + 82, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
-        d.text((sx + 41, sy + 12), "PICKS", font=font(10, 1), fill=GOLD, anchor="ma")
-        yy = sy + 28
+        d.text((sx + 41, sy + 12), "GOOD THIS", font=font(9, 1), fill=GOLD, anchor="ma")
+        d.text((sx + 41, sy + 24), "GAME", font=font(9, 1), fill=GOLD, anchor="ma")
+        yy = sy + 40
         for cid in suggestions[:4]:
             ic = get_icon(dd, cid, 34)
             if ic:
                 img.paste(ic, (sx + 8, yy), ic)
-            name = dd["id2name"].get(cid, "")[:8]
-            d.text((sx + 49, yy + 7), name, font=font(10, 1), fill=TEXT)
             yy += 70
     ly = TOP + 5 * ROWH + 12
     if panel:

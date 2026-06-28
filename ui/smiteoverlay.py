@@ -29,6 +29,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
         except Exception:
             pass
 import smitecard as sc
+import smiteconfig as cfg
 
 BG = "#11131a"   # matches smitecard's background so there's no border seam
 BAR_BG = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"
@@ -290,8 +291,15 @@ def main():
                 _lcu_json("POST", "/lol-perks/v1/pages", page)
                 sums = build.get("summoner_ids") or []
                 if len(sums) >= 2:
+                    s1, s2 = int(sums[0]), int(sums[1])
+                    flash_on_d = cfg.load().get("flash_on_d", True)
+                    if 4 in (s1, s2):
+                        if flash_on_d and s2 == 4:
+                            s1, s2 = s2, s1
+                        if (not flash_on_d) and s1 == 4:
+                            s1, s2 = s2, s1
                     _lcu_json("PATCH", "/lol-champ-select/v1/session/my-selection",
-                              {"spell1Id": int(sums[0]), "spell2Id": int(sums[1])})
+                              {"spell1Id": s1, "spell2Id": s2})
                 msg = f"imported for {dd['id2name'].get(cid, '?')} ({role})"
                 root.after(0, lambda: status.config(text=msg, fg=GREEN))
             except Exception as e:
@@ -307,8 +315,6 @@ def main():
     entry.bind("<Return>", lambda e: save_key())
     mkbtn("Paste", paste_key).pack(side="left", padx=2, pady=4)
     mkbtn("Save", save_key).pack(side="left", padx=2, pady=4)
-    tk.Label(bar, text="  |  BUILD", bg=BAR_BG, fg=GOLD, font=("Segoe UI", 8, "bold")).pack(side="left", padx=(8, 2))
-    mkbtn("Import runes+summs", import_build).pack(side="left", padx=2, pady=4)
     status = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
     status.pack(side="left", padx=8)
     refresh_key_label()
@@ -358,7 +364,11 @@ def main():
             cx, cy = st["press"][2], st["press"][3]
             for x0, y0, x1, y1, url in st["hitmap"]:
                 if x0 <= cx <= x1 and y0 <= cy <= y1:
-                    webbrowser.open(url)
+                    if isinstance(url, str) and url.startswith("action:"):
+                        if url == "action:import_build":
+                            import_build()
+                    else:
+                        webbrowser.open(url)
                     break
         st["press"] = None
         st["moved"] = False
