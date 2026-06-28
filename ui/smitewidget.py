@@ -35,18 +35,75 @@ KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 5                                                  # seconds between live reads
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
-_DRAGON_TONES = {45: (660, 150), 30: (780, 150), 15: (920, 220)}   # rising pitch as it nears
+# ---- dragon spawn chime: a soft Japanese-style pentatonic bell jingle, synthesized to a real
+# WAV and played through the normal audio device (winsound.Beep / MessageBeep are silent on a
+# lot of machines - which is why the old cue couldn't be heard). Notes rise/lengthen as the
+# spawn nears. Generated once into %TEMP% and cached (bump _CHIME_VER to re-render).
+import math, struct, wave, tempfile
+
+_SR = 44100
+_CHIME_VER = "v2"
+# A-major pentatonic (warm, consonant - the "nice" station-jingle feel)
+_HZ = {"E5": 659.25, "F#5": 739.99, "A5": 880.00, "B5": 987.77, "C#6": 1108.73, "E6": 1318.51}
+_CUE_NOTES = {                       # ascending motifs; more/brighter notes = more urgent
+    45: ["E5", "A5"],
+    30: ["E5", "F#5", "A5"],
+    15: ["A5", "B5", "C#6", "E6"],
+}
+
+
+def _render_cue(notes, note_dur=0.20, step=0.235):
+    """Mallet/bell tone (fundamental + soft octave + faint 3rd partial, exponential decay)
+    per note, sequenced into one 16-bit mono PCM buffer, peak-normalized."""
+    n_total = int(_SR * (step * len(notes) + 0.45))
+    buf = [0.0] * n_total
+    for i, nm in enumerate(notes):
+        f = _HZ[nm]
+        start = int(_SR * i * step)
+        for k in range(int(_SR * (note_dur + 0.30))):
+            idx = start + k
+            if idx >= n_total:
+                break
+            t = k / _SR
+            env = math.exp(-t * (3.2 / note_dur))
+            atk = min(1.0, t / 0.006)                     # tiny attack so there's no click
+            s = (math.sin(2 * math.pi * f * t)
+                 + 0.45 * math.sin(2 * math.pi * 2 * f * t) * math.exp(-t * 6)
+                 + 0.18 * math.sin(2 * math.pi * 3 * f * t) * math.exp(-t * 9))
+            buf[idx] += s * env * atk
+    peak = max(1e-6, max(abs(x) for x in buf))
+    amp = 0.72 / peak
+    return b"".join(struct.pack("<h", int(max(-1.0, min(1.0, x * amp)) * 32767)) for x in buf)
+
+
+def _cue_path(thr):
+    p = os.path.join(tempfile.gettempdir(), f"smiteless_drake_{_CHIME_VER}_{thr}.wav")
+    try:
+        if os.path.exists(p) and os.path.getsize(p) > 1000:
+            return p
+        with wave.open(p, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(_SR)
+            w.writeframes(_render_cue(_CUE_NOTES[thr]))
+    except Exception:
+        return None
+    return p
 
 
 def _beep(thr):
-    """A real generated tone (winsound.Beep), not a system event sound - so it plays even if
-    the user has Windows notification sounds turned off."""
+    """Play the drake chime through the default audio device (reliable everywhere)."""
     try:
         import winsound
-        f, ms = _DRAGON_TONES.get(thr, (700, 150))
-        winsound.Beep(f, ms)
-        if thr == 15:
-            winsound.Beep(f, ms)                          # double-beep the final 15s warning
+        p = _cue_path(thr)
+        if p:
+            winsound.PlaySound(p, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            return
+    except Exception:
+        pass
+    try:
+        import winsound
+        winsound.Beep(880, 200)                           # last-ditch fallback
     except Exception:
         pass
 
@@ -218,6 +275,8 @@ def main():
         intel_on = _cfg.get("game_intel", True)
         audio_on = _cfg.get("dragon_audio", True)
         dragon = {"prev": None, "fired": set()}          # dragon-spawn audio cue state
+        if audio_on:                                     # warm the chime cache so the first cue is instant
+            threading.Thread(target=lambda: [_cue_path(t) for t in (45, 30, 15)], daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:

@@ -101,8 +101,10 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
 - **Profile auto-opens after game end** so recent-game review is immediately visible.
 - **The floating item widget auto-opens in-game** (or **Ctrl+Alt+B** / tray → *Item widget*):
   drag it anywhere, it remembers the spot, and it closes itself after the game.
-- **Dragon spawn reminder** — the item widget plays rising **audio beeps at ~45s, 30s, and 15s**
-  before the next elemental drake spawns (it stops once a team has soul). Toggle in Settings.
+- **Dragon spawn reminder** — the item widget plays a soft **pentatonic bell chime at ~45s, 30s,
+  and 15s** before the next elemental drake spawns (the motif lengthens/brightens as it nears; it
+  stops once a team has soul). Synthesized to a real WAV and played through your normal audio
+  device, so it's actually audible. Toggle in Settings.
 - **Profile auto-opens after the game on your second monitor** (if you have one), and the
   in-game board closes itself promptly so it doesn't linger over the post-game screen.
 - **Click a champ icon** to open that player's **u.gg** profile in your browser.
