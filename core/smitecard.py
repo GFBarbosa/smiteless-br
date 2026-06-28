@@ -437,9 +437,21 @@ def rank_str(r):
 GRADE_COLOR = {"S+": (236, 206, 128), "S": (236, 206, 128), "A": (95, 200, 126),
                "B": (120, 166, 232), "C": (214, 156, 92), "D": (206, 86, 94)}
 PCARD = (25, 28, 38); PCARD2 = (31, 35, 47); PEDGE = (46, 50, 64)
-LABEL_COL = {"hard carry": (236, 206, 128), "carried": (95, 200, 126),
-             "carried, team lost": (120, 166, 232), "rough one": (206, 86, 94),
-             "could've done better": (214, 156, 92)}
+LABEL_COL = {
+    "1v9 god mode": (255, 214, 122),
+    "unstoppable carry": (255, 196, 108),
+    "MVP takeover": (236, 206, 128),
+    "hard carry": (224, 196, 118),
+    "strong game": (118, 214, 150),
+    "solid win": (95, 200, 126),
+    "scrappy win": (168, 206, 132),
+    "hero game, team lost": (120, 166, 232),
+    "tried to carry": (144, 182, 238),
+    "rough one": (206, 86, 94),
+    "could've done better": (214, 156, 92),
+    "solid": (192, 190, 180),
+    "okay": (162, 158, 146),
+}
 
 
 def _dim(c, f):

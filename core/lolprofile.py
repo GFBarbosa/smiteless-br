@@ -152,18 +152,30 @@ def _grade_game(parts, mine, dur):
         letter = "C"
     else:
         letter = "D"
-    if mine["win"] and rank <= 2 and score >= 104:
-        label = "hard carry"
-    elif mine["win"] and rank <= 3:
-        label = "carried"
-    elif not mine["win"] and rank <= 2:
-        label = "carried, team lost"
-    elif rank >= 9:
-        label = "rough one"
-    elif not mine["win"] and rank >= 7:
-        label = "could've done better"
+    if mine["win"]:
+        if rank == 1 and score >= 130:
+            label = "1v9 god mode"
+        elif rank <= 2 and score >= 115:
+            label = "unstoppable carry"
+        elif rank <= 3 and score >= 100:
+            label = "MVP takeover"
+        elif rank <= 3 and score >= 90:
+            label = "hard carry"
+        elif rank <= 4 and score >= 75:
+            label = "strong game"
+        else:
+            label = "solid win" if score >= 55 else "scrappy win"
     else:
-        label = "solid" if score >= 55 else "okay"
+        if rank <= 2 and score >= 95:
+            label = "hero game, team lost"
+        elif rank <= 3 and score >= 80:
+            label = "tried to carry"
+        elif rank >= 9 and score < 55:
+            label = "rough one"
+        elif rank >= 7:
+            label = "could've done better"
+        else:
+            label = "solid" if score >= 55 else "okay"
     return score, letter, label, rank
 
 
