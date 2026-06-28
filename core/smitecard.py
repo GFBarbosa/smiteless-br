@@ -665,7 +665,7 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
             d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
 
 
-def draw_build_block(d, dd, x, y, build):
+def draw_build_block(d, dd, x, y, build, hits=None):
     d.text((x, y), "RUNES", font=font(11, 1), fill=GOLD)
     d.text((x, y + 18), build.get("keystone", ""), font=font(14, 1), fill=TEXT)
     minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
@@ -684,6 +684,12 @@ def draw_build_block(d, dd, x, y, build):
     skills = [s for s in build.get("skills", []) if s]
     if skills:
         d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
+    # Keep import action visually grouped with the runes/summoners block.
+    bx, by, bw, bh = x, y + 182, 188, 28
+    _rrect(d, (bx, by, bx + bw, by + bh), 8, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
+    d.text((bx + (bw // 2), by + (bh // 2) + 1), "Import runes + summs", font=font(10, 1), fill=TEXT, anchor="mm")
+    if hits is not None:
+        hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
 
 
 def _profile_url(riot_id):
@@ -822,12 +828,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
     duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
-        draw_build_block(d, dd, cxc + 34, TOP + 6, build)
-        bix = min(W2 - 170, cxc + 272)
-        biy = TOP + 142
-        _rrect(d, (bix, biy, bix + 146, biy + 24), 7, fill=(30, 36, 52), outline=PEDGE, width=1)
-        d.text((bix + 73, biy + 12), "Import runes+summs", font=font(9, 1), fill=TEXT, anchor="ma")
-        hits.append((bix, biy, bix + 146, biy + 24, "action:import_build"))
+        draw_build_block(d, dd, cxc + 34, TOP + 6, build, hits=hits)
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -860,12 +861,12 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         _rrect(d, (sx, sy, sx + 82, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
         d.text((sx + 41, sy + 12), "GOOD THIS", font=font(9, 1), fill=GOLD, anchor="ma")
         d.text((sx + 41, sy + 24), "GAME", font=font(9, 1), fill=GOLD, anchor="ma")
-        yy = sy + 40
+        yy = sy + 42
         for cid in suggestions[:4]:
             ic = get_icon(dd, cid, 34)
             if ic:
-                img.paste(ic, (sx + 8, yy), ic)
-            yy += 70
+                img.paste(ic, (sx + 24, yy), ic)
+            yy += 66
     ly = TOP + 5 * ROWH + 12
     if panel:
         opp = enemy_role.get(my_role)

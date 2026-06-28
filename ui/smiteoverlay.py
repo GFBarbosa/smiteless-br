@@ -288,7 +288,25 @@ def main():
                     "selectedPerkIds": [int(x) for x in perks[:9]],
                     "current": True,
                 }
-                _lcu_json("POST", "/lol-perks/v1/pages", page)
+                try:
+                    _lcu_json("POST", "/lol-perks/v1/pages", page)
+                except Exception:
+                    pages = _lcu_json("GET", "/lol-perks/v1/pages") or []
+                    editable = [p for p in pages if p.get("isEditable", True)]
+                    target = None
+                    for p in editable:
+                        if (p.get("name") or "").startswith("Smiteless "):
+                            target = p
+                            break
+                    if target is None:
+                        target = next((p for p in editable if p.get("current")), None)
+                    if target is None and editable:
+                        target = editable[0]
+                    if not target or not target.get("id"):
+                        raise RuntimeError("rune page limit reached and no editable page is available")
+                    up = dict(page)
+                    up["id"] = int(target["id"])
+                    _lcu_json("PUT", f"/lol-perks/v1/pages/{int(target['id'])}", up)
                 sums = build.get("summoner_ids") or []
                 if len(sums) >= 2:
                     s1, s2 = int(sums[0]), int(sums[1])
