@@ -328,6 +328,44 @@ def gank_label(score):
     return "GANK" if score >= GANK_T else ("TOUGH" if score <= -GANK_T else "EVEN")
 
 
+def queue_prediction(my_cid, scout_map, duo_map):
+    """Winners/losers queue read from recent team WR vs enemy WR.
+    Excludes you and your detected duo partner(s) from the ally average."""
+    me = (my_cid, True) if my_cid else None
+    my_duo = duo_map.get(me) if me else None
+    ally_wrs, enemy_wrs = [], []
+    excl_duo = 0
+    for k, sc in scout_map.items():
+        n = int(sc.get("n") or 0)
+        if n <= 0:
+            continue
+        wr = (float(sc.get("w") or 0) / n) * 100.0
+        cid, is_ally = k
+        if is_ally:
+            if me and k == me:
+                continue
+            if my_duo is not None and duo_map.get(k) == my_duo:
+                excl_duo += 1
+                continue
+            ally_wrs.append(wr)
+        else:
+            enemy_wrs.append(wr)
+    if not ally_wrs or not enemy_wrs:
+        return {"text": "QUEUE READ: scouting...", "fill": MUTED, "bg": (34, 38, 48)}
+    aavg = sum(ally_wrs) / len(ally_wrs)
+    eavg = sum(enemy_wrs) / len(enemy_wrs)
+    diff = aavg - eavg
+    if diff >= 2.5:
+        lab, col = "WINNERS QUEUE", GREEN
+    elif diff <= -2.5:
+        lab, col = "LOSERS QUEUE", REDWR
+    else:
+        lab, col = "EVEN QUEUE", TAN
+    excl = "excl. you+duo" if excl_duo > 0 else "excl. you"
+    txt = f"{lab}  {aavg:.0f}% vs {eavg:.0f}%  ({excl})"
+    return {"text": txt, "fill": col, "bg": _dim(col, 0.24)}
+
+
 def _wr_color(wr):
     return GREEN if wr >= 55 else (REDWR if wr <= 42 else TAN)
 
@@ -826,7 +864,15 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         d.text((W2 - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
     cxc = W2 // 2
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
-    duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
+    duo_all = detect_duos(scout_map) if (roles_known and not champ_select) else {}
+    duo_of = duo_all if DUO_ON else {}
+    if roles_known and not champ_select:
+        qr = queue_prediction(my_cid, scout_map, duo_all)
+        qf = font(10, 1)
+        tw = d.textlength(qr["text"], font=qf)
+        qx0, qx1 = cxc - (tw / 2) - 10, cxc + (tw / 2) + 10
+        _rrect(d, (qx0, 69, qx1, 87), 8, fill=qr["bg"], outline=PEDGE, width=1)
+        d.text((cxc, 78), qr["text"], font=qf, fill=qr["fill"], anchor="mm")
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build, hits=hits)
     for i, (role, lbl) in enumerate(ROLES):
