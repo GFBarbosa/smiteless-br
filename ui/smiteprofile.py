@@ -68,7 +68,9 @@ def main():
 
     body = tk.Frame(root, bg=BG)
     body.pack(side="top", fill="both", expand=True)
-    vbar = tk.Scrollbar(body, orient="vertical")
+    vbar = tk.Scrollbar(body, orient="vertical", bg=BAR, troughcolor="#0b0e15",
+                        activebackground=BTN_HOVER, relief="flat", bd=0,
+                        highlightthickness=0, width=12)
     vbar.pack(side="right", fill="y")
     canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.W)
     canvas.pack(side="left", fill="both", expand=True)

@@ -165,15 +165,25 @@ def get_splash(dd, cid, size):
     d = os.path.join(ICONCACHE, "_splash")
     os.makedirs(d, exist_ok=True)
     fp = os.path.join(d, key + "_0.jpg")
+    src = None
     if not os.path.exists(fp):
-        url = f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{key}_0.jpg"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
-            data = urllib.request.urlopen(req, timeout=8).read()
-            tmp = f"{fp}.{os.getpid()}.tmp"
-            open(tmp, "wb").write(data)
-            os.replace(tmp, fp)
-        except Exception:
+        urls = [
+            f"https://ddragon.leagueoflegends.com/cdn/img/champion/loading/{key}_0.jpg",  # closer face crop
+            f"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{key}_0.jpg",
+        ]
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
+                data = urllib.request.urlopen(req, timeout=8).read()
+                tmp = f"{fp}.{os.getpid()}.tmp"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, fp)
+                src = url
+                break
+            except Exception:
+                continue
+        if src is None:
             return None
     try:
         tw, th = size
@@ -182,7 +192,9 @@ def get_splash(dd, cid, size):
         scale = max(float(tw) / max(1, sw), float(th) / max(1, sh))
         rw, rh = max(1, int(sw * scale)), max(1, int(sh * scale))
         im = im.resize((rw, rh), Image.LANCZOS)
-        x0, y0 = (rw - tw) // 2, (rh - th) // 2
+        x0 = (rw - tw) // 2
+        # Bias crop slightly upward so faces (usually upper-half) stay in frame.
+        y0 = int(max(0, min(rh - th, (rh - th) * 0.28)))
         im = im.crop((x0, y0, x0 + tw, y0 + th))
         _SPLASH[ck] = im
         return im
@@ -596,6 +608,11 @@ def render_profile(dd, p, expanded=None, details=None):
             img.paste(splash, (hx0, hy0), mask)
             shade = Image.new("RGBA", (hx1 - hx0, hy1 - hy0), (12, 15, 22, 150))
             img.paste(shade, (hx0, hy0), mask)
+        else:
+            # Fallback: enlarge champ icon so the header never appears blank.
+            fic = get_icon(dd, best_cid, hy1 - hy0 - 8)
+            if fic:
+                img.paste(fic, (hx0 + 10, hy0 + 4), fic)
     _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=None, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
     d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
