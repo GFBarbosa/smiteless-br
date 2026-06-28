@@ -465,9 +465,22 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None):
     if not tips:
         tips = ["Loading role-specific review..."]
     yy = y0 + 54
+    line_h = 14
+    tip_gap = 6
+    max_w = rw - 30
     for t in tips[:3]:
-        d.text((rx + 12, yy), "• " + t[:78], font=font(10), fill=TEXT)
-        yy += 40
+        wrapped = _wrap(t, font(10), max_w)
+        if not wrapped:
+            continue
+        wrapped = wrapped[:2]  # keep each tip compact so all 3 fit
+        d.text((rx + 12, yy), "• " + wrapped[0], font=font(10), fill=TEXT)
+        yy += line_h
+        for ln in wrapped[1:]:
+            d.text((rx + 24, yy), ln, font=font(10), fill=TEXT)
+            yy += line_h
+        yy += tip_gap
+        if yy > y0 + DETAIL_H - 18:
+            break
 
 
 def render_profile(dd, p, expanded=None, details=None):
