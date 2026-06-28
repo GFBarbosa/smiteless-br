@@ -44,7 +44,7 @@ def main():
     if not _single_instance():
         return
     import tkinter as tk
-    from PIL import ImageTk
+    from PIL import Image, ImageTk
 
     dd = lb.ddragon()
     key = ls.read_key()
@@ -55,9 +55,23 @@ def main():
     root.title("Smiteless — Profile")
     root.configure(bg=BG)
     try:
-        ico = os.path.join(_ROOT, "assets", "smiteless.ico")
-        if os.path.exists(ico):
+        cand = []
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(sys.executable)
+            cand.extend([
+                os.path.join(exe_dir, "assets", "smiteless.ico"),
+                os.path.join(exe_dir, "smiteless.ico"),
+            ])
+        cand.extend([
+            os.path.join(_ROOT, "assets", "smiteless.ico"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "smiteless.ico"),
+        ])
+        ico = next((p for p in cand if os.path.exists(p)), "")
+        if ico:
+            # Use both APIs so Windows titlebar/taskbar consistently get the same "S" icon.
             root.iconbitmap(ico)
+            root._app_icon = ImageTk.PhotoImage(Image.open(ico))
+            root.iconphoto(True, root._app_icon)
     except Exception:
         pass
     _center(root, sc.W + 24, 780)              # default tall enough to show ~10 recent games before scrolling
