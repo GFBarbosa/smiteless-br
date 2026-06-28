@@ -60,7 +60,7 @@ def main():
             root.iconbitmap(ico)
     except Exception:
         pass
-    _center(root, sc.W + 24, 600)              # landscape; the content scrolls
+    _center(root, sc.W + 24, 480)              # landscape; the content scrolls (shorter for a rectangular look)
     root.minsize(sc.W + 24, 360)
 
     body = tk.Frame(root, bg=BG)
@@ -142,6 +142,10 @@ def main():
         y = canvas.canvasy(event.y)
         for y0, y1, idx in st["hit"]:
             if y0 <= y <= y1:
+                # in-canvas "Load more" region (special hit index)
+                if idx == "__load_more__":
+                    _load(True)
+                    return
                 if idx in st["expanded"]:
                     st["expanded"].discard(idx)
                 else:

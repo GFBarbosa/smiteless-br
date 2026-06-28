@@ -504,6 +504,17 @@ def render_profile(dd, p, expanded=None, details=None):
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),
                        fill=MUTED, anchor="mm")
             yy += DETAIL_H + 8
+    # append an in-image "Load more" button (clickable area) so users can load older games
+    btn_h = 36
+    btn_y = yy + 8
+    try:
+        _rrect(d, (14, btn_y, W - 14, btn_y + btn_h), 9, fill=PCARD2, outline=PEDGE, width=1)
+        d.text((W // 2, btn_y + btn_h // 2), "Load more", font=font(12, 1), fill=GOLD, anchor="mm")
+        hit_games.append((btn_y, btn_y + btn_h, "__load_more__"))
+    except Exception:
+        # drawing shouldn't crash rendering; if it does, silently skip the button
+        pass
+
     img.hit_games = hit_games
     img.hitmap = []
     return img
