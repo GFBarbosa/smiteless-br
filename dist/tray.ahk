@@ -17,6 +17,7 @@
 APP := A_ScriptDir "\app\SmitelessApp.exe"
 ICO := A_ScriptDir "\assets\smiteless.ico"
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
+NOHOME := EnvGet("USERPROFILE") "\.claude\smiteless_nohomeonstart" ; present = open profile/home at startup OFF
 UPDATED_MARK := A_ScriptDir "\.updated_version"
 
 if FileExist(ICO)
@@ -77,6 +78,13 @@ ShowPostUpdate() {
     }
 }
 
+OpenHomeOnStartup() {
+    global NOHOME
+    if FileExist(NOHOME)
+        return
+    Launch("profile")
+}
+
 ; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
 ; version exists - on launch AND every few hours (so it notifies mid-session, not just at
 ; boot). It also renames the menu item to "Update to vX" and flags the icon tooltip. The
@@ -102,6 +110,7 @@ CheckUpdate() {
 }
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
 SetTimer(CheckUpdate, 4 * 60 * 60 * 1000)      ; then every 4 hours
+SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after startup
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
 g_overlayOpened := false

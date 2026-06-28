@@ -9,6 +9,7 @@ import os, sys, json
 
 PATH = os.path.expanduser("~/.claude/smiteless_settings.json")
 NOAUTO = os.path.expanduser("~/.claude/smiteless_noautoopen")   # presence = auto-open OFF
+NOHOME = os.path.expanduser("~/.claude/smiteless_nohomeonstart")  # presence = open profile/home at startup OFF
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # streak_influence: 0..100, 50 = the original/default behavior (a multiplier m = value/50
@@ -76,6 +77,21 @@ def set_auto_open(on):
                 os.remove(NOAUTO)
         else:
             open(NOAUTO, "w").close()
+    except Exception:
+        pass
+
+
+def home_on_start_enabled():
+    return not os.path.exists(NOHOME)
+
+
+def set_home_on_start(on):
+    try:
+        if on:
+            if os.path.exists(NOHOME):
+                os.remove(NOHOME)
+        else:
+            open(NOHOME, "w").close()
     except Exception:
         pass
 

@@ -113,6 +113,7 @@ def main():
                        5, 40, 1, s["profile_games"], lambda v: f"{int(v)}")
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
+    homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
     startwin = tk.BooleanVar(value=cfg.autostart_enabled())
 
     def _chk(parent, text, var):
@@ -139,6 +140,7 @@ def main():
     afr = tk.Frame(body, bg=BG)
     afr.pack(fill="x", padx=16, pady=(0, 0))
     _chk(afr, "Auto-open at champ select", auto).pack(side="left")
+    _chk(afr, "Open profile/home on startup", homeonstart).pack(side="left", padx=(18, 0))
     _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
     tk.Label(body, text="RIOT API KEY", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
@@ -223,6 +225,7 @@ def main():
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get()})
         cfg.set_auto_open(auto.get())
+        cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
         status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GREEN)
 
@@ -231,7 +234,7 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
-        for v in (tips, kit, duo, widget, auto):
+        for v in (tips, kit, duo, widget, auto, homeonstart):
             v.set(True)
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)
 
