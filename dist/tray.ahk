@@ -111,6 +111,13 @@ CheckUpdate() {
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
 SetTimer(CheckUpdate, 4 * 60 * 60 * 1000)      ; then every 4 hours
 SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after startup
+SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accept if enabled
+
+AutoAcceptTick() {
+    global APP
+    ; Setting gate is handled in Python (cfg.auto_accept). This call no-ops when disabled.
+    Run('"' APP '" autoaccept', , "Hide")
+}
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
 g_overlayOpened := false

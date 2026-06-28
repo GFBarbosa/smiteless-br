@@ -23,7 +23,8 @@ RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_ga
 BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-game
          "gank_kit": True,        # factor YOUR champ's CC/engage into the gank ratings
          "duo_detection": True,   # show the duo / premade markers
-         "item_widget": True}     # the floating in-game item helper
+         "item_widget": True,     # the floating in-game item helper
+         "auto_accept": False}    # auto-accept queue ready checks
 
 
 def load():

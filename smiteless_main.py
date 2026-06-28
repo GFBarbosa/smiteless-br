@@ -7,6 +7,7 @@ One frozen exe (SmitelessApp.exe) covers every window/tool; the first CLI arg pi
     SmitelessApp.exe widget         the floating item widget
     SmitelessApp.exe settings       the settings window
     SmitelessApp.exe phase <file>   write the LCU gameflow phase to <file> (for the tray watcher)
+    SmitelessApp.exe autoaccept     auto-accept queue ready checks (when enabled)
     SmitelessApp.exe update [--apply]  check GitHub for a newer release (notify / one-click)
     SmitelessApp.exe selftest       dependency health check (dev)
 
@@ -57,6 +58,9 @@ def main():
                 f.write(phasecheck.phase() or "")
         except Exception:
             pass
+    elif cmd == "autoaccept":
+        import lolautoaccept
+        lolautoaccept.main()
     elif cmd == "update":
         import smiteupdate
         smiteupdate.main(rest)
@@ -64,7 +68,7 @@ def main():
         import selftest
         selftest.main()
     else:
-        sys.stderr.write("usage: SmitelessApp.exe [overlay|widget|settings|phase|update|selftest]\n")
+        sys.stderr.write("usage: SmitelessApp.exe [overlay|widget|settings|phase|autoaccept|update|selftest]\n")
 
 
 if __name__ == "__main__":
