@@ -108,9 +108,7 @@ def main():
         st["prof"] = prof
         _render(keep_scroll=False)
         status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
-        more = len(prof["games"]) >= st["count"]
-        loadbtn.config(state="normal" if more else "disabled",
-                       text="Load more" if more else "no more games")
+        loadbtn.config(state="normal", text="Load more")
 
     def _load(more=False):
         if st["busy"]:

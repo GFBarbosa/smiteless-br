@@ -421,7 +421,7 @@ def render_profile(dd, p, expanded=None, details=None):
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
-    HEAD, CHAMPS = 118, 96
+    HEAD, CHAMPS = 132, 96
     games_top = HEAD + CHAMPS + 34
     H = games_top + 16
     for i in range(len(games)):
@@ -431,7 +431,7 @@ def render_profile(dd, p, expanded=None, details=None):
     d = ImageDraw.Draw(img)
 
     # ---- header card ----
-    _rrect(d, (14, 12, W - 14, 104), 14, fill=PCARD, outline=PEDGE, width=1)
+    _rrect(d, (14, 12, W - 14, 122), 14, fill=PCARD, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
     d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
     rs, rc = rank_str(p.get("rank"))
@@ -450,7 +450,7 @@ def render_profile(dd, p, expanded=None, details=None):
     d.text((W - 30, 74), "AVG GAME SCORE", font=font(9, 1), fill=MUTED, anchor="ra")
     # headline
     for ln in _wrap(_profile_headline(p), font(12), W - 60)[:1]:
-        d.text((30, 116), ln, font=font(12), fill=TAN)
+        d.text((30, 98), ln, font=font(12), fill=TAN)
 
     # ---- top champions ----
     cy = HEAD + 6
