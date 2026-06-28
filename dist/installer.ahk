@@ -107,8 +107,19 @@ DoInstall(launch) {
     RegWrite(TARGET, "REG_SZ", REGKEY, "InstallLocation")
     RegWrite(1, "REG_DWORD", REGKEY, "NoModify")
     RegWrite(1, "REG_DWORD", REGKEY, "NoRepair")
-    if (launch)
+    if (launch) {
+        ; If the expected exe is missing (AV/quarantine or extraction issue), try common fallback paths
+        if (!FileExist(exe)) {
+            alt := TARGET "\app\SmitelessApp\SmitelessApp.exe"
+            if (FileExist(alt)) {
+                exe := alt
+            } else {
+                MsgBox("Installation finished but the launcher exe wasn't found.\n\nThis can happen if antivirus quarantined files or extraction failed.\nPlease check " TARGET " and re-run Smiteless.exe if present.", APPNAME, "Iconi")
+                return
+            }
+        }
         Run('"' exe '"', TARGET)
+    }
 }
 
 Uninstall() {
