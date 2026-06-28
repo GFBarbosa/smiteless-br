@@ -174,8 +174,14 @@ def build_data(dd, cid, role):
                     secondary=[dd["runes"].get(i, "") for i in sr],
                     primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
                     secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
+                    primary_ids=pr,
+                    secondary_ids=sr,
+                    primary_page_id=rp.get("primary_page_id"),
+                    secondary_page_id=rp.get("secondary_page_id"),
+                    stat_mod_ids=rp.get("stat_mod_ids", []),
                     shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
                     core=[dd["items"].get(i, "") for i in core["ids"]],
+                    summoner_ids=ss["ids"],
                     summs=[dd["spells"].get(i, "") for i in ss["ids"]],
                     skills=(sm["ids"] if sm else []),
                     wr=av.get("win_rate", 0) * 100,
@@ -517,6 +523,7 @@ def render_profile(dd, p, expanded=None, details=None):
 
     img.hit_games = hit_games
     img.hitmap = []
+    img.profile_split_y = max(120, games_top - 30)   # top card stays fixed; games section scrolls
     return img
 
 
@@ -689,7 +696,63 @@ def _profile_url(riot_id):
     return f"https://u.gg/lol/profile/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}/overview"
 
 
-def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False):
+_PICK_CACHE = {}
+_ROLE_FALLBACK = {
+    "top": ("Garen", "Darius", "Renekton", "Ornn"),
+    "jungle": ("Vi", "JarvanIV", "Sejuani", "Nocturne"),
+    "mid": ("Ahri", "Orianna", "Syndra", "Vex"),
+    "adc": ("Jinx", "Caitlyn", "KaiSa", "Ashe"),
+    "support": ("Leona", "Nautilus", "Lulu", "Rell"),
+}
+
+
+def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
+    """A few role-appropriate champ suggestions for champ select.
+    Scored by how well they counter known enemy picks in this draft (op.gg counters)."""
+    role = lb.ROLE.get((role or "").lower(), (role or "").lower())
+    if role not in _ROLE_FALLBACK:
+        return []
+    ally_ids = tuple(sorted(i for i in ally_ids if i))
+    enemy_ids = tuple(sorted(i for i in enemy_ids if i))
+    ck = (role, ally_ids, enemy_ids)
+    if ck in _PICK_CACHE:
+        return _PICK_CACHE[ck]
+    banned = set(ally_ids) | set(enemy_ids)
+    scores = {}
+    for eid in enemy_ids:
+        try:
+            d = lb.opgg(eid, role)
+        except Exception:
+            continue
+        for c in d.get("counters", []):
+            cid = c.get("champion_id")
+            play = c.get("play", 0) or 0
+            if not cid or cid in banned or play < 40:
+                continue
+            enemy_wr = (c.get("win", 0) / play) * 100.0
+            ctr_wr = max(0.0, min(100.0, 100.0 - enemy_wr))
+            sc = scores.setdefault(cid, {"sum": 0.0, "n": 0, "play": 0})
+            sc["sum"] += ctr_wr
+            sc["n"] += 1
+            sc["play"] += play
+    picked = []
+    if scores:
+        ranked = sorted(scores.items(),
+                        key=lambda kv: (kv[1]["sum"] / max(1, kv[1]["n"]), kv[1]["play"]),
+                        reverse=True)
+        picked = [cid for cid, _ in ranked if cid not in banned][:topn]
+    if len(picked) < topn:
+        for nm in _ROLE_FALLBACK[role]:
+            cid = dd["name2id"].get(dd["norm"](nm))
+            if cid and cid not in banned and cid not in picked:
+                picked.append(cid)
+            if len(picked) >= topn:
+                break
+    _PICK_CACHE[ck] = picked
+    return picked
+
+
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
@@ -726,6 +789,18 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     duo_of = detect_duos(scout_map) if (DUO_ON and roles_known and not champ_select) else {}
     if champ_select and build:
         draw_build_block(d, dd, cxc + 34, TOP + 6, build)
+    if champ_select and suggestions:
+        sx, sy = 8, TOP + 2
+        _rrect(d, (sx, sy, sx + 80, sy + 312), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
+        d.text((sx + 40, sy + 12), "PICKS", font=font(10, 1), fill=GOLD, anchor="ma")
+        yy = sy + 28
+        for cid in suggestions[:4]:
+            ic = get_icon(dd, cid, 34)
+            if ic:
+                img.paste(ic, (sx + 8, yy), ic)
+            name = dd["id2name"].get(cid, "")[:8]
+            d.text((sx + 49, yy + 7), name, font=font(10, 1), fill=TEXT)
+            yy += 70
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -870,9 +945,12 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     continue
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())), bool(build))
                 if sig != last_cs_sig:
+                    ally_ids = [c for c, _ in allies if c]
+                    enemy_ids = [c for c, _ in enemies if c]
+                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=4)
                     emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                          "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                         roles_known=True, live=False, champ_select=True))
+                         roles_known=True, live=False, champ_select=True, suggestions=sugg))
                     last_cs_sig = sig
                 time.sleep(2)
                 continue

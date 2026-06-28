@@ -48,8 +48,8 @@ def main():
 
     dd = lb.ddragon()
     key = ls.read_key()
-    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo": None,
-          "prof": None, "expanded": set(), "details": {}, "hit": []}
+    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo_top": None, "photo_bottom": None,
+          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": []}
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
@@ -63,6 +63,9 @@ def main():
     _center(root, sc.W + 24, 480)              # landscape; the content scrolls (shorter for a rectangular look)
     root.minsize(sc.W + 24, 360)
 
+    header = tk.Label(root, bg=BG, bd=0, highlightthickness=0)
+    header.pack(side="top", fill="x")
+
     body = tk.Frame(root, bg=BG)
     body.pack(side="top", fill="both", expand=True)
     vbar = tk.Scrollbar(body, orient="vertical")
@@ -70,7 +73,7 @@ def main():
     canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.W)
     canvas.pack(side="left", fill="both", expand=True)
     vbar.config(command=canvas.yview)
-    canvas.create_text(sc.W // 2, 60, text="loading your profile…", fill=MUTED, font=("Segoe UI", 13))
+    canvas.create_text(sc.W // 2, 60, text="loading your match history…", fill=MUTED, font=("Segoe UI", 13))
 
     bar = tk.Frame(root, bg=BAR)
     bar.pack(side="bottom", fill="x")
@@ -88,18 +91,28 @@ def main():
         if not prof:
             return
         pil = sc.render_profile(dd, prof, st["expanded"], st["details"])
-        photo = ImageTk.PhotoImage(pil)
-        st["photo"] = photo                    # keep a ref or Tk GC's it
-        top = canvas.yview()[0] if keep_scroll else 0.0
+        split = int(getattr(pil, "profile_split_y", 240))
+        split = max(120, min(pil.height - 1, split))
+        top_img = pil.crop((0, 0, pil.width, split))
+        bottom_img = pil.crop((0, split, pil.width, pil.height))
+        ptop = ImageTk.PhotoImage(top_img)
+        pbot = ImageTk.PhotoImage(bottom_img)
+        st["photo_top"] = ptop                 # keep refs or Tk GC's them
+        st["photo_bottom"] = pbot
+        st["split_y"] = split
+        top_pos = canvas.yview()[0] if keep_scroll else 0.0
+        header.config(image=ptop)
         canvas.delete("all")
-        canvas.create_image(0, 0, anchor="nw", image=photo)
-        canvas.configure(scrollregion=(0, 0, pil.width, pil.height))
-        canvas.yview_moveto(top)
-        st["hit"] = getattr(pil, "hit_games", [])
+        canvas.create_image(0, 0, anchor="nw", image=pbot)
+        canvas.configure(scrollregion=(0, 0, bottom_img.width, bottom_img.height))
+        canvas.yview_moveto(top_pos)
+        st["hit"] = [(max(0, y0 - split), max(0, y1 - split), idx)
+                     for y0, y1, idx in getattr(pil, "hit_games", []) if y1 > split]
 
     def _apply(prof):
         st["busy"] = False
         if not prof or not prof.get("games"):
+            header.config(image="")
             canvas.delete("all")
             msg = (prof.get("error") if prof else None) or \
                 "couldn't read your profile — is the League client open, with a Riot key set?"

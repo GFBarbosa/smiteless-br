@@ -16,7 +16,7 @@ Key behaviors:
   python smiteoverlay.py --wait     # auto-open: stay hidden until champs are present
   python smiteoverlay.py --count 10
 """
-import sys, os, threading, ctypes, webbrowser
+import sys, os, threading, ctypes, webbrowser, json, ssl, urllib.request
 from ctypes import wintypes
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,6 +136,28 @@ def _open_profile():
         pass
 
 
+def _lcu_json(method, path, payload=None, timeout=5):
+    import lolgame as lg
+    lc = lg._lcu()
+    if not lc:
+        raise RuntimeError("League client not found")
+    port, hdr = lc
+    headers = dict(hdr)
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(f"https://127.0.0.1:{port}{path}", headers=headers, data=data, method=method)
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl._create_unverified_context()) as r:
+        raw = r.read()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+
+
 def main():
     argv = sys.argv[1:]
     wait = "--wait" in argv
@@ -235,6 +257,48 @@ def main():
         refresh_key_label()
         status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GREEN)
 
+    def import_build():
+        status.config(text="importing runes + summoners...", fg=MUTED)
+
+        def work():
+            try:
+                import lolbuild as lb
+                import lolgame as lg
+                dd = lb.ddragon()
+                info, err = lg.resolve(dd)
+                if err:
+                    raise RuntimeError("not in champ select")
+                if info.get("source") != "champ select":
+                    raise RuntimeError("import works in champ select only")
+                cid = info.get("my") or 0
+                role = info.get("pos") or "jungle"
+                if not cid:
+                    raise RuntimeError("lock a champion first")
+                build = sc.build_data(dd, cid, role)
+                if not build:
+                    raise RuntimeError("no op.gg build for this champ/role yet")
+                perks = (build.get("primary_ids") or []) + (build.get("secondary_ids") or []) + (build.get("stat_mod_ids") or [])
+                if len(perks) < 9:
+                    raise RuntimeError("rune data incomplete")
+                page = {
+                    "name": f"Smiteless {dd['id2name'].get(cid, 'Champ')} {role.title()}",
+                    "primaryStyleId": int(build.get("primary_page_id") or 0),
+                    "subStyleId": int(build.get("secondary_page_id") or 0),
+                    "selectedPerkIds": [int(x) for x in perks[:9]],
+                    "current": True,
+                }
+                _lcu_json("POST", "/lol-perks/v1/pages", page)
+                sums = build.get("summoner_ids") or []
+                if len(sums) >= 2:
+                    _lcu_json("PATCH", "/lol-champ-select/v1/session/my-selection",
+                              {"spell1Id": int(sums[0]), "spell2Id": int(sums[1])})
+                msg = f"imported for {dd['id2name'].get(cid, '?')} ({role})"
+                root.after(0, lambda: status.config(text=msg, fg=GREEN))
+            except Exception as e:
+                root.after(0, lambda: status.config(text=f"import failed: {e}", fg=RED))
+
+        threading.Thread(target=work, daemon=True).start()
+
     mkbtn("Get key ↗", open_dev_site).pack(side="left", padx=2, pady=4)
     entry = tk.Entry(bar, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
                      font=("Consolas", 8), width=30)
@@ -243,6 +307,7 @@ def main():
     entry.bind("<Return>", lambda e: save_key())
     mkbtn("Paste", paste_key).pack(side="left", padx=2, pady=4)
     mkbtn("Save", save_key).pack(side="left", padx=2, pady=4)
+    mkbtn("Import", import_build).pack(side="left", padx=6, pady=4)
     status = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
     status.pack(side="left", padx=8)
     refresh_key_label()
