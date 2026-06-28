@@ -429,7 +429,7 @@ def _profile_headline(p):
 DETAIL_H = 190          # height of an expanded game's 10-player breakdown + quick review
 
 
-def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None):
+def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve"):
     """The 10-player breakdown for an expanded game (KDA + damage bars, both teams)."""
     _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
@@ -459,8 +459,10 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None):
             ry += 26
     rx = x0 + w - rw - 12
     _rrect(d, (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), 8, fill=(23, 27, 37), outline=PEDGE, width=1)
+    good = (review_kind == "positive")
     d.text((rx + 12, y0 + 18), "POST-GAME REVIEW", font=font(10, 1), fill=GOLD)
-    d.text((rx + 12, y0 + 34), "3 things to improve", font=font(10), fill=MUTED)
+    d.text((rx + 12, y0 + 34), ("What you did well" if good else "3 things to improve"),
+           font=font(10), fill=(GREEN if good else MUTED))
     tips = list(review or [])
     if not tips:
         tips = ["Loading role-specific review..."]
@@ -473,10 +475,10 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None):
         if not wrapped:
             continue
         wrapped = wrapped[:2]  # keep each tip compact so all 3 fit
-        d.text((rx + 12, yy), "• " + wrapped[0], font=font(10), fill=TEXT)
+        d.text((rx + 12, yy), "• " + wrapped[0], font=font(10), fill=(TAN if good else TEXT))
         yy += line_h
         for ln in wrapped[1:]:
-            d.text((rx + 24, yy), ln, font=font(10), fill=TEXT)
+            d.text((rx + 24, yy), ln, font=font(10), fill=(TAN if good else TEXT))
             yy += line_h
         yy += tip_gap
         if yy > y0 + DETAIL_H - 18:
@@ -567,7 +569,8 @@ def render_profile(dd, p, expanded=None, details=None):
         if i in expanded:
             parts = (details.get(g.get("mid")) or {}).get("parts")
             if parts:
-                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28, g.get("review"))
+                _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
+                                   g.get("review"), g.get("review_kind", "improve"))
             else:
                 _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),

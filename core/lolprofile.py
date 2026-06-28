@@ -130,11 +130,28 @@ def _grade_game(parts, mine, dur):
     return score, letter, label, rank
 
 
+_ROLE_LABEL = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid", "BOTTOM": "adc", "UTILITY": "support"}
+_ROLE_TARGETS = {
+    "TOP": {"kp": 0.46, "dmg": 0.20, "obj": 0.16, "d10": 2.2, "csm": 6.2, "vpm": 0.65},
+    "JUNGLE": {"kp": 0.58, "dmg": 0.16, "obj": 0.28, "d10": 2.0, "csm": 5.0, "vpm": 0.95},
+    "MID": {"kp": 0.55, "dmg": 0.24, "obj": 0.15, "d10": 2.0, "csm": 7.0, "vpm": 0.75},
+    "BOTTOM": {"kp": 0.58, "dmg": 0.27, "obj": 0.18, "d10": 1.9, "csm": 7.2, "vpm": 0.70},
+    "UTILITY": {"kp": 0.62, "dmg": 0.08, "obj": 0.22, "d10": 1.8, "csm": 1.2, "vpm": 1.80},
+}
+_ROLE_WIN_CONDITION = {
+    "TOP": "Use your lead to pressure side lane and force numbers advantage.",
+    "JUNGLE": "Convert tempo into neutral control and first move on river fights.",
+    "MID": "Crash waves then move first; your tempo should decide side skirmishes.",
+    "BOTTOM": "Play around item spikes and front-to-back positioning in objective fights.",
+    "UTILITY": "Own vision timings and engage/peel windows before every objective.",
+}
+
+
 def review_for_player(parts, my_puuid, dur):
-    """Role-aware top-3 improvement notes from deaths, damage share, KP, and objectives."""
+    """Role/champ-aware top-3 review notes. A/S games get strengths, otherwise improvements."""
     mine = next((p for p in parts if p.get("puuid") == my_puuid), None)
     if not mine:
-        return []
+        return {"kind": "improve", "tips": []}
     mins = max(1.0, (dur or 0) / 60.0)
     team = int(mine.get("team") or 0)
     team_k = sum(int(p.get("k") or 0) for p in parts if int(p.get("team") or 0) == team)
@@ -145,33 +162,74 @@ def review_for_player(parts, my_puuid, dur):
     dmg_share = float(mine.get("dmg") or 0) / max(1.0, float(team_dmg))
     obj_share = my_obj / max(1.0, team_obj)
     d10 = float(mine.get("d") or 0) / mins * 10.0
+    csm = float(mine.get("cs") or 0) / mins
+    vpm = float(mine.get("vision") or 0) / mins
     pos = (mine.get("pos") or "").upper()
     if pos == "MIDDLE":
         pos = "MID"
-    role_cfg = {
-        "TOP": {"kp": 0.45, "dmg": 0.20, "obj": 0.16, "d10": 2.1},
-        "JUNGLE": {"kp": 0.58, "dmg": 0.16, "obj": 0.25, "d10": 1.9},
-        "MID": {"kp": 0.55, "dmg": 0.24, "obj": 0.15, "d10": 1.9},
-        "BOTTOM": {"kp": 0.58, "dmg": 0.27, "obj": 0.18, "d10": 1.8},
-        "UTILITY": {"kp": 0.60, "dmg": 0.08, "obj": 0.22, "d10": 1.7},
-    }.get(pos, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0})
-    tips = []
-    if d10 > role_cfg["d10"]:
-        tips.append((d10 - role_cfg["d10"],
-                     f"Lower deaths ({d10:.1f}/10m). Back off 5s earlier before contested fights."))
-    if kp < role_cfg["kp"]:
-        tips.append((role_cfg["kp"] - kp,
-                     f"Raise KP ({kp*100:.0f}%). Group sooner for skirmishes/objectives."))
-    if dmg_share < role_cfg["dmg"]:
-        tips.append((role_cfg["dmg"] - dmg_share,
-                     f"Increase damage share ({dmg_share*100:.0f}%). Trade more around core cooldowns."))
-    if team_obj >= 3 and obj_share < role_cfg["obj"]:
-        tips.append((role_cfg["obj"] - obj_share,
-                     f"Improve objective impact ({obj_share*100:.0f}%). Be on first move for drake/herald/baron/towers."))
-    if not tips:
-        tips.append((0.01, f"Keep this template: {kp*100:.0f}% KP, {d10:.1f} deaths/10m, {obj_share*100:.0f}% objective share."))
-    tips.sort(key=lambda x: x[0], reverse=True)
-    return [t[1] for t in tips[:3]]
+    role_cfg = _ROLE_TARGETS.get(pos, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
+    champ = mine.get("champ", "your champ")
+    role_name = _ROLE_LABEL.get(pos, "role")
+    score, letter, _label, _rank = _grade_game(parts, mine, dur)
+    positive = letter in ("A", "S", "S+")
+    lane_opp = next((p for p in parts if int(p.get("team") or 0) != team and (p.get("pos") or "").upper() == pos), None)
+    cands = []
+    if positive:
+        if d10 <= role_cfg["d10"]:
+            cands.append(("deaths", role_cfg["d10"] - d10 + 0.05,
+                          f"{champ} {role_name}: strong discipline at {d10:.1f} deaths/10m."))
+        if kp >= role_cfg["kp"]:
+            cands.append(("kp", kp - role_cfg["kp"] + 0.05,
+                          f"{champ}: high fight impact ({kp*100:.0f}% KP) kept your team in every skirmish."))
+        if dmg_share >= role_cfg["dmg"]:
+            cands.append(("dmg", dmg_share - role_cfg["dmg"] + 0.05,
+                          f"{champ}: carried damage load ({dmg_share*100:.0f}% share) for your role."))
+        if team_obj >= 3 and obj_share >= role_cfg["obj"]:
+            cands.append(("obj", obj_share - role_cfg["obj"] + 0.05,
+                          f"{champ}: objective impact was excellent ({obj_share*100:.0f}% participation share)."))
+        if csm >= role_cfg["csm"]:
+            cands.append(("farm", (csm - role_cfg["csm"]) / 10.0 + 0.03,
+                          f"{champ}: efficient economy ({csm:.1f} CS/min) kept your spikes on time."))
+        if lane_opp and pos in ("TOP", "MID", "BOTTOM"):
+            od = float(lane_opp.get("dmg") or 0)
+            if mine.get("dmg", 0) > od:
+                cands.append(("lane", (mine.get("dmg", 0) - od) / max(1.0, od) + 0.03,
+                              f"{champ}: you out-pressured lane counterpart in damage ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k)."))
+    else:
+        if d10 > role_cfg["d10"]:
+            cands.append(("deaths", d10 - role_cfg["d10"] + 0.05,
+                          f"{champ} {role_name}: deaths were high ({d10:.1f}/10m). Hold cooldowns for second engage windows."))
+        if kp < role_cfg["kp"]:
+            cands.append(("kp", role_cfg["kp"] - kp + 0.05,
+                          f"{champ}: KP was {kp*100:.0f}% (target ~{int(role_cfg['kp']*100)}%). Move earlier on river/side fights."))
+        if dmg_share < role_cfg["dmg"]:
+            cands.append(("dmg", role_cfg["dmg"] - dmg_share + 0.05,
+                          f"{champ}: damage share was low ({dmg_share*100:.0f}%). Take more front-half trades around power spikes."))
+        if team_obj >= 3 and obj_share < role_cfg["obj"]:
+            cands.append(("obj", role_cfg["obj"] - obj_share + 0.05,
+                          f"{champ}: objective involvement lagged ({obj_share*100:.0f}% share). Be first to setup at spawn timers."))
+        if pos != "UTILITY" and csm < role_cfg["csm"]:
+            cands.append(("farm", (role_cfg["csm"] - csm) / 10.0 + 0.03,
+                          f"{champ}: farm pace was {csm:.1f} CS/min. Protect side waves before forcing next play."))
+        if pos in ("JUNGLE", "UTILITY") and vpm < role_cfg["vpm"]:
+            cands.append(("vision", (role_cfg["vpm"] - vpm) / 3.0 + 0.03,
+                          f"{champ}: vision tempo was low ({vpm:.2f}/min). Reset earlier for control wards before objectives."))
+        if lane_opp and pos in ("TOP", "MID", "BOTTOM"):
+            od = float(lane_opp.get("dmg") or 0)
+            if mine.get("dmg", 0) < od * 0.85:
+                cands.append(("lane", (od - mine.get("dmg", 0)) / max(1.0, od) + 0.04,
+                              f"{champ}: lane pressure was behind ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k). Contest prio on better windows."))
+    cands.append(("identity", 0.01, f"{champ} win condition: {_ROLE_WIN_CONDITION.get(pos, _ROLE_WIN_CONDITION['MID'])}"))
+    cands.sort(key=lambda x: x[1], reverse=True)
+    seen, out = set(), []
+    for k, _w, txt in cands:
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(txt)
+        if len(out) >= 3:
+            break
+    return {"kind": ("positive" if positive else "improve"), "tips": out}
 
 
 def build_profile(dd, key=None, count=14):
@@ -202,7 +260,8 @@ def build_profile(dd, key=None, count=14):
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
                       "rank": lobby_rank, "pos": mine["pos"], "mid": mid,
-                      "dur": d.get("dur", 0), "review": review})
+                      "dur": d.get("dur", 0), "review": review.get("tips", []),
+                      "review_kind": review.get("kind", "improve")})
         wins += 1 if mine["win"] else 0
         cs = champ.setdefault(mine["champ"], {"g": 0, "w": 0, "score": 0})
         cs["g"] += 1
