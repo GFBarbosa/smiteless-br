@@ -25,3 +25,6 @@ dist/payload.zip
 
 # stale pre-folder-reorg root duplicates (shadowed PyInstaller; archived, not used)
 /_attic/
+
+# Copilot accidentally committed the frozen build here; it is a build artifact
+dist/SmitelessApp/

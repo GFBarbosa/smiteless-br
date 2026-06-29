@@ -57,8 +57,7 @@ def latest_release():
     tag = d.get("tag_name")
     url = None
     for a in d.get("assets", []):
-        # Look for .zip (new format) or .exe (old format)
-        if a.get("name", "").lower() in ("smitelesssetup.zip", "smitelesssetup.exe"):
+        if a.get("name", "").lower() == "smitelesssetup.exe":
             url = a.get("browser_download_url")
             break
     return (tag, url) if tag and url else None
@@ -137,11 +136,11 @@ def _run_setup(cur, tag, url, with_progress=False):
         except Exception:
             pass
 
-    setup = os.path.join(tempfile.gettempdir(), "SmitelessSetup.zip")
+    setup = os.path.join(tempfile.gettempdir(), "SmitelessSetup.exe")
     try:
-        _set_status("Downloading update...", 0)
+        _set_status("Downloading installer...", 0)
         _download(url, setup, on_progress=lambda done, total: _set_status(
-            f"Downloading update... {int(done * 100 / total)}%" if total > 0 else "Downloading update...",
+            f"Downloading installer... {int(done * 100 / total)}%" if total > 0 else "Downloading installer...",
             (done * 100 / total) if total > 0 else None))
     except Exception:
         if prog:
@@ -150,41 +149,9 @@ def _run_setup(cur, tag, url, with_progress=False):
             except Exception:
                 pass
         return False
-    # Extract and install the update
-    _set_status("Extracting update...", None)
-    try:
-        import zipfile
-        import shutil
-        extract_dir = os.path.join(tempfile.gettempdir(), "SmitelessUpdate")
-        if os.path.exists(extract_dir):
-            shutil.rmtree(extract_dir)
-        os.makedirs(extract_dir, exist_ok=True)
-        with zipfile.ZipFile(setup, 'r') as z:
-            z.extractall(extract_dir)
-        install_root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        _set_status("Installing files...", None)
-        # Copy extracted files to install location
-        for item in os.listdir(os.path.join(extract_dir, "stage")):
-            src = os.path.join(extract_dir, "stage", item)
-            dst = os.path.join(install_root_dir, item)
-            if os.path.isdir(src):
-                if os.path.exists(dst):
-                    shutil.rmtree(dst)
-                shutil.copytree(src, dst)
-            else:
-                shutil.copy2(src, dst)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        os.remove(setup)
-    except Exception as e:
-        if prog:
-            try:
-                prog.destroy()
-            except Exception:
-                pass
-        return False
-    # Restart Smiteless
-    _set_status("Launching Smiteless...", None)
-    subprocess.Popen([os.path.join(install_root_dir, "Smiteless.exe")], close_fds=True)
+    # /upgrade tells the installer to close the running app, overwrite, and relaunch silently
+    _set_status("Starting installer...", None)
+    subprocess.Popen([setup, "/upgrade"], close_fds=True)
     if prog:
         _set_status("Installer started. Smiteless will relaunch when done.", 100)
         try:
