@@ -122,15 +122,15 @@ SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after
 SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accept if enabled
 
 AutoAcceptTick() {
-    global APP
-    ; Only spawn the app when auto-accept is actually ON and the client is open. Spawning it
-    ; every 1.2s just to no-op in Python flashed the Windows "busy" cursor constantly (even on
-    ; the desktop with League closed). Reading a file here is cheap and doesn't touch the cursor.
+    ; Auto-accept entirely IN-PROCESS via the League client's local API - no app launch, so
+    ; there's no busy-cursor flash (spawning the windowed app every poll was the flicker).
     if (!AutoAcceptOn())
         return
     if (!ProcessExist("LeagueClientUx.exe") && !ProcessExist("LeagueClient.exe"))
         return
-    Run('"' APP '" autoaccept', , "Hide")
+    r := LcuReq("GET", "/lol-matchmaking/v1/ready-check")
+    if (InStr(r, '"state":"InProgress"') && InStr(r, '"playerResponse":"None"'))
+        LcuReq("POST", "/lol-matchmaking/v1/ready-check/accept")
 }
 
 AutoAcceptOn() {
@@ -139,6 +139,54 @@ AutoAcceptOn() {
         return RegExMatch(FileRead(SETTINGS), '"auto_accept"\s*:\s*true') > 0
     }
     return false                                   ; no settings file / never enabled -> off
+}
+
+; ---- talk to the League client's local API (LCU) directly, so the tray never has to spawn
+;      the app just to poll. Reads the lockfile for the port+password, ignores the client's
+;      self-signed cert, and uses HTTP Basic auth. ----
+LcuLockfile() {
+    for d in StrSplit("FCDEGH", "") {
+        p := d ":\Riot Games\League of Legends\lockfile"
+        if FileExist(p)
+            return p
+    }
+    return ""
+}
+
+LcuReq(method, path) {
+    lf := LcuLockfile()
+    if (lf = "")
+        return ""
+    try {
+        parts := StrSplit(FileRead(lf), ":")
+        port := parts[3], pw := parts[4]
+    } catch
+        return ""
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.Open(method, "https://127.0.0.1:" port path, false)
+        req.Option[4] := 0x3300                    ; SslErrorIgnoreFlags - accept the self-signed cert
+        req.SetRequestHeader("Authorization", "Basic " LcuB64("riot:" pw))
+        req.SetRequestHeader("Accept", "application/json")
+        if (method = "POST")
+            req.SetRequestHeader("Content-Type", "application/json")
+        req.SetTimeouts(1000, 1000, 1000, 1000)
+        req.Send()
+        return req.Status "`n" req.ResponseText
+    } catch
+        return ""
+}
+
+LcuB64(s) {
+    n := StrPut(s, "UTF-8") - 1
+    buf := Buffer(n)
+    StrPut(s, buf, "UTF-8")
+    flags := 0x40000001                            ; CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF
+    sz := 0
+    DllCall("crypt32\CryptBinaryToStringW", "Ptr", buf, "UInt", n, "UInt", flags, "Ptr", 0, "UInt*", &sz)
+    out := Buffer(sz * 2)
+    DllCall("crypt32\CryptBinaryToStringW", "Ptr", buf, "UInt", n, "UInt", flags, "Ptr", out, "UInt*", &sz)
+    return RTrim(StrGet(out, "UTF-16"), "`r`n")
 }
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
