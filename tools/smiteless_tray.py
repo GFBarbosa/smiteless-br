@@ -53,22 +53,20 @@ def open_settings():
     _launch(SETTINGS)
 
 
-# ---------- auto-open watcher (polls the phase in-process, adaptive interval) ----------
+# ---------- auto-open watcher (polls the phase in-process every 4s) ----------
 def _watcher():
     opened = False
     while not _stop.is_set():
-        poll_interval = 4 if cfg.auto_open_enabled() else 30  # 30s when disabled to avoid constant polling
         if cfg.auto_open_enabled():
             active = phasecheck.phase() in ("ChampSelect", "GameStart", "InProgress", "Reconnect")
             if active and not opened:
                 opened = True
                 open_overlay(auto=True)
-                poll_interval = 2  # speed up polling while in-game
             elif not active:
                 opened = False                   # any non-active phase re-arms for next game
         else:
             opened = False
-        _stop.wait(poll_interval)
+        _stop.wait(4)
 
 
 # ---------- global hotkey: Ctrl+Alt+X (native, like AHK uses) ----------
