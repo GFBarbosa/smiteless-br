@@ -42,7 +42,8 @@ POLL = 5                                                  # seconds between live
 import math, struct, wave, tempfile
 
 _SR = 44100
-_CHIME_VER = "v4"
+_CHIME_VER = "v7"
+_MAX_AMP = 0.55            # peak level at volume 100; the Settings slider scales this down
 # G-major (the bright, triumphant Zelda-jingle key). Music-box / ocarina timbre, ascending
 # arpeggios that resolve up to a held final note - that N64 "secret found / item get" feel.
 _HZ = {"G4": 392.00, "A4": 440.00, "B4": 493.88, "C5": 523.25, "D5": 587.33, "E5": 659.25,
@@ -60,19 +61,18 @@ def _voice(f, t, dur, last=False):
     faint third - the harsh upper partials are dropped so it's mellow, not pingy. A slow
     attack means it's breathed in rather than struck. The held final note adds a soft
     sub-octave for body, like the resolved chord under a Zelda fanfare."""
-    env = math.exp(-t * (3.0 / dur))
-    atk = min(1.0, t / 0.018)                            # ~18ms gentle attack: no click, no ping
+    env = math.exp(-t * (2.8 / dur))
+    atk = min(1.0, t / 0.028)                            # ~28ms soft fade-in: barely-there onset
     s = (1.00 * math.sin(2 * math.pi * f * t)
-         + 0.30 * math.sin(2 * math.pi * 2 * f * t) * math.exp(-t * 4)
-         + 0.10 * math.sin(2 * math.pi * 3 * f * t) * math.exp(-t * 8))
+         + 0.16 * math.sin(2 * math.pi * 2 * f * t) * math.exp(-t * 4))   # near-pure sine; faint octave only
     if last:
-        s += 0.28 * math.sin(2 * math.pi * (f / 2) * t) * math.exp(-t * 2.5)
+        s += 0.16 * math.sin(2 * math.pi * (f / 2) * t) * math.exp(-t * 2.5)
     return s * env * atk
 
 
-def _render_cue(cue):
+def _render_cue(cue, vol=30):
     """Sequence a cue's notes (onset = i*step, each rings its own length) into one 16-bit
-    mono PCM buffer, peak-normalized."""
+    mono PCM buffer, scaled to `vol` (0-100) of the max level."""
     step, seq = cue
     last_onset = (len(seq) - 1) * step
     total = last_onset + seq[-1][1] + 0.12
@@ -88,12 +88,14 @@ def _render_cue(cue):
                 break
             buf[idx] += _voice(f, k / _SR, ring, last)
     peak = max(1e-6, max(abs(x) for x in buf))
-    amp = 0.52 / peak                                    # softer overall level
+    level = max(0.0, min(100.0, float(vol))) / 100.0 * _MAX_AMP
+    amp = level / peak
     return b"".join(struct.pack("<h", int(max(-1.0, min(1.0, x * amp)) * 32767)) for x in buf)
 
 
-def _cue_path(thr):
-    p = os.path.join(tempfile.gettempdir(), f"smiteless_drake_{_CHIME_VER}_{thr}.wav")
+def _cue_path(thr, vol=30):
+    vol = int(max(0, min(100, vol)))
+    p = os.path.join(tempfile.gettempdir(), f"smiteless_drake_{_CHIME_VER}_{thr}_{vol}.wav")
     try:
         if os.path.exists(p) and os.path.getsize(p) > 1000:
             return p
@@ -101,17 +103,19 @@ def _cue_path(thr):
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(_SR)
-            w.writeframes(_render_cue(_CUE[thr]))
+            w.writeframes(_render_cue(_CUE[thr], vol))
     except Exception:
         return None
     return p
 
 
-def _beep(thr):
+def _beep(thr, vol=30):
     """Play the drake chime through the default audio device (reliable everywhere)."""
+    if vol <= 0:
+        return
     try:
         import winsound
-        p = _cue_path(thr)
+        p = _cue_path(thr, vol)
         if p:
             winsound.PlaySound(p, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
             return
@@ -290,9 +294,10 @@ def main():
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
         audio_on = _cfg.get("dragon_audio", True)
+        dvol = int(_cfg.get("dragon_volume", 30))        # Settings volume slider (0-100)
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
-        if audio_on:                                     # warm the chime cache so the first cue is instant
-            threading.Thread(target=lambda: [_cue_path(t) for t in (45, 30, 15)], daemon=True).start()
+        if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
+            threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -301,13 +306,13 @@ def main():
             thr = _dragon_due(dragon["prev"], secs, dragon["fired"])
             dragon["prev"] = secs
             if thr is not None:
-                threading.Thread(target=_beep, args=(thr,), daemon=True).start()
+                threading.Thread(target=_beep, args=(thr, dvol), daemon=True).start()
             # Once drake is up, keep replaying the final cue every ~5s until it dies.
             if secs <= 0:
                 t = time.monotonic()
                 if (t - float(dragon.get("last_up_ping") or 0.0)) >= 4.8:
                     dragon["last_up_ping"] = t
-                    threading.Thread(target=_beep, args=(15,), daemon=True).start()
+                    threading.Thread(target=_beep, args=(15, dvol), daemon=True).start()
             else:
                 dragon["last_up_ping"] = 0.0
 

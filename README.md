@@ -140,6 +140,7 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
 - **Live game intel** — the widget's win read + objective timers + spike alert (toggle off for a
   bare item helper).
 - **Dragon spawn audio** — the 45/30/15s ocarina chime before a drake spawns.
+- **Dragon spawn volume** — slider, 0 (silent) to 100, for that chime (applies next game).
 - **Dodge alerts** — the champ-select "consider dodging" banner.
 - **Flash key preference** — slider: left = Flash on D, right = Flash on F (applied on import).
 - **Start with Windows** — adds/removes a registry Run key so the tray launches at login.

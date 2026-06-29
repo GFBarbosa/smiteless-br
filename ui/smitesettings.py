@@ -111,6 +111,9 @@ def main():
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
                        5, 40, 1, s["profile_games"], lambda v: f"{int(v)}")
+    dvol = scale_row("Dragon spawn volume",
+                     "how loud the 45/30/15s drake chime is (0 = silent). Applies next game.",
+                     0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
     homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
@@ -250,6 +253,7 @@ def main():
     def save():
         cfg.save({"streak_influence": int(infl.get()), "gank_threshold": float(thr.get()),
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
+                  "dragon_volume": int(dvol.get()),
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
@@ -265,6 +269,7 @@ def main():
         thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
+        dvol.set(cfg.DEFAULTS["dragon_volume"])
         for v in (tips, kit, duo, widget, intel, dragon, dodge, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)

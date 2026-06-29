@@ -19,6 +19,7 @@ ICO := A_ScriptDir "\assets\smiteless.ico"
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
 NOHOME := EnvGet("USERPROFILE") "\.claude\smiteless_nohomeonstart" ; present = open profile/home at startup OFF
 UPDATED_MARK := A_ScriptDir "\.updated_version"
+SETTINGS := EnvGet("USERPROFILE") "\.claude\smiteless_settings.json"   ; read to gate auto-accept
 
 if FileExist(ICO)
     TraySetIcon(ICO)
@@ -122,8 +123,22 @@ SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accep
 
 AutoAcceptTick() {
     global APP
-    ; Setting gate is handled in Python (cfg.auto_accept). This call no-ops when disabled.
+    ; Only spawn the app when auto-accept is actually ON and the client is open. Spawning it
+    ; every 1.2s just to no-op in Python flashed the Windows "busy" cursor constantly (even on
+    ; the desktop with League closed). Reading a file here is cheap and doesn't touch the cursor.
+    if (!AutoAcceptOn())
+        return
+    if (!ProcessExist("LeagueClientUx.exe") && !ProcessExist("LeagueClient.exe"))
+        return
     Run('"' APP '" autoaccept', , "Hide")
+}
+
+AutoAcceptOn() {
+    global SETTINGS
+    try {
+        return RegExMatch(FileRead(SETTINGS), '"auto_accept"\s*:\s*true') > 0
+    }
+    return false                                   ; no settings file / never enabled -> off
 }
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
@@ -137,6 +152,7 @@ SmiteWatch() {
         g_overlayOpened := false
         g_widgetOpened := false
         g_wasInGame := false
+        SetTimer(SmiteWatch, -9000)                 ; client closed -> no spawn; just check back later
         return
     }
     out := A_Temp "\smiteless_phase.txt"
@@ -165,5 +181,8 @@ SmiteWatch() {
         }
     }
     g_wasInGame := ingame
+    ; adaptive cadence: brisk while a session is live, slow while idle in the client - so the
+    ; phase poll (which spawns the app) isn't flashing the cursor every few seconds when idle.
+    SetTimer(SmiteWatch, active ? -3000 : -7000)
 }
-SetTimer(SmiteWatch, 4000)
+SetTimer(SmiteWatch, -3000)
