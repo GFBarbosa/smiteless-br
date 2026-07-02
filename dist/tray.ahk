@@ -236,20 +236,29 @@ TrayPhase() {
 }
 
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
+; A single blip ("" = unreachable, or a momentary None while LeagueClientUx restarts) must
+; NOT count as "game over" - that used to relaunch things / pop the profile MID-GAME. The
+; end of a game is only believed after 2 consecutive definite non-game reads.
 g_overlayOpened := false
 g_widgetOpened := false
 g_wasInGame := false
+g_endStreak := 0
 SmiteWatch() {
-    global g_overlayOpened, g_widgetOpened, g_wasInGame, NOAUTO
+    global g_overlayOpened, g_widgetOpened, g_wasInGame, g_endStreak, NOAUTO
     autoOpen := !FileExist(NOAUTO)
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_overlayOpened := false
         g_widgetOpened := false
         g_wasInGame := false
+        g_endStreak := 0
         SetTimer(SmiteWatch, -9000)                 ; client closed -> check back later
         return
     }
     ph := TrayPhase()
+    if (ph = "") {                                  ; unreachable (lag/teamfight/UX restart) -> hold state
+        SetTimer(SmiteWatch, -4000)
+        return
+    }
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active && autoOpen) {
@@ -257,21 +266,26 @@ SmiteWatch() {
             g_overlayOpened := true
             Launch("overlay --wait")
         }
-    } else {
+    } else if (!active) {
         g_overlayOpened := false
     }
-    if (ingame && autoOpen) {
-        if (!g_widgetOpened) {
+    if (ingame) {
+        g_endStreak := 0
+        g_wasInGame := true
+        if (autoOpen && !g_widgetOpened) {
             g_widgetOpened := true
             Launch("widget")
         }
     } else {
-        g_widgetOpened := false
-        if (g_wasInGame) {
-            Launch("profile")
+        g_endStreak += 1
+        if (g_endStreak >= 2) {                     ; ~2 consecutive definite reads = really over
+            g_widgetOpened := false
+            if (g_wasInGame) {
+                g_wasInGame := false
+                Launch("profile")
+            }
         }
     }
-    g_wasInGame := ingame
     ; adaptive cadence: brisk while a session is live, relaxed while idle in the client.
     ; The poll is fully in-process now (WinHttp), so there's no spawn and no cursor cost.
     SetTimer(SmiteWatch, active ? -2500 : -5000)
