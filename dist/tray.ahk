@@ -94,18 +94,31 @@ AutoUpdateOnLaunch() {
 
 ; Update notification: poll GitHub in the BACKGROUND and pop a tray balloon when a newer
 ; version exists - on launch AND every few minutes (so it notifies mid-session, not just at
-; boot). It also renames the menu item to "Update to vX" and flags the icon tooltip. The
-; menu item runs the one-click installer.
+; boot). Entirely IN-PROCESS (WinHttp straight to the GitHub API - no app spawn, no cursor
+; flash). It renames the menu item to "Update to vX"; that click runs the one-click installer.
 g_updateVer := ""
 g_updLabel := "Check for updates"
 CheckUpdate() {
-    global APP, g_updateVer, g_updLabel
-    out := A_Temp "\smiteless_updchk.txt"
-    try FileDelete(out)
-    RunWait('"' APP '" update --check "' out '"', , "Hide")
-    ver := ""
-    try ver := Trim(FileRead(out), " `t`r`n")
-    if (ver != "" && ver != g_updateVer) {
+    global g_updateVer, g_updLabel
+    tag := ""
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.Open("GET", "https://api.github.com/repos/bobbyroylee/smiteless/releases/latest", false)
+        req.SetRequestHeader("User-Agent", "Smiteless-Tray")
+        req.SetRequestHeader("Accept", "application/vnd.github+json")
+        req.SetTimeouts(4000, 4000, 4000, 4000)
+        req.Send()
+        if (req.Status = 200 && RegExMatch(req.ResponseText, '"tag_name"\s*:\s*"([^"]+)"', &m))
+            tag := m[1]
+    }
+    if (tag = "")
+        return                                     ; offline / rate-limited -> try again next tick
+    cur := "0.0.0"
+    try cur := Trim(FileRead(A_ScriptDir "\VERSION"), " `t`r`n")
+    if (!VerNewer(tag, cur))
+        return                                     ; up to date
+    ver := tag
+    if (ver != g_updateVer) {
         g_updateVer := ver
         newLabel := "Update to " ver
         try A_TrayMenu.Rename(g_updLabel, newLabel)
@@ -114,6 +127,19 @@ CheckUpdate() {
         TrayTip("Version " ver " is ready. Right-click the gold S in your tray, then '"
             . newLabel "'.", "Smiteless update available", 1)
     }
+}
+
+VerNewer(a, b) {
+    ; true if version a > version b ("v0.2.44" vs "0.2.43"); junk parts count as 0
+    pa := StrSplit(Trim(a, "vV `t`r`n"), "."), pb := StrSplit(Trim(b, "vV `t`r`n"), ".")
+    loop Max(pa.Length, pb.Length) {
+        na := 0, nb := 0
+        try na := Integer(A_Index <= pa.Length ? pa[A_Index] : 0)
+        try nb := Integer(A_Index <= pb.Length ? pb[A_Index] : 0)
+        if (na != nb)
+            return na > nb
+    }
+    return false
 }
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
 SetTimer(CheckUpdate, 5 * 60 * 1000)           ; then every 5 minutes
@@ -189,24 +215,41 @@ LcuB64(s) {
     return RTrim(StrGet(out, "UTF-16"), "`r`n")
 }
 
+; Current gameflow phase, read entirely IN-PROCESS (no app spawn -> no cursor flash).
+; Mirrors tools/phasecheck.py: the live-client port answering means a game/replay is running
+; (gameflow says "None" during replays), else ask the LCU.
+TrayPhase() {
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.Open("GET", "https://127.0.0.1:2999/liveclientdata/gamestats", false)
+        req.Option[4] := 0x3300                    ; self-signed cert
+        req.SetTimeouts(600, 600, 600, 600)
+        req.Send()
+        if (req.Status = 200)
+            return "InProgress"
+    }
+    r := LcuReq("GET", "/lol-gameflow/v1/gameflow-phase")
+    if (r = "")
+        return ""
+    body := Trim(SubStr(r, InStr(r, "`n") + 1), ' "`r`n')
+    return body                                    ; e.g. ChampSelect / InProgress / Lobby / None
+}
+
 ; Auto-open watcher: overlay at champ select, item widget in-game (gated by auto-open).
 g_overlayOpened := false
 g_widgetOpened := false
 g_wasInGame := false
 SmiteWatch() {
-    global g_overlayOpened, g_widgetOpened, g_wasInGame, APP, NOAUTO
+    global g_overlayOpened, g_widgetOpened, g_wasInGame, NOAUTO
     autoOpen := !FileExist(NOAUTO)
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_overlayOpened := false
         g_widgetOpened := false
         g_wasInGame := false
-        SetTimer(SmiteWatch, -9000)                 ; client closed -> no spawn; just check back later
+        SetTimer(SmiteWatch, -9000)                 ; client closed -> check back later
         return
     }
-    out := A_Temp "\smiteless_phase.txt"
-    ph := ""
-    try ph := Trim(FileRead(out), " `t`r`n")
-    Run('"' APP '" phase "' out '"', , "Hide")
+    ph := TrayPhase()
     active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
     if (active && autoOpen) {
@@ -229,8 +272,8 @@ SmiteWatch() {
         }
     }
     g_wasInGame := ingame
-    ; adaptive cadence: brisk while a session is live, slow while idle in the client - so the
-    ; phase poll (which spawns the app) isn't flashing the cursor every few seconds when idle.
-    SetTimer(SmiteWatch, active ? -3000 : -7000)
+    ; adaptive cadence: brisk while a session is live, relaxed while idle in the client.
+    ; The poll is fully in-process now (WinHttp), so there's no spawn and no cursor cost.
+    SetTimer(SmiteWatch, active ? -2500 : -5000)
 }
-SetTimer(SmiteWatch, -3000)
+SetTimer(SmiteWatch, -2500)
