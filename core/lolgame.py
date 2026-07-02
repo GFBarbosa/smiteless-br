@@ -94,11 +94,25 @@ def _from_champ_select(dd):
               for m in s.get("myTeam", [])]
     enemies = [(e.get("championId", 0), ROLE.get((e.get("assignedPosition") or "").lower(), ""))
                for e in s.get("theirTeam", []) if e.get("championId", 0) > 0]
+    # bans (both teams). The session's bans block is authoritative; fall back to completed
+    # ban actions (some queues only fill the actions list).
+    bans_my, bans_their = [], []
+    b = s.get("bans") or {}
+    bans_my = [c for c in (b.get("myTeamBans") or []) if c]
+    bans_their = [c for c in (b.get("theirTeamBans") or []) if c]
+    if not (bans_my or bans_their):
+        my_cells = {m.get("cellId") for m in s.get("myTeam", [])}
+        for group in (s.get("actions") or []):
+            for a in group:
+                if a.get("type") == "ban" and a.get("completed") and a.get("championId", 0) > 0:
+                    (bans_my if a.get("actorCellId") in my_cells else bans_their).append(a["championId"])
     if not my:
         return dict(my=0, pos=pos, allies=allies, enemies=enemies,
+                    bans_my=bans_my, bans_their=bans_their,
                     phase="ChampSelect", source="champ select", err="not_locked")
     save_role(my, pos)
     return dict(my=my, pos=pos, allies=allies, enemies=enemies,
+                bans_my=bans_my, bans_their=bans_their,
                 phase="ChampSelect", source="champ select")
 
 

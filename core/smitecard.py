@@ -9,7 +9,7 @@ Usage:
   python smitecard.py --out card.png [--fm done.flag] [--count 10]
 """
 import sys, os, time, threading, urllib.request, urllib.parse, io, json
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
@@ -679,8 +679,8 @@ def render_profile(dd, p, expanded=None, details=None):
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
-    HEAD, CHAMPS, BAND = 132, 96, 30
-    games_top = HEAD + BAND + CHAMPS + 34
+    HEAD, CHAMPS, BAND, STATS = 132, 96, 30, 26
+    games_top = HEAD + BAND + STATS + CHAMPS + 34
     H = games_top + 16
     for i in range(len(games)):
         H += 50 + (DETAIL_H + 8 if i in expanded else 0)
@@ -721,8 +721,20 @@ def render_profile(dd, p, expanded=None, details=None):
     _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=None, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
     d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
+    # rank as a tier-colored chip
     rs, rc = rank_str(p.get("rank"))
-    d.text((30, 58), rs, font=font(14, 1), fill=rc)
+    rf = font(13, 1)
+    rw = d.textlength(rs, font=rf)
+    _rrect(d, (28, 56, 28 + rw + 18, 78), 8, fill=_dim(rc, 0.22), outline=_dim(rc, 0.6), width=1)
+    d.text((37, 60), rs, font=rf, fill=rc)
+    # avg KDA chip next to the rank (from the loaded games)
+    av = p.get("avgs") or {}
+    if av.get("kda") is not None:
+        ktxt = f"{av['kda']} KDA"
+        kw = d.textlength(ktxt, font=rf)
+        kx = 28 + rw + 28
+        _rrect(d, (kx, 56, kx + kw + 18, 78), 8, fill=(28, 32, 43), outline=PEDGE, width=1)
+        d.text((kx + 9, 60), ktxt, font=rf, fill=TAN)
     # win bar + record
     bx, by, bw2 = 30, 82, 230
     _rrect(d, (bx, by, bx + bw2, by + 8), 4, fill=(46, 50, 64))
@@ -764,8 +776,32 @@ def render_profile(dd, p, expanded=None, details=None):
     # ---- session + pool-coach band ----
     _draw_session_coach(d, p, HEAD - 2)
 
+    # ---- averages strip: your numbers across the loaded games + role split ----
+    ay = HEAD + BAND - 2
+    av = p.get("avgs") or {}
+    if av:
+        f11 = font(11, 1)
+        d.text((20, ay), "AVG", font=f11, fill=GOLD)
+        x = 58
+        for lab, val, col in (("KDA", f"{av.get('k', 0)}/{av.get('d', 0)}/{av.get('a', 0)}", TEXT),
+                              ("KP", f"{av.get('kp', 0)}%", TEXT),
+                              ("CS/M", f"{av.get('csm', 0)}", TEXT),
+                              ("DMG", f"{av.get('dmg_share', 0)}%", TEXT)):
+            d.text((x, ay), lab, font=font(10, 1), fill=MUTED)
+            x += d.textlength(lab, font=font(10, 1)) + 6
+            d.text((x, ay), val, font=f11, fill=col)
+            x += d.textlength(val, font=f11) + 22
+        roles = p.get("roles") or {}
+        if roles:
+            rx = W - 22
+            total = max(1, sum(roles.values()))
+            for pos, cnt in sorted(roles.items(), key=lambda kv: -kv[1])[:3]:
+                txt = f"{_POS_ABBR.get(pos, pos[:3])} {round(cnt / total * 100)}%"
+                d.text((rx, ay), txt, font=font(10, 1), fill=MUTED, anchor="ra")
+                rx -= d.textlength(txt, font=font(10, 1)) + 16
+
     # ---- top champions ----
-    cy = HEAD + BAND + 6
+    cy = HEAD + BAND + STATS + 6
     d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
     cw = min(150, (W - 28) // nch)
@@ -780,6 +816,10 @@ def render_profile(dd, p, expanded=None, details=None):
         wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
         d.text((x + 54, cy + 44), f"{c['wr']}%", font=font(13, 1), fill=wcol)
         d.text((x + 92, cy + 46), f"{c['g']}g", font=font(10), fill=MUTED)
+        if c.get("avg") is not None:
+            gcol = GRADE_COLOR["A"] if c["avg"] >= 85 else (GRADE_COLOR["B"] if c["avg"] >= 70 else MUTED)
+            d.text((x + cw - 16, cy + 25), str(c["avg"]), font=font(11, 1), fill=gcol, anchor="ra")
+            d.text((x + cw - 16, cy + 40), "avg", font=font(8), fill=MUTED, anchor="ra")
         x += cw
 
     # ---- recent games ----
@@ -804,6 +844,15 @@ def render_profile(dd, p, expanded=None, details=None):
         d.text((340, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
         d.text((388, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
         d.text((456, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        extra = []
+        if g.get("csm"):
+            extra.append(f"{g['csm']} cs/m")
+        if g.get("kp") is not None:
+            extra.append(f"{g['kp']}% kp")
+        if g.get("dur"):
+            extra.append(f"{int(g['dur'] // 60)}m")
+        if extra:
+            d.text((W - 46, yy + 16), "  ·  ".join(extra), font=font(10), fill=(110, 108, 100), anchor="ra")
         d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13), fill=MUTED, anchor="ra")
         hit_games.append((yy, yy + 44, i))
         yy += 50
@@ -1099,11 +1148,119 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
     return picked
 
 
-def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None):
+_BAN_CACHE = {}
+
+
+def suggest_bans(dd, my_cid, role, taken=(), topn=3):
+    """Good bans for YOUR champ: op.gg counters you statistically lose to (your WR into
+    them, min sample), boosted when the counter is itself strong this patch (their own
+    overall WR in your role - the 'extremely OP' factor). Skips already banned/picked."""
+    if not my_cid:
+        return []
+    role = lb.ROLE.get((role or "").lower(), (role or "").lower())
+    ck = (my_cid, role)
+    if ck in _BAN_CACHE:
+        cands = _BAN_CACHE[ck]
+    else:
+        try:
+            d = lb.opgg(my_cid, role)
+        except Exception:
+            return []
+        raw = []
+        for c in d.get("counters", []):
+            play = c.get("play", 0) or 0
+            if not c.get("champion_id") or play < 60:
+                continue
+            my_wr = (c.get("win", 0) / play) * 100.0
+            if my_wr < 49.0:                       # you actually lose this matchup
+                raw.append((c["champion_id"], my_wr, play))
+        raw.sort(key=lambda x: x[1])               # hardest counters first
+        cands = []
+        for cid, my_wr, play in raw[:6]:            # OP-boost only the finalists (cached calls)
+            op = 0.0
+            try:
+                av = (lb.opgg(cid, role).get("summary") or {}).get("average_stats") or {}
+                op = max(0.0, (float(av.get("win_rate") or 0.5) * 100.0) - 50.0)
+            except Exception:
+                pass
+            cands.append((cid, (49.0 - my_wr) * 2.0 + op * 1.5, my_wr))
+        cands.sort(key=lambda x: -x[1])
+        if len(_BAN_CACHE) > 32:
+            _BAN_CACHE.clear()
+        _BAN_CACHE[ck] = cands
+    out = [(cid, my_wr) for cid, _s, my_wr in cands if cid not in set(taken)]
+    return out[:topn]
+
+
+def _ban_icon(img, dd, cid, x, y, size, slash=True):
+    """A grayed champ icon with a red slash - the universal 'banned' visual."""
+    ic = get_icon(dd, cid, size)
+    if not ic:
+        return
+    try:
+        gray = ImageOps.grayscale(ic).convert("RGBA")
+        gray.putalpha(ic.getchannel("A"))
+        img.paste(gray, (x, y), gray)
+        if slash:
+            dr = ImageDraw.Draw(img)
+            dr.line([x + 3, y + size - 3, x + size - 3, y + 3], fill=(206, 86, 94), width=2)
+    except Exception:
+        img.paste(ic, (x, y), ic)
+
+
+def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
+    """Champ-select intel band: GOOD BANS (your hardest counters) · the lobby's bans · any
+    visible enemy picks."""
+    _rrect(d, (x0, y0, x0 + w, y0 + 52), 9, fill=(20, 23, 32), outline=PEDGE, width=1)
+    x = x0 + 14
+    # --- good bans ---
+    d.text((x, y0 + 6), "GOOD BANS", font=font(9, 1), fill=GOLD)
+    if ban_ideas:
+        for cid, my_wr in ban_ideas[:3]:
+            ic = get_icon(dd, cid, 28)
+            if ic:
+                img.paste(ic, (x, y0 + 19), ic)
+            d.text((x + 32, y0 + 25), f"{my_wr:.0f}%", font=font(9), fill=REDWR)
+            x += 62
+    else:
+        d.text((x, y0 + 26), "lock or hover your champ", font=font(10), fill=MUTED)
+        x += 150
+    x = max(x, x0 + 210) + 18
+    # --- lobby bans ---
+    bm, bt = (bans or ({}, {}))[0] or [], (bans or ((), ()))[1] or []
+    d.text((x, y0 + 6), "BANS", font=font(9, 1), fill=(125, 166, 216))
+    bx = x
+    for cid in bm[:5]:
+        _ban_icon(img, dd, cid, bx, y0 + 19, 26)
+        bx += 30
+    if bm and bt:
+        d.text((bx + 3, y0 + 24), "·", font=font(12, 1), fill=MUTED)
+        bx += 14
+    for cid in bt[:5]:
+        _ban_icon(img, dd, cid, bx, y0 + 19, 26)
+        bx += 30
+    if not (bm or bt):
+        d.text((x, y0 + 26), "none yet", font=font(10), fill=MUTED)
+        bx = x + 70
+    # --- enemy picks (visible in some queues / after reveal) ---
+    x = max(bx + 26, x0 + 560)
+    d.text((x, y0 + 6), "ENEMY PICKS", font=font(9, 1), fill=(216, 130, 130))
+    if enemy_picks:
+        for cid in enemy_picks[:5]:
+            ic = get_icon(dd, cid, 26)
+            if ic:
+                img.paste(ic, (x, y0 + 19), ic)
+            x += 30
+    else:
+        d.text((x, y0 + 26), "hidden in ranked", font=font(10), fill=MUTED)
+
+
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None, bans=None, enemy_picks=None, ban_ideas=None):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
-    H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46)
+    band_h = 60 if champ_select else 0           # draft-intel band: good bans · bans · enemy picks
+    H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46 + band_h)
     rail_w = 96 if (champ_select and suggestions) else 0
     W2 = W + rail_w
     xoff = rail_w
@@ -1194,6 +1351,9 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                 img.paste(ic, (sx + 9, yy), ic)
             yy += 56
     ly = TOP + 5 * ROWH + 12
+    if champ_select and band_h:
+        _draw_draft_band(d, img, dd, 16 + xoff, ly, W2 - xoff - 32, bans, enemy_picks, ban_ideas)
+        ly += band_h
     if panel:
         opp = enemy_role.get(my_role)
         draw_lane_panel(d, img, dd, 16 + xoff, ly, W2 - xoff - 32, my_cid, my_role, opp,
@@ -1309,17 +1469,23 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 if wait and not (my_cid or ally_role):
                     time.sleep(2)
                     continue
+                bans_my = info.get("bans_my") or []
+                bans_their = info.get("bans_their") or []
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
-                       tuple(sorted((c, r) for c, r in enemies if c)), bool(build))
+                       tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
+                       tuple(bans_my), tuple(bans_their))
                 if sig != last_cs_sig:
                     ally_ids = [c for c, _ in allies if c]
                     enemy_ids = [c for c, _ in enemies if c]
                     sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5)
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
+                    taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
+                    ideas = suggest_bans(dd, my_cid, my_role, taken=taken)
                     emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                          "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                         roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge))
+                         roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge,
+                         bans=(bans_my, bans_their), enemy_picks=enemy_ids, ban_ideas=ideas))
                     last_cs_sig = sig
                 time.sleep(2)
                 continue
