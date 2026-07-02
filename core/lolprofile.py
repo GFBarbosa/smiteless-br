@@ -367,11 +367,19 @@ def build_profile(dd, key=None, count=14):
             continue
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
         review = review_for_player(d["parts"], puuid, d.get("dur", 0))
+        team = int(mine.get("team") or 0)
+        team_k = sum(int(p.get("k") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
+        team_dmg = sum(float(p.get("dmg") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
+        mins = max(1.0, (d.get("dur", 0) or 0) / 60.0)
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
                       "pos": mine["pos"], "mid": mid,
                       "dur": d.get("dur", 0), "review": review.get("tips", []),
-                      "review_kind": review.get("kind", "improve")})
+                      "review_kind": review.get("kind", "improve"),
+                      "cs": mine.get("cs", 0), "csm": round(mine.get("cs", 0) / mins, 1),
+                      "dmg": mine.get("dmg", 0), "vision": mine.get("vision", 0),
+                      "kp": round((mine["k"] + mine["a"]) / max(1.0, float(team_k)) * 100),
+                      "dmg_share": round(float(mine.get("dmg", 0)) / max(1.0, team_dmg) * 100)})
         wins += 1 if mine["win"] else 0
         cs = champ.setdefault(mine["champ"], {"g": 0, "w": 0, "score": 0})
         cs["g"] += 1
@@ -384,8 +392,24 @@ def build_profile(dd, key=None, count=14):
         key=lambda x: (-x["g"], -x["wr"]))
     hist = _lp_history(rk)
     trend = [h["rv"] for h in hist[-24:] if h.get("rv") is not None]   # LP sparkline (#8)
+    # profile-wide averages + role split (for the header/averages strip)
+    avgs = {}
+    if n:
+        tk_ = sum(g["k"] for g in games)
+        td = sum(g["d"] for g in games)
+        ta = sum(g["a"] for g in games)
+        avgs = {"kda": round((tk_ + ta) / max(1, td), 2),
+                "k": round(tk_ / n, 1), "d": round(td / n, 1), "a": round(ta / n, 1),
+                "kp": round(sum(g.get("kp", 0) for g in games) / n),
+                "csm": round(sum(g.get("csm", 0) for g in games) / n, 1),
+                "dmg_share": round(sum(g.get("dmg_share", 0) for g in games) / n)}
+    roles = {}
+    for g in games:
+        pos = (g.get("pos") or "").upper()
+        if pos:
+            roles[pos] = roles.get(pos, 0) + 1
     return {"riot_id": rid, "puuid": puuid, "rank": rk, "n": n, "wins": wins, "losses": n - wins,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-            "champs": champs[:6], "games": games,
+            "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
             "session": _session(hist, games), "coach": _coach(champs), "lp_trend": trend}
