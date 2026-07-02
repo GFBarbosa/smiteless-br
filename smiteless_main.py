@@ -61,6 +61,9 @@ def main():
     elif cmd == "autoaccept":
         import lolautoaccept
         lolautoaccept.main()
+    elif cmd == "stats":
+        import smitestats
+        smitestats.main()
     elif cmd == "update":
         import smiteupdate
         smiteupdate.main(rest)
