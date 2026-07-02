@@ -125,7 +125,8 @@ def champ_pool(dd, cid, role):
     # core path + situational finals, with boots filtered out (per-game pick) and de-duped.
     seq = list(dict.fromkeys(i for i in (list(core) + situ) if not _is_boots(dd, i)))
     cats = {i: _cats(dd, i) for i in set(seq) | set(boots)}
-    pool = {"seq": seq, "boots": boots, "cats": cats, "play": play}
+    pool = {"seq": seq, "core": [i for i in core if not _is_boots(dd, i)],
+            "boots": boots, "cats": cats, "play": play}
     _POOL[ck] = pool
     return pool
 
@@ -219,8 +220,10 @@ def live_state(dd, data=_UNSET):
     heal_threat = bool(heal_sig) or (len(healers_alive) >= 2
                                      and sum(e["lead"] for e in healers_alive) >= 2)
     heal_names = heal_sig or [e["name"] for e in healers_alive]
+    healers_detail = [{"name": e["name"], "lead": e["lead"], "heavy": e["heavy"]} for e in healers_alive]
     return {"my_cid": my_cid, "my_role": (me.get("position") or "").lower(), "my_items": my_items,
             "my_gold": my_gold, "my_lead": my_lead, "threat": threat,
+            "healers_detail": healers_detail,
             "e_ad": int(sum(e["dmg"] for e in elist if e["dtype"] == "AD")),
             "e_ap": int(sum(e["dmg"] for e in elist if e["dtype"] == "AP")),
             "healers": healers, "heal_items": heal_items, "cc": cc,
@@ -257,72 +260,110 @@ def _pick_counter(dd, cands, threat, main, play):
     return max(cands, key=lambda i: (fin(i), play.get(i, 0)))   # finished first, then most-built
 
 
+def _short(dd, iid):
+    """Compact item name for the progression line ("Kraken Slayer" -> "Kraken")."""
+    name = dd["items"].get(iid, str(iid))
+    words = name.replace("'s", "'s ").split()
+    if not words:
+        return name
+    first = words[0]
+    if first.lower() in ("lord", "the", "guardian") and len(words) > 1:
+        return words[1]
+    return first
+
+
+# anti-heal COMPONENT to grab early (his words: "get bramble vest") - matched to what your
+# champ's pool actually upgrades into, falling back to your class's natural component.
+_AH_COMPONENT = {"Thornmail": "Bramble Vest", "Morellonomicon": "Oblivion Orb",
+                 "Mortal Reminder": "Executioner's Calling",
+                 "Chempunk Chainsword": "Executioner's Calling"}
+
+
+def _antiheal_component(dd, pool, my_cid):
+    if pool:
+        for i in pool["seq"]:
+            if "antiheal" in pool["cats"].get(i, set()):
+                full = dd["items"].get(i, "")
+                for k, comp in _AH_COMPONENT.items():
+                    if k.split()[0] in full:
+                        return comp
+                return dd["items"].get(i, "")           # already a component (Oblivion Orb etc.)
+    tags = dd.get("id2tags", {}).get(my_cid, [])
+    if "Mage" in tags or dd.get("id2key", {}).get(my_cid, "") in AP_CHAMPS:
+        return "Oblivion Orb"
+    if "Tank" in tags:
+        return "Bramble Vest"
+    return "Executioner's Calling"
+
+
 def recommend(dd, st=None, data=_UNSET):
-    """The headline guidance for the widget. Returns dict with champ name + ordered lines
-    [(kind, text)] from op.gg's real pool, prioritised by the BIGGEST live threat (fed-weighted).
-    None if not in game. `data` lets the caller share one :2999 fetch with the live intel."""
+    """Widget guidance, rebuilt around the CORE BUILD as the spine: show the op.gg core
+    progression (owned items ticked, next highlighted), and interrupt it with AT MOST ONE
+    situational insert - only when the game truly demands it:
+      - a stack of healers that are actually winning  -> grab the anti-heal COMPONENT now
+      - an enemy who is INSANELY fed (lead >= 5)      -> slot your pool's defensive item next
+    Everything comes from op.gg's real pool for your champ+role. None if not in game."""
     st = st if st is not None else live_state(dd, data)
     if not st or not st["my_cid"]:
         return None
     role = st["my_role"] or primary_role(dd, st["my_cid"])   # Live Client often omits position
     pool = champ_pool(dd, st["my_cid"], role)
-    owned, lines, used = st["my_items"], [], set()
+    owned, lines = st["my_items"], []
     nm = lambda i: dd["items"].get(i, str(i))
     threat = st["threat"] if st["threat"] in ("AD", "AP") else "AD"
     want = {"AD": "armor", "AP": "mr"}[threat]
     main, primary = st.get("main"), st.get("primary")
-    play = pool["play"] if pool else {}
+    my_lead = int(st.get("my_lead", 0) or 0)
     has = lambda cat, ids: any(cat in pool["cats"].get(i, set()) for i in ids) if pool else False
 
-    def add(kind, iid, text):
-        lines.append((kind, text))
-        if iid:
-            used.add(iid)
-
-    # a real threat exists once enemies have built damage, or someone is meaningfully fed
-    real = (st["e_ad"] + st["e_ap"] >= 80) or (primary and primary["lead"] >= 4)
-    # ...but nobody needs a Maw against a 1/6 mage while they're 6/1 themselves. When the
-    # "threat" is clearly losing AND you're clearly winning, skip the defensive detour and
-    # let the standard (aggressive) build ride.
-    my_lead = int(st.get("my_lead", 0) or 0)
-    if main and ((main["lead"] <= -2 and my_lead >= 2) or (main["lead"] <= -4 and my_lead >= 0)):
-        real = False
-
-    # 1) the defensive item to build vs the biggest threat, from THIS champ's pool. Fires all
-    #    game (the most important time), not just while core is unfinished - picks Randuin's vs
-    #    crit, Thornmail vs healing/auto AD, else what the champ builds most.
-    if pool and real:
-        cands = [i for i in pool["seq"]
-                 if want in pool["cats"].get(i, set()) and i not in owned and i not in used]
-        cand = _pick_counter(dd, cands, threat, main, play)
-        if cand:
-            add("counter", cand, f"{nm(cand)}  ·  {_why(main, threat)}")
-    # 2) anti-heal - ONLY when the healing actually matters (a fed / heal-centric enemy, or
-    #    the one you're fighting), not just because someone on the team can heal a little
-    if st["heal_threat"] and not has("antiheal", owned):
-        ah = next((i for i in pool["seq"] if "antiheal" in pool["cats"].get(i, set()) and i not in used), None) if pool else None
-        tag = ", ".join(st["heal_names"][:2]) or "lifesteal"
-        add("antiheal", ah, f"{nm(ah) if ah else 'Grievous Wounds item'}  ·  cut {tag} healing")
-    # 3) the next standard build item (advances as you buy). When your banked gold already
-    #    covers its FULL price, say so - that's a "good back" window (rough on purpose: it
-    #    ignores components you own, so it never overpromises).
+    # ---- the core progression line (the spine) ----
+    nxt = None
     if pool:
-        nxt = next((i for i in pool["seq"] if i not in owned and i not in used), None)
-        if nxt:
-            cost = ((dd.get("item_data", {}).get(nxt, {}) or {}).get("gold") or {}).get("total", 0) or 0
-            if cost and st.get("my_gold", 0) >= cost:
-                add("build", nxt, f"{nm(nxt)}  ·  affordable NOW — good back")
+        core = pool.get("core") or []
+        parts = []
+        for i in core:
+            if i in owned:
+                parts.append(f"{_short(dd, i)} ✓")
+            elif nxt is None:
+                nxt = i
+                parts.append(f"▸ {_short(dd, i)}")
             else:
-                add("build", nxt, f"{nm(nxt)}  ·  next item")
-    # 4) boots cue vs heavy CC / magic
-    if pool and pool["boots"] and not (owned & set(pool["boots"])) and (st["cc"] >= 3 or threat == "AP"):
-        merc = next((b for b in pool["boots"] if "Mercury" in nm(b) and b not in used), None)
-        if merc:
-            add("boots", merc, f"{nm(merc)}  ·  vs {'CC' if st['cc'] >= 3 else 'magic dmg'}")
+                parts.append(_short(dd, i))
+        if nxt is None:                                   # core complete -> best finisher next
+            nxt = next((i for i in pool["seq"] if i not in owned), None)
+            if nxt is not None:
+                parts.append(f"▸ {_short(dd, nxt)}")
+        if parts:
+            txt = "  →  ".join(parts)
+            cost = ((dd.get("item_data", {}).get(nxt, {}) or {}).get("gold") or {}).get("total", 0) if nxt else 0
+            if nxt and cost and st.get("my_gold", 0) >= cost:
+                txt += "   ·   affordable NOW"
+            lines.append(("core", txt))
+
+    # ---- at most ONE insert, and only when it's screaming ----
+    insert = None
+    # a) insanely fed enemy -> the defensive piece YOUR champ actually builds
+    if pool and main and main["lead"] >= 5 and not (main["lead"] <= -2 and my_lead >= 2):
+        cands = [i for i in pool["seq"]
+                 if want in pool["cats"].get(i, set()) and i not in owned]
+        cand = _pick_counter(dd, cands, threat, main, pool["play"])
+        if cand:
+            insert = f"slot in {nm(cand)} next — {main['name']} is fed ({main['k']}/{main['d']})"
+    # b) healers that are actually winning -> grab the anti-heal component now
+    if insert is None and not has("antiheal", owned):
+        hd = st.get("healers_detail") or []
+        heavy_fed = [h for h in hd if h["heavy"] and h["lead"] >= 4]
+        stack = len(hd) >= 2 and sum(h["lead"] for h in hd) >= 3
+        if heavy_fed or stack:
+            comp = _antiheal_component(dd, pool, st["my_cid"])
+            who = heavy_fed[0]["name"] if heavy_fed else f"{len(hd)} healers"
+            insert = f"grab {comp} — {who} healing through your damage"
+    if insert:
+        lines.append(("insert", insert))
 
     if primary and primary["lead"] >= 4:
-        summary = f"biggest threat: {primary['name']} {primary['k']}/{primary['d']}  ·  enemy {st['e_ad']} AD / {st['e_ap']} AP"
+        summary = f"threat: {primary['name']} {primary['k']}/{primary['d']}  ·  enemy {st['e_ad']} AD / {st['e_ap']} AP"
     else:
         summary = f"enemy {st['e_ad']} AD / {st['e_ap']} AP"
-    return {"champ": dd["id2name"].get(st["my_cid"], "?"), "lines": lines[:4],
+    return {"champ": dd["id2name"].get(st["my_cid"], "?"), "lines": lines[:2],
             "summary": summary, "no_pool": pool is None}
