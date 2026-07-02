@@ -587,21 +587,27 @@ def _sparkline(d, x0, y0, w, h, vals):
 
 
 def _draw_session_coach(d, p, y):
-    """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right."""
+    """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right.
+    For ANOTHER player's profile the session half is meaningless (it's local history) - show
+    only their pool read."""
     f = font(11, 1)
     sess = p.get("session") or {}
     bits = []
-    if sess.get("games"):
-        bits.append(("SESSION", GOLD))
-        bits.append((f"{sess['wins']}W-{sess['losses']}L", TAN))
-        if sess.get("lp_delta") is not None:
-            dv = sess["lp_delta"]
-            bits.append((f"{dv:+d} LP", GREEN if dv >= 0 else REDWR))
-    stv = sess.get("streak", 0)
-    if abs(stv) >= 2:
-        bits.append((f"{'W' if stv > 0 else 'L'}{abs(stv)} streak", GREEN if stv > 0 else REDWR))
-    if not bits:
-        bits = [("SESSION", GOLD), ("play a ranked game to start tracking", MUTED)]
+    if p.get("other"):
+        bits = [("VIEWING", GOLD), (p.get("riot_id", "?"), TAN),
+                ("· their last games, scored the same way", MUTED)]
+    else:
+        if sess.get("games"):
+            bits.append(("SESSION", GOLD))
+            bits.append((f"{sess['wins']}W-{sess['losses']}L", TAN))
+            if sess.get("lp_delta") is not None:
+                dv = sess["lp_delta"]
+                bits.append((f"{dv:+d} LP", GREEN if dv >= 0 else REDWR))
+        stv = sess.get("streak", 0)
+        if abs(stv) >= 2:
+            bits.append((f"{'W' if stv > 0 else 'L'}{abs(stv)} streak", GREEN if stv > 0 else REDWR))
+        if not bits:
+            bits = [("SESSION", GOLD), ("play a ranked game to start tracking", MUTED)]
     x = 20
     for txt, col in bits:
         d.text((x, y), txt, font=f, fill=col)
@@ -611,11 +617,15 @@ def _draw_session_coach(d, p, y):
     coach = p.get("coach")
     if coach:
         cx = W - 22
-        order = [k for k in ("more", "less") if coach.get(k)]
+        order = [k for k in ("more", "less", "slump") if coach.get(k)]
         for k in order:                                   # right-anchored, first = rightmost
             c = coach[k]
-            txt = ("▸ play more " if k == "more" else "▸ ease off ") + f"{c['champ']} {c['wr']}%"
-            col = GREEN if k == "more" else REDWR
+            if k == "more":
+                txt, col = f"▸ play more {c['champ']} {c['wr']}%", GREEN
+            elif k == "less":
+                txt, col = f"▸ ease off {c['champ']} {c['wr']}%", REDWR
+            else:                                         # a slumping MAIN: variance, not the pick
+                txt, col = f"▸ rough patch on {c['champ']} — variance, not the pick", TAN
             d.text((cx, y), txt, font=f, fill=col, anchor="ra")
             cx -= d.textlength(txt, font=f) + 16
 
@@ -650,11 +660,14 @@ def _champ_id_from_name(dd, name):
     return 0
 
 
-DETAIL_H = 190          # height of an expanded game's 10-player breakdown + quick review
+DETAIL_H = 258          # height of an expanded game's 10-player breakdown + quick review
 
 
-def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve"):
-    """The 10-player breakdown for an expanded game (KDA + damage bars, both teams)."""
+def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve", duos=None):
+    """The 10-player breakdown for an expanded game: name (clickable -> their profile),
+    KDA, full item build as icons, damage/cs/gold/vision, duo markers - both teams, plus
+    the review panel. Returns {'review': box, 'players': [(x0,y0,x1,y1,puuid,name)]}."""
+    duos = duos or {}
     _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
     myteam = me["team"] if me else 100
@@ -663,24 +676,42 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
     colw = (w - (pad * 2) - rw - 24) // 2
     teams = [[pl for pl in parts if pl["team"] == myteam],
              [pl for pl in parts if pl["team"] != myteam]]
+    player_hits = []
     for ci, team in enumerate(teams):
         cx = x0 + pad + ci * (colw + 16)
         d.text((cx, y0 + 9), "YOUR TEAM" if ci == 0 else "ENEMY", font=font(10, 1),
                fill=(125, 166, 216) if ci == 0 else (216, 130, 130))
-        ry = y0 + 30
+        ry = y0 + 28
         for pl in team[:5]:
             cid = dd["name2id"].get(dd["norm"](pl["champ"]))
-            ic = get_icon(dd, cid, 22)
+            ic = get_icon(dd, cid, 26)
             if ic:
-                img.paste(ic, (cx, ry), ic)
+                img.paste(ic, (cx, ry + 1), ic)
             mine = pl["puuid"] == my_puuid
-            d.text((cx + 28, ry + 3), f"{pl['k']}/{pl['d']}/{pl['a']}",
-                   font=font(11, 1 if mine else 0), fill=GOLD if mine else TEXT)
-            bx, bw = cx + 96, colw - 138
-            _rrect(d, (bx, ry + 7, bx + bw, ry + 13), 3, fill=(40, 44, 56))
-            _rrect(d, (bx, ry + 7, bx + max(2, int(bw * pl["dmg"] / maxd)), ry + 13), 3, fill=(214, 130, 96))
-            d.text((cx + colw - 4, ry + 2), f"{pl['dmg'] // 1000}k", font=font(10), fill=MUTED, anchor="ra")
-            ry += 26
+            if pl["puuid"] in duos:                       # premade marker (same color = same duo)
+                _duo_marker(d, cx - 6, ry + 6, duos[pl["puuid"]], "L")
+            name = (pl.get("name") or pl.get("champ") or "?").split("#")[0][:14]
+            d.text((cx + 32, ry), name, font=font(10, 1 if mine else 0),
+                   fill=GOLD if mine else TEXT)
+            d.text((cx + colw - 2, ry), f"{pl['k']}/{pl['d']}/{pl['a']}",
+                   font=font(10, 1 if mine else 0), fill=GOLD if mine else TAN, anchor="ra")
+            # damage bar under the name, then items + economy line
+            bx, bw_ = cx + 32, 92
+            _rrect(d, (bx, ry + 14, bx + bw_, ry + 18), 2, fill=(40, 44, 56))
+            _rrect(d, (bx, ry + 14, bx + max(2, int(bw_ * pl["dmg"] / maxd)), ry + 18), 2,
+                   fill=(214, 130, 96))
+            ix = cx + 32 + bw_ + 8
+            for iid in (pl.get("items") or [])[:6]:
+                iic = get_item_icon(dd, iid, 15)
+                if iic:
+                    img.paste(iic, (ix, ry + 12), iic)
+                ix += 17
+            d.text((cx + colw - 2, ry + 22), f"{pl['dmg'] // 1000}k dmg · {pl['cs']}cs · "
+                   f"{pl['gold'] // 1000}k g · {pl.get('vision', 0)}v",
+                   font=font(9), fill=MUTED, anchor="ra")
+            player_hits.append((cx, ry, cx + colw, ry + 34, pl.get("puuid", ""),
+                                pl.get("name") or ""))
+            ry += 42
     rx = x0 + w - rw - 12
     _rrect(d, (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), 8, fill=(23, 27, 37), outline=PEDGE, width=1)
     good = (review_kind == "positive")
@@ -707,7 +738,7 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
         yy += tip_gap
         if yy > y0 + DETAIL_H - 18:
             break
-    return (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8)
+    return {"review": (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), "players": player_hits}
 
 
 def render_profile(dd, p, expanded=None, details=None):
@@ -877,7 +908,7 @@ def render_profile(dd, p, expanded=None, details=None):
     d.line([124, games_top - 15, W - 350, games_top - 15], fill=(36, 40, 52), width=1)
     d.text((W - 20, games_top - 21), "click a game to expand  ·  score = vs your role's goals",
            font=font(10), fill=(118, 116, 108), anchor="ra")
-    hit_games, hit_reviews, yy = [], [], games_top
+    hit_games, hit_reviews, hit_players, yy = [], [], [], games_top
     for i, g in enumerate(games):
         acc = GREEN if g["win"] else REDWR
         rowbg = PCARD2 if i % 2 == 0 else (28, 32, 43)     # alternate row tint
@@ -909,12 +940,16 @@ def render_profile(dd, p, expanded=None, details=None):
         hit_games.append((yy, yy + 44, i))
         yy += 50
         if i in expanded:
-            parts = (details.get(g.get("mid")) or {}).get("parts")
+            det = details.get(g.get("mid")) or {}
+            parts = det.get("parts")
             if parts:
                 rb = _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
-                                        g.get("review"), g.get("review_kind", "improve"))
+                                        g.get("review"), g.get("review_kind", "improve"),
+                                        duos=det.get("duos"))
                 if rb:
-                    hit_reviews.append((rb[0], rb[1], rb[2], rb[3], i))
+                    r = rb["review"]
+                    hit_reviews.append((r[0], r[1], r[2], r[3], i))
+                    hit_players.extend(rb["players"])
             else:
                 _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),
@@ -933,6 +968,7 @@ def render_profile(dd, p, expanded=None, details=None):
 
     img.hit_games = hit_games
     img.hit_reviews = hit_reviews
+    img.hit_players = hit_players
     img.hitmap = []
     img.profile_split_y = max(120, games_top - 30)   # top card stays fixed; games section scrolls
     return img
@@ -960,9 +996,9 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
     icon = get_icon(dd, cid, 38)
     cw = 372
     if side == "L":
-        d.rectangle([x, y + 9, x + cw, y + ROWH - 5], fill=accent_bg)
-        d.rectangle([x, y + 9, x + 3, y + ROWH - 5], fill=accent)
-        ix = x + 11
+        _rrect(d, (x, y + 9, x + cw, y + ROWH - 5), 9, fill=accent_bg, outline=PEDGE, width=1)
+        d.rectangle([x, y + 16, x + 3, y + ROWH - 12], fill=accent)
+        ix = x + 12
         if icon:
             img.paste(icon, (ix, y + 13), icon)
         tx = ix + 46
@@ -971,9 +1007,9 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
     else:
-        d.rectangle([x - cw, y + 9, x, y + ROWH - 5], fill=accent_bg)
-        d.rectangle([x - 3, y + 9, x, y + ROWH - 5], fill=accent)
-        ix = x - 11 - 38
+        _rrect(d, (x - cw, y + 9, x, y + ROWH - 5), 9, fill=accent_bg, outline=PEDGE, width=1)
+        d.rectangle([x - 3, y + 16, x, y + ROWH - 12], fill=accent)
+        ix = x - 12 - 38
         if icon:
             img.paste(icon, (ix, y + 13), icon)
         tx = ix - 8
@@ -1037,8 +1073,8 @@ def _wrap(text, fnt, max_w):
 
 
 def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip_lines, ph):
-    d.rectangle([x, y, x + w, y + ph], fill=(26, 28, 38))
-    d.rectangle([x, y, x + 3, y + ph], fill=GOLD)
+    _rrect(d, (x, y, x + w, y + ph), 10, fill=(24, 27, 37), outline=PEDGE, width=1)
+    d.rectangle([x, y + 8, x + 3, y + ph - 8], fill=GOLD)
     myn = dd["id2name"].get(my_cid, "?")
     arch = archetype(dd, my_cid)
     label = "YOUR LANE" + (f"   ·   {arch}" if arch else "") + ("   ·   live tip" if tip_lines else "")
@@ -1347,7 +1383,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     img = Image.new("RGB", (W2, H), BG)
     d = ImageDraw.Draw(img)
     hits = []                                    # clickable icon rects -> op.gg URL
-    if champ_select and my_cid:                  # splash strip behind the champ-select header
+    if my_cid:                                   # splash strip behind the header (all boards)
         strip = get_splash(dd, my_cid, (W2, 66))
         if strip:
             img.paste(strip, (0, 0))

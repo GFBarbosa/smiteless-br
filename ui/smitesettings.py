@@ -110,7 +110,7 @@ def main():
                       5, 20, 1, s["scout_games"], lambda v: f"{int(v)}")
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
-                       5, 40, 1, s["profile_games"], lambda v: f"{int(v)}")
+                       5, 60, 1, s["profile_games"], lambda v: f"{int(v)}")
     dvol = scale_row("Dragon spawn volume",
                      "how loud the 45/30/15s drake chime is (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")

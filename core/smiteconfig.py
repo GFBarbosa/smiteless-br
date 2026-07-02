@@ -16,10 +16,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 #   scales the enemy form weight, the streak compounding, and the extreme override).
 # gank_threshold: |score| cut for GANK / TOUGH (lower = more lanes tagged).
 # scout_games: recent ranked games pulled per player.
-DEFAULTS = {"streak_influence": 50, "gank_threshold": 6.0, "scout_games": 10, "profile_games": 10,
+DEFAULTS = {"streak_influence": 50, "gank_threshold": 6.0, "scout_games": 10, "profile_games": 30,
             "dragon_volume": 30}
 RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_games": (5, 20),
-          "profile_games": (5, 40), "dragon_volume": (0, 100)}
+          "profile_games": (5, 60), "dragon_volume": (0, 100)}
 # Feature toggles (read live by the relevant module).
 BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-game
          "gank_kit": True,        # factor YOUR champ's CC/engage into the gank ratings

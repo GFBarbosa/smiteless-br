@@ -57,8 +57,9 @@ def main():
 
     dd = lb.ddragon()
     key = ls.read_key()
-    st = {"count": cfg.load().get("profile_games", 10), "busy": False, "photo_top": None, "photo_bottom": None,
-          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": [], "hit_reviews": []}
+    st = {"count": cfg.load().get("profile_games", 30), "busy": False, "photo_top": None, "photo_bottom": None,
+          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": [], "hit_reviews": [],
+          "hit_players": [], "view": None, "own_prof": None}   # view None = my profile; else {puuid, riot_id}
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
@@ -102,8 +103,20 @@ def main():
 
     bar = tk.Frame(root, bg=BAR)
     bar.pack(side="bottom", fill="x")
+    backbtn = tk.Button(bar, text="← my profile", bg=BTN, fg=GOLD, activebackground=BTN_HOVER,
+                        activeforeground=GOLD, relief="flat", font=("Segoe UI", 9, "bold"),
+                        padx=12, pady=4, cursor="hand2")
+    search = tk.Entry(bar, bg="#0d0f16", fg=TXT, insertbackground=TXT, relief="flat",
+                      font=("Segoe UI", 9), width=22)
+    search.pack(side="left", padx=(12, 2), pady=7, ipady=3)
+    search.insert(0, "Name#TAG")
+    search.bind("<FocusIn>", lambda e: (search.delete(0, "end") if search.get() == "Name#TAG" else None))
+    gobtn = tk.Button(bar, text="Search", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
+                      activeforeground=TXT, relief="flat", font=("Segoe UI", 9),
+                      padx=10, pady=4, cursor="hand2")
+    gobtn.pack(side="left", padx=(2, 6), pady=7)
     status = tk.Label(bar, text="", bg=BAR, fg=MUTED, font=("Segoe UI", 9))
-    status.pack(side="left", padx=14, pady=8)
+    status.pack(side="left", padx=8, pady=8)
     loadbtn = tk.Button(bar, text="Load more", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
                         activeforeground=TXT, relief="flat", font=("Segoe UI", 9, "bold"),
                         padx=16, pady=4, cursor="hand2", state="disabled")
@@ -156,6 +169,8 @@ def main():
                      for y0, y1, idx in getattr(pil, "hit_games", []) if y1 > split]
         st["hit_reviews"] = [(x0, max(0, y0 - split), x1, max(0, y1 - split), idx)
                              for x0, y0, x1, y1, idx in getattr(pil, "hit_reviews", []) if y1 > split]
+        st["hit_players"] = [(x0, max(0, y0 - split), x1, max(0, y1 - split), pu, nm)
+                             for x0, y0, x1, y1, pu, nm in getattr(pil, "hit_players", []) if y1 > split]
 
     def _apply(prof):
         st["busy"] = False
@@ -183,14 +198,52 @@ def main():
         if more:
             st["count"] += 10
             loadbtn.config(text="loading…", state="disabled")
+        view = st["view"]
 
         def work():
             try:
-                prof = lp.build_profile(dd, count=st["count"])
+                if view:
+                    prof = lp.build_profile(dd, count=st["count"],
+                                            riot_id=view.get("riot_id"), puuid=view.get("puuid"))
+                else:
+                    prof = lp.build_profile(dd, count=st["count"])
             except Exception:
                 prof = None
             root.after(0, lambda: _apply(prof))
         threading.Thread(target=work, daemon=True).start()
+
+    def _open_view(riot_id=None, puuid=None):
+        """Switch the window to another player's profile (search / clicked a name)."""
+        if st["busy"]:
+            return
+        if st["view"] is None and st["prof"]:
+            st["own_prof"] = st["prof"]                   # keep mine for the back button
+        st["view"] = {"riot_id": riot_id, "puuid": puuid}
+        st["expanded"] = set()
+        st["count"] = cfg.load().get("profile_games", 30)
+        backbtn.pack(side="right", padx=(0, 4), pady=7)
+        status.config(text=f"loading {riot_id or 'player'}…")
+        _load(False)
+
+    def _go_back():
+        st["view"] = None
+        st["expanded"] = set()
+        backbtn.pack_forget()
+        if st["own_prof"]:
+            _apply(st["own_prof"])                        # instant; no refetch
+        else:
+            _load(False)
+
+    def _do_search(_e=None):
+        q = search.get().strip()
+        if "#" not in q:
+            status.config(text="type the full riot id: Name#TAG")
+            return
+        _open_view(riot_id=q)
+
+    backbtn.config(command=_go_back)
+    gobtn.config(command=_do_search)
+    search.bind("<Return>", _do_search)
 
     def _fetch_detail(mid):
         def work():
@@ -198,7 +251,13 @@ def main():
                 det = lp.match_detail(mid, key)
             except Exception:
                 det = None
-            st["details"][mid] = det or {}
+            det = det or {}
+            try:                                          # duo inference: cached recent-ids overlap
+                if det.get("parts"):
+                    det["duos"] = lp.match_duos(det["parts"], key)
+            except Exception:
+                pass
+            st["details"][mid] = det
             root.after(0, _render)
         threading.Thread(target=work, daemon=True).start()
 
@@ -236,6 +295,12 @@ def main():
             if x0 <= x <= x1 and y0 <= y <= y1:
                 gm = st["prof"]["games"][idx]
                 _show_review(gm)
+                return
+        me = (st["prof"] or {}).get("puuid")
+        for x0, y0, x1, y1, pu, nm in st["hit_players"]:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                if pu and pu != me:                       # click a player -> their profile
+                    _open_view(riot_id=(nm or None), puuid=pu)
                 return
         for y0, y1, idx in st["hit"]:
             if y0 <= y <= y1:

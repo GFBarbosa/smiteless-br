@@ -95,22 +95,27 @@ def _session(hist, games):
 
 
 def _coach(champs):
-    """{more, less} pool advice from per-champ win rates: lean into your best, ease off your
-    worst - on any champ with a real sample (>=2 games). Works for a one-trick too: a single
-    strong main shows 'play more', a single tanking main shows 'ease off'. Either side may be
-    absent; with one champ only one side can fire (it can't be both your best and worst pick)."""
-    pool = [c for c in champs if c.get("g", 0) >= 2]
+    """{more, less, slump} pool advice from per-champ win rates. Sample-gated (3+ games each
+    way) so one lucky game never drives a suggestion. Crucially: your DOMINANT MAIN never
+    gets "ease off" - a one-trick on a bad run is a slump, not a pick problem - it gets a
+    'slump' note instead ("rough patch on X - likely variance, not the pick")."""
+    pool = [c for c in champs if c.get("g", 0) >= 3]
     if not pool:
         return None
+    total = sum(c.get("g", 0) for c in champs)
+    second = sorted((c.get("g", 0) for c in champs), reverse=True)[1] if len(champs) > 1 else 0
+    def is_main(c):
+        return c.get("g", 0) >= max(3, int(total * 0.4)) or (second and c.get("g", 0) >= 2 * second)
     best = max(pool, key=lambda c: (c["wr"], c["g"]))
     worst = min(pool, key=lambda c: (c["wr"], -c["g"]))
     out = {}
     if best["wr"] >= 55:
         out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
-    # ease off your worst - including a solo main on a bad run (best==worst here, and a champ
-    # can't be both >=55 and <=45, so it never contradicts the 'more' pick).
     if worst["wr"] <= 45 and worst["champ"] != (out.get("more") or {}).get("champ"):
-        out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
+        if is_main(worst):
+            out["slump"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
+        else:
+            out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
     return out or None
 
 
@@ -136,13 +141,12 @@ def current_riot_id():
 def match_detail(mid, key):
     """Full per-participant stats for a match (cached forever - match data is immutable)."""
     fp = ls._cache_path("matchx", mid)
-    import os
     if os.path.exists(fp):
         try:
             cached = json.load(open(fp))
             parts = cached.get("parts") if isinstance(cached, dict) else None
-            if not parts or any("obj" not in p for p in parts):
-                cached = None  # old cache format (before objective stats) -> refresh once
+            if not parts or any(("obj" not in p or "name" not in p) for p in parts):
+                cached = None  # old cache format (pre-objective / pre-name+items) -> refresh once
             if cached is not None:
                 return cached
         except Exception:
@@ -166,14 +170,19 @@ def match_detail(mid, key):
                + (p.get("dragonKills", 0) or 0)
                + (p.get("baronKills", 0) or 0)
                + (p.get("riftHeraldTakedowns", 0) or 0))
+        gn, tl = p.get("riotIdGameName") or "", p.get("riotIdTagline") or ""
+        name = f"{gn}#{tl}" if (gn and tl) else (gn or p.get("summonerName") or "")
+        items = [p.get(f"item{j}", 0) or 0 for j in range(6)]
         parts.append({
             "puuid": p.get("puuid", ""), "champ": p.get("championName", ""),
+            "name": name,
             "win": bool(p.get("win")), "team": p.get("teamId", 0),
             "k": p.get("kills", 0), "d": p.get("deaths", 0), "a": p.get("assists", 0),
             "dmg": p.get("totalDamageDealtToChampions", 0) or 0,
             "gold": p.get("goldEarned", 0) or 0, "cs": cs,
             "vision": p.get("visionScore", 0) or 0,
             "obj": obj,
+            "items": [i for i in items if i],
             "pos": (p.get("teamPosition") or "").upper(),
         })
     out = {"dur": info.get("gameDuration", 0), "parts": parts}
@@ -342,18 +351,24 @@ def review_for_player(parts, my_puuid, dur):
     return {"kind": ("positive" if positive else "improve"), "tips": out}
 
 
-def build_profile(dd, key=None, count=14):
-    """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}. None
-    if we can't tell who you are (client closed)."""
+def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
+    """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
+    With riot_id/puuid it builds ANY player's profile (search / click-through); session,
+    LP trend and the tilt nudge are self-only (they come from the local snapshot history).
+    None if we can't tell who you are (client closed)."""
     key = key or ls.read_key()
     if not key:
         return {"error": "no Riot API key"}
-    rid = current_riot_id()
-    if not rid:
-        return None
-    puuid = ls.resolve_puuid(rid, key)
+    other = bool(riot_id or puuid)
+    rid = riot_id
+    if not other:
+        rid = current_riot_id()
+        if not rid:
+            return None
     if not puuid:
-        return {"riot_id": rid, "error": "couldn't resolve account (key valid?)"}
+        puuid = ls.resolve_puuid(rid, key)
+    if not puuid:
+        return {"riot_id": rid, "error": "couldn't find that player (check Name#TAG)"}
     rk = ls.rank(puuid, key)
     ids = ls.recent_ids(puuid, key, count) or []
     games, champ = [], {}
@@ -365,6 +380,8 @@ def build_profile(dd, key=None, count=14):
         mine = next((p for p in d["parts"] if p["puuid"] == puuid), None)
         if not mine:
             continue
+        if other and not rid and mine.get("name"):
+            rid = mine["name"]                     # clicked-through by puuid: recover the name
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
         review = review_for_player(d["parts"], puuid, d.get("dur", 0))
         team = int(mine.get("team") or 0)
@@ -390,7 +407,8 @@ def build_profile(dd, key=None, count=14):
         ({"champ": c, "g": v["g"], "w": v["w"], "wr": round(v["w"] / v["g"] * 100),
           "avg": round(v["score"] / v["g"])} for c, v in champ.items()),
         key=lambda x: (-x["g"], -x["wr"]))
-    hist = _lp_history(rk)
+    # session / LP trend come from the LOCAL snapshot history -> self-profile only
+    hist = [] if other else _lp_history(rk)
     trend = [h["rv"] for h in hist[-24:] if h.get("rv") is not None]   # LP sparkline (#8)
     # profile-wide averages + role split (for the header/averages strip)
     avgs = {}
@@ -408,8 +426,42 @@ def build_profile(dd, key=None, count=14):
         pos = (g.get("pos") or "").upper()
         if pos:
             roles[pos] = roles.get(pos, 0) + 1
-    return {"riot_id": rid, "puuid": puuid, "rank": rk, "n": n, "wins": wins, "losses": n - wins,
+    return {"riot_id": rid or "?", "puuid": puuid, "rank": rk, "n": n, "wins": wins,
+            "losses": n - wins, "other": other,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
             "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
-            "session": _session(hist, games), "coach": _coach(champs), "lp_trend": trend}
+            "session": (None if other else _session(hist, games)),
+            "coach": _coach(champs), "lp_trend": trend}
+
+
+DUO_SHARED = 3             # shared recent matches to call two players a likely duo
+
+
+def match_duos(parts, key, count=10):
+    """{puuid: group_index} for players in this PAST match who look like premades - same
+    inference the live scout uses: pairs on the same team sharing several recent ranked
+    games. All recent_ids calls are cached, so an expanded game costs at most 10 lookups."""
+    ids_of = {}
+    for p in parts:
+        pu = p.get("puuid")
+        if pu:
+            try:
+                ids_of[pu] = set(ls.recent_ids(pu, key, count) or [])
+            except Exception:
+                ids_of[pu] = set()
+    groups, gidx = {}, 0
+    plist = [p for p in parts if p.get("puuid")]
+    for i, a in enumerate(plist):
+        for b in plist[i + 1:]:
+            if int(a.get("team") or 0) != int(b.get("team") or 0):
+                continue
+            shared = len(ids_of.get(a["puuid"], set()) & ids_of.get(b["puuid"], set()))
+            if shared >= DUO_SHARED:
+                ga, gb = groups.get(a["puuid"]), groups.get(b["puuid"])
+                g = ga if ga is not None else (gb if gb is not None else gidx)
+                if ga is None and gb is None:
+                    gidx += 1
+                groups[a["puuid"]] = g
+                groups[b["puuid"]] = g
+    return groups
