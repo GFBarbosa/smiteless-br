@@ -131,17 +131,19 @@ def _beep(thr, vol=30):
 def _dragon_due(prev, secs, fired):
     """Which step (45/30/15) to beep right now as the dragon countdown CROSSES it, or None.
     Mutates `fired`. Crossing-based so a 5s poll or joining mid-window never double-beeps; a
-    jump upward (a drake just died -> next spawn) resets the fired steps."""
+    jump upward (a drake just died -> next spawn) resets the fired steps. When one poll gap
+    crosses SEVERAL steps (opened the widget late, long lag spike), fire the MOST URGENT one
+    and mark the rest as done - a 10s-out drake should get the 15s cue, not the calm 45s."""
     if prev is None or secs is None:
         return None
     if secs > prev + 20:
         fired.clear()
         return None
-    for thr in (45, 30, 15):
-        if thr not in fired and prev > thr >= secs:
-            fired.add(thr)
-            return thr
-    return None
+    crossed = [thr for thr in (45, 30, 15) if thr not in fired and prev > thr >= secs]
+    if not crossed:
+        return None
+    fired.update(crossed)
+    return min(crossed)
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
 
 
@@ -227,9 +229,26 @@ def main():
             row.pack(fill="x")
             tk.Label(row, text="⟳", font=("Segoe UI", 9), fg=TEAL, bg=BG).pack(side="left")
             for o in objs[:3]:
-                col = GOLD if o["urgent"] else (TEAL if o["up"] else MUTED)
-                tk.Label(row, text=f" {o['label']} {_fmt(o['secs'])} ", font=("Segoe UI", 9,
+                col = GOLD if o["urgent"] else (TEAL if o["up"] else (TXT if o.get("setup") else MUTED))
+                txt = f" {o['label']} {_fmt(o['secs'])}"
+                if o.get("setup"):
+                    txt += " · set up"                    # ~75s out: shove + ward before it spawns
+                tk.Label(row, text=txt + " ", font=("Segoe UI", 9,
                          "bold" if o["urgent"] else "normal"), fg=col, bg=BG).pack(side="left")
+        jg = pulse.get("jungle")
+        if jg:
+            if jg["what"] == "died":
+                jtxt = f"⌖ enemy jg {jg['champ']} died {jg['ago']}s ago — free map"
+                jcol = GREEN
+            else:
+                jtxt = f"⌖ enemy jg: {jg['side']} ({jg['what']} {jg['ago']}s ago)"
+                jcol = TEAL
+            tk.Label(intel, text=jtxt, font=("Segoe UI", 9), fg=jcol, bg=BG,
+                     anchor="w").pack(fill="x")
+        gk = pulse.get("gank")
+        if gk:
+            tk.Label(intel, text=f"◎ gank window: {gk['lane']} — {gk['champ']} lvl {gk['lvl']} vs {gk['vs_lvl']}",
+                     font=("Segoe UI", 9, "bold"), fg=GREEN, bg=BG, anchor="w").pack(fill="x")
         sp = pulse.get("spike")
         if sp:
             tk.Label(intel, text=f"⚠ {sp['name']} spiked — {sp['items']} items, {sp['k']}/{sp['d']}",

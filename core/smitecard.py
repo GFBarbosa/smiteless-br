@@ -124,6 +124,23 @@ def name_font(size, text):
     return _FONTS[key]
 
 
+_ICON_PRUNED = False
+
+
+def _prune_icon_cache(keep_ver):
+    """Drop icon dirs for OLD patches (they accumulate ~2MB every two weeks, forever)."""
+    global _ICON_PRUNED
+    _ICON_PRUNED = True
+    try:
+        for name in os.listdir(ICONCACHE):
+            p = os.path.join(ICONCACHE, name)
+            if name != keep_ver and os.path.isdir(p):
+                import shutil
+                shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+
 def get_icon(dd, cid, size):
     ck = (cid, size)
     if ck in _ICONS:
@@ -131,6 +148,8 @@ def get_icon(dd, cid, size):
     key = dd.get("id2key", {}).get(cid)
     if not key:
         return None
+    if not _ICON_PRUNED:
+        _prune_icon_cache(dd["ver"])
     d = os.path.join(ICONCACHE, dd["ver"])
     os.makedirs(d, exist_ok=True)
     fp = os.path.join(d, key + ".png")
@@ -179,6 +198,10 @@ def get_splash(dd, cid, size):
                 continue
         if base is None:
             return None
+        if len(_SPLASH_RAW) >= 4:       # full splashes are ~2.6MB each; keep only a handful
+            _SPLASH_RAW.clear()
+        if len(_SPLASH) >= 12:          # cropped variants too (a few hundred KB each)
+            _SPLASH.clear()
         _SPLASH_RAW[cid] = base
     try:
         tw, th = size
@@ -427,6 +450,8 @@ def dodge_read(dd, allies, enemies):
            tuple(sorted((c, r) for c, r in enemies if c and r)))
     if sig in _DODGE_CACHE:
         return _DODGE_CACHE[sig]
+    if len(_DODGE_CACHE) > 64:          # every hover permutation lands here; don't grow forever
+        _DODGE_CACHE.clear()
     result = None
     try:
         rows = lb.gather_lane_matchups(dd, allies, enemies)
