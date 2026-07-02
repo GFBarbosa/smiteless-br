@@ -30,9 +30,19 @@ INGAME_PHASES = ("GameStart", "InProgress", "Reconnect")   # widget belongs on s
 
 BG = "#11131a"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#7f7d75"
 RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"; GREEN = "#5fc47a"; TEAL = "#4cc0b0"
+PANEL = "#151823"; SEP = "#232838"; MAPBG = "#0c0f16"; MAPLINE = "#252b3a"; RIVER = "#1c2f38"
 KIND_COLOR = {"counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
 KIND_TAG = {"counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
-POLL = 5                                                  # seconds between live reads
+POLL = 3                                                  # seconds between live reads
+# Where to draw the enemy-jungler X on the schematic minimap, per SIDE, normalized (0..1,
+# top-left origin, north = map top). Keyed by which TEAM the enemy is on: CHAOS = red side
+# (top-right base), ORDER = blue side (bottom-left base).
+_MAP_SPOT = {
+    "CHAOS": {"topside": (0.56, 0.26), "botside": (0.72, 0.54), "mid": (0.52, 0.46),
+              "their jungle": (0.66, 0.36), "a fight": (0.52, 0.46), "dead": (0.90, 0.10)},
+    "ORDER": {"topside": (0.28, 0.44), "botside": (0.48, 0.72), "mid": (0.48, 0.54),
+              "their jungle": (0.34, 0.64), "a fight": (0.48, 0.54), "dead": (0.10, 0.90)},
+}
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
 # ---- dragon spawn chime: a soft Japanese-style pentatonic bell jingle, synthesized to a real
@@ -184,45 +194,72 @@ def main():
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)
-    root.attributes("-alpha", 0.94)
-    root.configure(bg=GOLD)                              # 1px gold edge via padding
+    root.attributes("-alpha", 0.96)
+    root.configure(bg=SEP)                               # 1px edge via padding
     outer = tk.Frame(root, bg=BG)
     outer.pack(padx=1, pady=1, fill="both", expand=True)
 
-    hdr = tk.Frame(outer, bg=BG)
-    hdr.pack(fill="x", padx=9, pady=(6, 1))
-    tk.Label(hdr, text="SMITELESS · build", font=("Segoe UI", 8, "bold"), fg=GOLD, bg=BG).pack(side="left")
-    close = tk.Label(hdr, text="✕", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=BG, cursor="hand2")
+    hdr = tk.Frame(outer, bg=PANEL)                      # header strip
+    hdr.pack(fill="x")
+    tk.Label(hdr, text=" ◆", font=("Segoe UI", 8), fg=GOLD, bg=PANEL).pack(side="left")
+    tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=GOLD, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
+    close = tk.Label(hdr, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
     close.pack(side="right")
 
-    champ = tk.Label(outer, text="waiting for a live game…", font=("Segoe UI", 12, "bold"),
+    champrow = tk.Frame(outer, bg=BG)
+    champrow.pack(fill="x", padx=10, pady=(6, 0))
+    champ = tk.Label(champrow, text="waiting for a live game…", font=("Segoe UI Semibold", 12),
                      fg=MUTED, bg=BG, anchor="w")
-    champ.pack(fill="x", padx=9)
+    champ.pack(side="left")
+    wpchip = tk.Label(champrow, text="", font=("Segoe UI Semibold", 9), bg=BG, fg=MUTED, padx=7)
+    wpchip.pack(side="right")
+
     body = tk.Frame(outer, bg=BG)
-    body.pack(fill="x", padx=9, pady=(3, 2))
-    intel = tk.Frame(outer, bg=BG)                        # live win read + objective timers + spike
-    intel.pack(fill="x", padx=9, pady=(0, 1))
+    body.pack(fill="x", padx=10, pady=(3, 4))
+    sep = tk.Frame(outer, bg=SEP, height=1)
+    intel = tk.Frame(outer, bg=BG)                        # objectives / jungle map / gank / spike
     summ = tk.Label(outer, text="open in-game or a replay to see suggestions",
                     font=("Segoe UI", 8), fg=MUTED, bg=BG, anchor="w", justify="left")
-    summ.pack(fill="x", padx=9, pady=(0, 7))
+    summ.pack(side="bottom", fill="x", padx=10, pady=(2, 7))
 
     def _fmt(secs):
         return "UP" if secs <= 0 else f"{secs // 60}:{secs % 60:02d}"
+
+    def _draw_map(cv, size, spot, fresh, dead):
+        """Schematic Rift: mid diagonal, river anti-diagonal, lane edges - and the X."""
+        s = size
+        cv.create_rectangle(1, 1, s - 1, s - 1, outline=MAPLINE, fill=MAPBG)
+        cv.create_line(4, s - 4, 4, 4, fill=MAPLINE)                    # top lane (left edge)
+        cv.create_line(4, 4, s - 4, 4, fill=MAPLINE)                    # (top edge)
+        cv.create_line(4, s - 4, s - 4, s - 4, fill=MAPLINE)            # bot lane (bottom edge)
+        cv.create_line(s - 4, s - 4, s - 4, 4, fill=MAPLINE)            # (right edge)
+        cv.create_line(6, s - 6, s - 6, 6, fill=MAPLINE)                # mid lane diagonal
+        cv.create_line(int(s * .16), int(s * .16), int(s * .84), int(s * .84),
+                       fill=RIVER, width=3)                             # river anti-diagonal
+        if spot:
+            x, y = int(spot[0] * s), int(spot[1] * s)
+            col = GREEN if dead else (RED if fresh else MUTED)
+            r = 5
+            cv.create_line(x - r, y - r, x + r, y + r, fill=col, width=2)
+            cv.create_line(x - r, y + r, x + r, y - r, fill=col, width=2)
+            cv.create_oval(x - r - 3, y - r - 3, x + r + 3, y + r + 3, outline=col)
 
     def render_intel(pulse):
         for w in intel.winfo_children():
             w.destroy()
         if not pulse:
+            sep.pack_forget()
+            intel.pack_forget()
+            wpchip.config(text="", bg=BG)
             return
+        sep.pack(fill="x", padx=10, pady=(1, 0), before=summ)
+        intel.pack(fill="x", padx=10, pady=(4, 1), before=summ)
         wp = pulse.get("winprob")
         if wp:
-            lab = "WIN" if wp["ahead"] else "BEHIND"
-            row = tk.Frame(intel, bg=BG)
-            row.pack(fill="x")
-            tk.Label(row, text=f"{lab} {wp['pct']}%", font=("Segoe UI", 9, "bold"),
-                     fg=(GREEN if wp["ahead"] else RED), bg=BG, anchor="w").pack(side="left")
-            tk.Label(row, text=f"  {wp['basis']}", font=("Segoe UI", 8), fg=MUTED, bg=BG,
-                     anchor="w").pack(side="left")
+            wpchip.config(text=f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%",
+                          fg=(GREEN if wp["ahead"] else RED), bg=PANEL)
+        else:
+            wpchip.config(text="", bg=BG)
         objs = pulse.get("objectives") or []
         if objs:
             row = tk.Frame(intel, bg=BG)
@@ -235,24 +272,39 @@ def main():
                     txt += " · set up"                    # ~75s out: shove + ward before it spawns
                 tk.Label(row, text=txt + " ", font=("Segoe UI", 9,
                          "bold" if o["urgent"] else "normal"), fg=col, bg=BG).pack(side="left")
-        jg = pulse.get("jungle")
-        if jg:
-            if jg["what"] == "died":
-                jtxt = f"⌖ enemy jg {jg['champ']} died {jg['ago']}s ago — free map"
-                jcol = GREEN
-            else:
-                jtxt = f"⌖ enemy jg: {jg['side']} ({jg['what']} {jg['ago']}s ago)"
-                jcol = TEAL
-            tk.Label(intel, text=jtxt, font=("Segoe UI", 9), fg=jcol, bg=BG,
-                     anchor="w").pack(fill="x")
-        gk = pulse.get("gank")
-        if gk:
-            tk.Label(intel, text=f"◎ gank window: {gk['lane']} — {gk['champ']} lvl {gk['lvl']} vs {gk['vs_lvl']}",
-                     font=("Segoe UI", 9, "bold"), fg=GREEN, bg=BG, anchor="w").pack(fill="x")
-        sp = pulse.get("spike")
-        if sp:
-            tk.Label(intel, text=f"⚠ {sp['name']} spiked — {sp['items']} items, {sp['k']}/{sp['d']}",
-                     font=("Segoe UI", 9), fg=RED, bg=BG, anchor="w").pack(fill="x")
+        jg, gk, sp = pulse.get("jungle"), pulse.get("gank"), pulse.get("spike")
+        if jg or gk or sp:
+            wrap = tk.Frame(intel, bg=BG)
+            wrap.pack(fill="x", pady=(2, 0))
+            left = tk.Frame(wrap, bg=BG)
+            left.pack(side="left", fill="both", expand=True)
+            if jg:
+                dead = jg.get("what") == "died"
+                stale = bool(jg.get("stale"))
+                if jg.get("side") is None:
+                    jtxt, jcol = f"⌖ {jg['champ']}: {jg['what']}", MUTED
+                elif dead:
+                    jtxt, jcol = f"⌖ {jg['champ']} DIED {jg['ago']}s ago — free map", GREEN
+                else:
+                    jtxt = f"⌖ {jg['champ']}: {jg['side']} · {jg['what']} {jg['ago']}s ago"
+                    jcol = MUTED if stale else TEAL
+                tk.Label(left, text=jtxt, font=("Segoe UI", 9), fg=jcol, bg=BG,
+                         anchor="w", justify="left", wraplength=195).pack(fill="x")
+            if gk:
+                tk.Label(left, text=f"◎ GANK: {gk['lane']} — {gk['champ']} lvl {gk['lvl']} vs {gk['vs_lvl']}",
+                         font=("Segoe UI Semibold", 9), fg=GREEN, bg=BG, anchor="w",
+                         justify="left", wraplength=195).pack(fill="x")
+            if sp:
+                tk.Label(left, text=f"⚠ {sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}",
+                         font=("Segoe UI", 9), fg=RED, bg=BG, anchor="w",
+                         justify="left", wraplength=195).pack(fill="x")
+            if jg and jg.get("side") is not None:
+                cv = tk.Canvas(wrap, width=86, height=86, bg=BG, highlightthickness=0)
+                cv.pack(side="right", padx=(6, 0))
+                spot = _MAP_SPOT.get(jg.get("enemy_team") or "CHAOS", _MAP_SPOT["CHAOS"]).get(jg["side"])
+                if jg.get("what") == "died":
+                    spot = _MAP_SPOT.get(jg.get("enemy_team") or "CHAOS", _MAP_SPOT["CHAOS"])["dead"]
+                _draw_map(cv, 86, spot, fresh=not jg.get("stale"), dead=jg.get("what") == "died")
 
     def render(rec, pulse=None):
         for w in body.winfo_children():
@@ -264,11 +316,11 @@ def main():
             return
         champ.config(text=rec["champ"], fg=TXT)
         if not rec["lines"]:
-            tk.Label(body, text="building standard — no defensive swap needed",
+            tk.Label(body, text="standard build — no defensive swap needed",
                      font=("Segoe UI", 9), fg=MUTED, bg=BG, anchor="w").pack(fill="x")
         for kind, txt in rec["lines"]:
             tk.Label(body, text=f"{KIND_TAG.get(kind, '▸')}  {txt}", font=("Segoe UI", 9),
-                     fg=KIND_COLOR.get(kind, TXT), bg=BG, anchor="w", justify="left").pack(fill="x")
+                     fg=KIND_COLOR.get(kind, TXT), bg=BG, anchor="w", justify="left").pack(fill="x", pady=1)
         if rec.get("no_pool"):
             tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
                      fg=MUTED, bg=BG, anchor="w").pack(fill="x")
@@ -288,7 +340,7 @@ def main():
     def drop(_e):
         _save_pos(root.winfo_x(), root.winfo_y())
 
-    for w in (outer, hdr, champ, summ):
+    for w in (outer, hdr, champrow, champ, summ):
         w.bind("<Button-1>", press)
         w.bind("<B1-Motion>", move)
         w.bind("<ButtonRelease-1>", drop)
@@ -370,12 +422,23 @@ def main():
                     q.put("__quit__")
                     return
             else:
-                # a DEFINITE non-game phase (Lobby / WaitingForStats / EndOfGame / None ...) ->
-                # the game is actually over -> close so the next champ select opens fresh.
+                # a DEFINITE non-game phase (Lobby / WaitingForStats / EndOfGame / None ...).
+                # BUT: LeagueClientUx restarting mid-game reports None/Lobby for a while, and a
+                # :2999 hiccup at the same moment used to close the widget "randomly" mid-game.
+                # So: more strikes, plus a FINAL direct live-client check with a generous
+                # timeout - if the game answers, we were fooled; keep living.
                 ended += 1
                 if not seen:
                     q.put({"rec": rec, "pulse": None})
-                if ended >= (2 if seen else 3):          # ~10s confirmed over (seen) / ~15s otherwise
+                if ended >= (4 if seen else 3):          # ~20s of confirmed non-game (seen)
+                    if seen:
+                        try:
+                            lb.http("https://127.0.0.1:2999/liveclientdata/gamestats",
+                                    timeout=6, insecure=True)
+                            ended = 0                     # game's still alive -> false alarm
+                            continue
+                        except Exception:
+                            pass
                     q.put("__quit__")
                     return
             for _ in range(POLL * 2):
@@ -394,10 +457,13 @@ def main():
                 if msg == "__quit__":
                     quit_()
                     return
-                if isinstance(msg, dict) and "rec" in msg:
-                    render(msg["rec"], msg.get("pulse"))
-                else:
-                    render(msg)                          # backward-compatible: bare rec
+                try:                                     # a render bug must never kill the pump
+                    if isinstance(msg, dict) and "rec" in msg:
+                        render(msg["rec"], msg.get("pulse"))
+                    else:
+                        render(msg)                      # backward-compatible: bare rec
+                except Exception:
+                    pass
         except queue.Empty:
             pass
         make_no_activate(toplevel_hwnd(root.winfo_id()))

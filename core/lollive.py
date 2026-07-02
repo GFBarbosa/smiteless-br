@@ -202,7 +202,8 @@ def win_prob(dd, data):
 
 
 _JG_SIDE = {"TOP": "topside", "MIDDLE": "mid", "MID": "mid", "BOTTOM": "botside", "UTILITY": "botside"}
-JG_STALE = 120             # a sighting older than this is no read at all
+JG_STALE = 300             # keep showing a sighting (dimmed) up to this old - old info beats none
+JG_FRESH = 75              # under this it's an actionable read; over it the widget dims it
 
 
 def _is_jungler(p):
@@ -261,14 +262,17 @@ def jungle_read(dd, data):
             continue
         if best is None or t > best[0]:
             best = (t, side, what)
-    if best is None:
-        return None
-    ago = int(gt - best[0])
-    if ago > JG_STALE:
-        return None
     champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](jg.get("championName", "")), 0),
                               jg.get("championName", "?"))
-    return {"champ": champ, "side": best[1], "what": best[2], "ago": ago}
+    if best is None:
+        return {"champ": champ, "side": None, "what": "no sightings yet", "ago": None,
+                "stale": True, "enemy_team": jg.get("team", "")}
+    ago = int(gt - best[0])
+    if ago > JG_STALE:
+        return {"champ": champ, "side": None, "what": f"no read for {ago // 60}m+", "ago": None,
+                "stale": True, "enemy_team": jg.get("team", "")}
+    return {"champ": champ, "side": best[1], "what": best[2], "ago": ago,
+            "stale": ago > JG_FRESH, "enemy_team": jg.get("team", "")}
 
 
 GANK_LVL_GAP = 2           # enemy this many levels behind their lane = a gank window
