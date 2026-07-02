@@ -16,7 +16,8 @@ import lolgame as lg
 # ---- objective spawn model (seconds of game time). Respawns are event-driven (kill + delta);
 #      first-spawn constants are the only patch-sensitive values, kept here for easy tuning. ----
 DRAGON_FIRST, DRAGON_RESPAWN = 300, 300            # 5:00, then 5:00 after each kill
-GRUBS_FIRST, GRUBS_RESPAWN, GRUBS_DESPAWN = 360, 240, 885   # 6:00, +4:00 once, gone ~14:45
+GRUBS_FIRST, GRUBS_DESPAWN = 480, 885              # patch 25.09: 8:00, ONE spawn, gone ~14:45
+HERALD_SPAWN, HERALD_GONE = 900, 1185              # 15:00 (where grubs were), leaves ~19:45
 BARON_FIRST, BARON_RESPAWN, BARON_OPEN = 1200, 360, 1140    # 20:00, +6:00; only show from 19:00
 ALERT_LEAD = 45                                    # within this many seconds = "soon" (urgent)
 SETUP_LEAD = 75                                    # inside this = start SETTING UP (shove + ward)
@@ -76,12 +77,13 @@ def objectives(data):
     if not (elder or len(elem) >= 4):
         add("Drake", (max(elem) + DRAGON_RESPAWN) if elem else DRAGON_FIRST)
 
-    # Void grubs: 6:00, one respawn 4:00 after a clear, gone by ~14:45.
-    if gt < GRUBS_DESPAWN:
-        last_h = _last_time(ev, "HordeKill")
-        nxt_h = (last_h + GRUBS_RESPAWN) if last_h is not None else GRUBS_FIRST
-        if nxt_h < GRUBS_DESPAWN:
-            add("Grubs", nxt_h)
+    # Void grubs: ONE spawn at 8:00 (patch 25.09 removed the respawn), gone by ~14:45.
+    if gt < GRUBS_DESPAWN and _last_time(ev, "HordeKill") is None:
+        add("Grubs", GRUBS_FIRST)
+
+    # Rift Herald: 15:00 where the grubs were, one only, leaves before Baron.
+    if GRUBS_DESPAWN <= gt < HERALD_GONE and _last_time(ev, "RiftHeraldKill") is None:
+        add("Herald", HERALD_SPAWN)
 
     # Baron: only surfaces from ~19:00 on (irrelevant earlier). First 20:00, then 6:00.
     if gt >= BARON_OPEN:
