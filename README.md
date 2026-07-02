@@ -56,11 +56,13 @@ The overlay has:
    get a matching **duo** marker (same color = same group). Inferred from match-history
    overlap, since the API doesn't expose lobby premades directly.
 7. **Floating item helper** — a *separate* small, draggable, always-on-top widget (not part
-   of the board) you leave in a corner all game. It shows your **next item** from op.gg's
-   real per-champ pool, and surfaces a defensive piece (Zhonya's vs a fed AD threat, an MR
-   item vs magic, anti-heal vs a healer) **only when the enemy's actual built damage + who's
-   fed calls for it** — dropping each suggestion the moment you own it. Real op.gg items, no
-   generic tables, no AI. See [Floating item widget](#floating-item-widget) below.
+   of the board) you leave in a corner all game. Its spine is your champ's **core build
+   progression** from op.gg (owned items ticked ✓, next item highlighted, "affordable NOW"
+   when your banked gold covers it) — interrupted by **at most one** situational insert, and
+   only when the game demands it: an *insanely fed* enemy (5+ kill lead) gets "slot in
+   [your pool's defensive item] next", a winning healer stack gets "grab Bramble Vest /
+   Oblivion Orb / Executioner's" (the component your champ's own build upgrades into). Real
+   op.gg items, no noise. See [Floating item widget](#floating-item-widget) below.
 8. **Home / profile page** — open outside a game and you get a dedicated profile window with
    a fixed top section + scroll-only match history, in-card **Load more**, expandable game
    details, and click-through full review panels.
@@ -79,17 +81,16 @@ The overlay has:
 12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
     WR, excluding your own account and detected duo from ally averaging.
 13. **Live game intel** (in the item widget) — a transparent **win read** (logistic on net
-    item-gold + level + drake/baron lead), **objective spawn timers** (drake / void grubs /
-    baron, event-driven off the Live Client so respawns stay correct, with a **"set up"** cue
-    75–45s out — the winning play is the setup, not the spawn), and a **power-spike
-    alert** when an enemy carry has completed items *and* is fed. No model, no key — straight
-    off the :2999 Live Client API.
+    item-gold + level + drake/baron lead), **objective spawn timers** (drake / void grubs at
+    8:00 / herald at 15:00 / baron, event-driven off the Live Client so respawns stay
+    correct, with a **"set up"** cue 75–45s out — the winning play is the setup, not the
+    spawn), and a **power-spike alert** when an enemy carry has completed items *and* is fed.
+    No model, no key — straight off the :2999 Live Client API.
 16. **Enemy jungle tracker** — where the enemy jungler was **last seen**, inferred from the
     events they took part in (drake = botside, grubs/herald = topside, kills = that lane's
-    side; their death = "free map"), drawn as an **X on a mini-map** in the widget and kept
-    on screen (dimmed as it ages) instead of vanishing. Plus a **gank window** call — the
-    enemy lane that's alive and 2+ levels down right now — and a **back-timing** nudge when
-    your banked gold covers your next item in full.
+    side; their death = "free map"), shown as a persistent one-liner that dims as the
+    sighting ages (and says "no sightings yet" instead of vanishing). Plus a **gank window**
+    call — the enemy lane that's alive and 2+ levels down right now.
 17. **Shareable profile card** — a **Save card** button on the profile exports it as a PNG.
 18. **Profile stats** — averages strip (KDA, kill participation, CS/min, damage share), role
     split, per-champ average score, and per-game CS/min · KP · duration on every row.
@@ -191,20 +192,17 @@ and it **remembers where you drop it**. It auto-opens in-game (or **Ctrl+Alt+B**
 at it on each back.
 
 It is **not** generic. The item pool is op.gg's real, per-champ build for your champ+role (the
-same source as the build card), so the suggestions are always champ-correct. The **live game**
-then drives them, so they're genuinely dynamic:
+same source as the build card), and the display is a **core-build spine**:
 
-- **Next item** — the first item in your champ's standard op.gg sequence you don't already own.
-  It advances every time you complete an item.
-- **Defensive swap** — surfaced only when the game calls for it: it reads the enemy's *actual
-  built* AD vs AP (from their live items, not their class) and who's **fed** (live KDA), then
-  pulls the matching resist/anti-heal/stasis item **from your champ's own pool** (e.g. Zhonya's
-  vs a fed Zed, an MR item vs a magic comp, a Grievous-Wounds item vs a healer). The moment you
-  buy it, it drops off.
-- **Boots cue** — Mercury's Treads over your standard boots when they're stacking CC or magic.
-
-If your champ simply doesn't itemize against a threat (e.g. a burst mage vs magic damage), it
-says so rather than inventing a fake item — it shows the threat readout and your next core.
+- **Core progression** — `Kraken ✓ → ▸ PD → IE`: owned items ticked, the next one highlighted,
+  advancing every time you complete an item, with **"affordable NOW"** appended once your
+  banked gold covers its full price (a good-back signal). After core, the highest-played
+  finisher from your pool becomes the next marker.
+- **One insert, only when it's screaming** — an *insanely fed* enemy (5+ kill lead, and not
+  while they're feeding and you're winning) gets "slot in *X* next" with the defensive item
+  **your champ actually builds** (read from the enemy's real built AD/AP); a **winning** healer
+  stack gets "grab *Bramble Vest / Oblivion Orb / Executioner's*" — the cheap anti-heal
+  component your own pool upgrades into. Everything else stays quiet.
 
 The threat/recommendation logic is all in `lolitems.py` (`live_state` → `recommend`).
 
