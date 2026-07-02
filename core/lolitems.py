@@ -158,6 +158,8 @@ def live_state(dd, data=_UNSET):
     my_cid = dd["name2id"].get(dd["norm"](me.get("championName", ""))) or 0
     my_items = {it.get("itemID") for it in (me.get("items") or []) if it.get("itemID")}
     my_gold = int((act.get("currentGold") or 0))
+    msc = me.get("scores") or {}
+    my_lead = int(msc.get("kills", 0)) - int(msc.get("deaths", 0))
     myteam = me.get("team")
     enemies = [p for p in players if p.get("team") != myteam]
     elist = []                                            # per-enemy threat profile
@@ -208,15 +210,17 @@ def live_state(dd, data=_UNSET):
     of_type = [e for e in elist if e["dtype"] == threat]
     main = max(of_type, key=lambda e: e["danger"]) if of_type else primary  # scariest of the threat type
     # Anti-heal is only worth it when the healing actually matters - not just because some
-    # enemy can heal. A healer counts if they're heal-CENTRIC and not behind, OR they're fed,
-    # OR they're the enemy you're building against. Two+ healers also stack into a threat.
-    heal_sig = [e["name"] for e in elist if e["heals"]
-                and ((e["heavy"] and e["lead"] >= 0) or e["lead"] >= 4 or e is main)]
-    n_healers = sum(1 for e in elist if e["heals"])
-    heal_threat = bool(heal_sig) or n_healers >= 2
-    heal_names = heal_sig or [e["name"] for e in elist if e["heals"]]
+    # enemy can heal. A healer counts when they're heal-CENTRIC and actually DOING WELL
+    # (lead >= 2), clearly fed (lead >= 5), or the main threat and at least even. Multiple
+    # healers only stack into a threat if they're collectively not losing.
+    healers_alive = [e for e in elist if e["heals"]]
+    heal_sig = [e["name"] for e in healers_alive
+                if (e["heavy"] and e["lead"] >= 2) or e["lead"] >= 5 or (e is main and e["lead"] >= 0)]
+    heal_threat = bool(heal_sig) or (len(healers_alive) >= 2
+                                     and sum(e["lead"] for e in healers_alive) >= 2)
+    heal_names = heal_sig or [e["name"] for e in healers_alive]
     return {"my_cid": my_cid, "my_role": (me.get("position") or "").lower(), "my_items": my_items,
-            "my_gold": my_gold, "threat": threat,
+            "my_gold": my_gold, "my_lead": my_lead, "threat": threat,
             "e_ad": int(sum(e["dmg"] for e in elist if e["dtype"] == "AD")),
             "e_ap": int(sum(e["dmg"] for e in elist if e["dtype"] == "AP")),
             "healers": healers, "heal_items": heal_items, "cc": cc,
@@ -277,6 +281,12 @@ def recommend(dd, st=None, data=_UNSET):
 
     # a real threat exists once enemies have built damage, or someone is meaningfully fed
     real = (st["e_ad"] + st["e_ap"] >= 80) or (primary and primary["lead"] >= 4)
+    # ...but nobody needs a Maw against a 1/6 mage while they're 6/1 themselves. When the
+    # "threat" is clearly losing AND you're clearly winning, skip the defensive detour and
+    # let the standard (aggressive) build ride.
+    my_lead = int(st.get("my_lead", 0) or 0)
+    if main and ((main["lead"] <= -2 and my_lead >= 2) or (main["lead"] <= -4 and my_lead >= 0)):
+        real = False
 
     # 1) the defensive item to build vs the biggest threat, from THIS champ's pool. Fires all
     #    game (the most important time), not just while core is unfinished - picks Randuin's vs
