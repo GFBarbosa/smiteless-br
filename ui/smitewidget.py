@@ -33,7 +33,7 @@ RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"; GREEN = "#5fc47a"; TEAL =
 PANEL = "#151823"; SEP = "#232838"
 KIND_COLOR = {"core": TXT, "insert": GOLD, "counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
 KIND_TAG = {"core": "", "insert": "⚑", "counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
-POLL = 2                                                  # seconds between live reads (all local)
+POLL = 1                                                  # seconds between live reads (all local)
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
 # ---- dragon spawn chime: a soft Japanese-style pentatonic bell jingle, synthesized to a real
@@ -351,7 +351,7 @@ def main():
         while st["alive"]:
             try:                                         # one :2999 read shared by build + intel
                 raw = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata",
-                              timeout=3, insecure=True)
+                              timeout=2, insecure=True)
             except Exception:
                 raw = None
             try:
@@ -360,18 +360,25 @@ def main():
                 rec = None
             ph = phasecheck.phase()
             pulse = None
-            if (intel_on or audio_on) and (rec is not None or ph in INGAME_PHASES):
+            if (intel_on or audio_on) and raw is not None:
                 try:
                     pulse = ll.pulse(dd, data=raw)
                 except Exception:
                     pulse = None
-            if audio_on:                                 # dragon spawn reminder (45/30/15s)
+            if audio_on and raw is not None:             # dragon spawn reminder (45/30/15s)
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None
                 dragon_audio(drake["secs"] if drake else None)
-            if rec is not None or ph in INGAME_PHASES:   # in a live game -> show + reset
+            if raw is not None:                          # fresh game data -> paint + reset counters
                 seen, ended, stale = True, 0, 0
-                q.put({"rec": rec, "pulse": pulse if intel_on else None})   # visual intel gated; audio used above
+                q.put({"rec": rec, "pulse": pulse if intel_on else None})
+            elif ph in INGAME_PHASES:
+                # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
+                # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
+                # "only work sometimes": every blip wiped the panel back to 'waiting...'.
+                if not seen:
+                    q.put({"rec": None, "pulse": None})   # never had data yet -> show waiting
+                seen, ended, stale = True, 0, 0
             elif ph == "":
                 # Client UNREACHABLE: during a teamfight/lag spike both :2999 and the LCU can
                 # time out for a while even though the game is still going. Do NOT disappear -
