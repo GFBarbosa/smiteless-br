@@ -94,6 +94,15 @@ The overlay has:
 17. **Shareable profile card** — a **Save card** button on the profile exports it as a PNG.
 18. **Profile stats** — averages strip (KDA, kill participation, CS/min, damage share), role
     split, per-champ average score, and per-game CS/min · KP · duration on every row.
+19. **Any player's profile** — a **search box** (Name#TAG) on the profile window, and every
+    player name in an expanded game is **clickable** to open *their* profile (same scoring,
+    same match history), with a **← my profile** button to come back.
+20. **Rich match breakdown** — expanding a game now shows all 10 players with names, KDA,
+    full **item builds as icons**, damage bars, CS / gold / vision, and **duo markers**
+    (premades inferred from shared recent matches, like the live scout).
+21. **Usage stats** — tray → *Usage stats*: how many installs are out there, from GitHub's
+    per-release download counts (each install's auto-updater downloads every release once).
+    Anonymous by design — no telemetry, no IDs, nothing phones home beyond the updater.
 14. **Dodge alerts** — a high-confidence "**consider dodging**" banner in champ select when
     op.gg lane matchups say the draft is lost across most lanes. Deliberately strict (it has
     to clear an average-disadvantage, losing-lane-count, hard-counter, and no-carry-lane gate
