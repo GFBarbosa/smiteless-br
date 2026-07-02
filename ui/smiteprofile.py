@@ -84,8 +84,8 @@ def main():
             root.iconphoto(True, root._app_icon)
     except Exception:
         pass
-    _center(root, sc.W + 24, 780)              # default tall enough to show ~10 recent games before scrolling
-    root.minsize(sc.W + 24, 520)
+    _center(root, sc.PW + 24, 780)              # default tall enough to show ~10 recent games before scrolling
+    root.minsize(sc.PW + 24, 520)
 
     header = tk.Label(root, bg=BG, bd=0, highlightthickness=0)
     header.pack(side="top", fill="x")
@@ -96,18 +96,24 @@ def main():
                         activebackground=BTN_HOVER, relief="flat", bd=0,
                         highlightthickness=0, width=12)
     vbar.pack(side="right", fill="y")
-    canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.W)
+    canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.PW)
     canvas.pack(side="left", fill="both", expand=True)
     vbar.config(command=canvas.yview)
-    canvas.create_text(sc.W // 2, 60, text="loading your match history…", fill=MUTED, font=("Segoe UI", 13))
+    canvas.create_text(sc.PW // 2, 60, text="loading your match history…", fill=MUTED, font=("Segoe UI", 13))
 
+    # Two-row bottom area so nothing crowds: buttons row on top, status line below it.
+    # (One row squeezed the dynamically-shown back button to zero width and mashed Save card.)
+    statusbar = tk.Frame(root, bg=BAR)
+    statusbar.pack(side="bottom", fill="x")
+    status = tk.Label(statusbar, text="", bg=BAR, fg=MUTED, font=("Segoe UI", 9), anchor="w")
+    status.pack(fill="x", padx=14, pady=(0, 6))
     bar = tk.Frame(root, bg=BAR)
     bar.pack(side="bottom", fill="x")
     backbtn = tk.Button(bar, text="← my profile", bg=BTN, fg=GOLD, activebackground=BTN_HOVER,
                         activeforeground=GOLD, relief="flat", font=("Segoe UI", 9, "bold"),
                         padx=12, pady=4, cursor="hand2")
     search = tk.Entry(bar, bg="#0d0f16", fg=TXT, insertbackground=TXT, relief="flat",
-                      font=("Segoe UI", 9), width=22)
+                      font=("Segoe UI", 9), width=24)
     search.pack(side="left", padx=(12, 2), pady=7, ipady=3)
     search.insert(0, "Name#TAG")
     search.bind("<FocusIn>", lambda e: (search.delete(0, "end") if search.get() == "Name#TAG" else None))
@@ -115,8 +121,6 @@ def main():
                       activeforeground=TXT, relief="flat", font=("Segoe UI", 9),
                       padx=10, pady=4, cursor="hand2")
     gobtn.pack(side="left", padx=(2, 6), pady=7)
-    status = tk.Label(bar, text="", bg=BAR, fg=MUTED, font=("Segoe UI", 9))
-    status.pack(side="left", padx=8, pady=8)
     loadbtn = tk.Button(bar, text="Load more", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
                         activeforeground=TXT, relief="flat", font=("Segoe UI", 9, "bold"),
                         padx=16, pady=4, cursor="hand2", state="disabled")
@@ -179,7 +183,7 @@ def main():
             canvas.delete("all")
             msg = (prof.get("error") if prof else None) or \
                 "couldn't read your profile — is the League client open, with a Riot key set?"
-            canvas.create_text(sc.W // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.W - 100)
+            canvas.create_text(sc.PW // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.PW - 100)
             return
         st["prof"] = prof
         _render(keep_scroll=False)
@@ -221,7 +225,7 @@ def main():
         st["view"] = {"riot_id": riot_id, "puuid": puuid}
         st["expanded"] = set()
         st["count"] = cfg.load().get("profile_games", 30)
-        backbtn.pack(side="right", padx=(0, 4), pady=7)
+        backbtn.pack(side="left", before=search, padx=(12, 0), pady=7)   # left of search: never crowded out
         status.config(text=f"loading {riot_id or 'player'}…")
         _load(False)
 

@@ -87,6 +87,7 @@ def archetype(dd, cid):
             return a
     return ""
 W = 920; ROWH = 66; TOP = 96
+PW = 1150               # the profile window renders WIDER than the board (landscape home page)
 ICONCACHE = os.path.expanduser("~/.claude/cache/icons")
 _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
@@ -590,6 +591,7 @@ def _draw_session_coach(d, p, y):
     """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right.
     For ANOTHER player's profile the session half is meaningless (it's local history) - show
     only their pool read."""
+    W = PW                                        # profile surfaces render at the wide layout
     f = font(11, 1)
     sess = p.get("session") or {}
     bits = []
@@ -745,6 +747,7 @@ def render_profile(dd, p, expanded=None, details=None):
     """The home page: rank, recent form, champ win rates, and per-game scores graded vs the
     lobby. Carded; games in `expanded` (indices) show the 10-player breakdown from `details`
     (mid -> parts). Sets img.hit_games = [(y0, y1, index)] for click-to-expand."""
+    W = PW                                        # landscape layout: everything below uses the wide width
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
@@ -881,7 +884,7 @@ def render_profile(dd, p, expanded=None, details=None):
     d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
     d.line([132, cy + 7, W - 20, cy + 7], fill=(36, 40, 52), width=1)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
-    cw = min(150, (W - 28) // nch)
+    cw = min(186, (W - 28) // nch)               # wider cards in the landscape layout
     x = 14
     for c in p.get("champs", [])[:6]:
         cid = dd["name2id"].get(dd["norm"](c["champ"]))
@@ -922,11 +925,11 @@ def render_profile(dd, p, expanded=None, details=None):
         d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=font(13, 1), fill=TEXT)
         d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=font(11), fill=MUTED)
         gc = GRADE_COLOR.get(g["letter"], TAN)
-        _rrect(d, (300, yy + 9, 362, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
-        d.text((312, yy + 14), g["letter"], font=font(14, 1), fill=gc)
-        d.text((340, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
-        d.text((388, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
-        d.text((456, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        _rrect(d, (330, yy + 9, 396, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
+        d.text((342, yy + 14), g["letter"], font=font(14, 1), fill=gc)
+        d.text((371, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
+        d.text((436, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
+        d.text((510, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
         extra = []
         if g.get("csm"):
             extra.append(f"{g['csm']} cs/m")
