@@ -110,6 +110,27 @@ def main():
     loadbtn.pack(side="right", padx=12, pady=7)
     loadbtn.bind("<Enter>", lambda e: loadbtn.config(bg=BTN_HOVER))
     loadbtn.bind("<Leave>", lambda e: loadbtn.config(bg=BTN))
+    savebtn = tk.Button(bar, text="Save card", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
+                        activeforeground=TXT, relief="flat", font=("Segoe UI", 9),
+                        padx=12, pady=4, cursor="hand2", state="disabled")
+    savebtn.pack(side="right", padx=(0, 4), pady=7)
+    savebtn.bind("<Enter>", lambda e: savebtn.config(bg=BTN_HOVER))
+    savebtn.bind("<Leave>", lambda e: savebtn.config(bg=BTN))
+
+    def _save_card():
+        prof = st.get("prof")
+        if not prof:
+            return
+        try:
+            import time as _t
+            pil = sc.render_profile(dd, prof)          # collapsed, shareable snapshot
+            name = f"smiteless_{(prof.get('riot_id') or 'profile').split('#')[0]}_{_t.strftime('%Y%m%d')}.png"
+            name = "".join(c if (c.isalnum() or c in "._-") else "_" for c in name)
+            dest = os.path.join(os.path.expanduser("~"), "Desktop", name)
+            pil.save(dest)
+            status.config(text=f"saved → {dest}")
+        except Exception as e:
+            status.config(text=f"save failed: {e}")
 
     def _render(keep_scroll=True):
         prof = st["prof"]
@@ -153,6 +174,7 @@ def main():
         else:
             status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
         loadbtn.config(state="normal", text="Load more")
+        savebtn.config(state="normal", command=_save_card)
 
     def _load(more=False):
         if st["busy"]:

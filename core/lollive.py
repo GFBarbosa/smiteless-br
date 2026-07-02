@@ -19,6 +19,7 @@ DRAGON_FIRST, DRAGON_RESPAWN = 300, 300            # 5:00, then 5:00 after each 
 GRUBS_FIRST, GRUBS_RESPAWN, GRUBS_DESPAWN = 360, 240, 885   # 6:00, +4:00 once, gone ~14:45
 BARON_FIRST, BARON_RESPAWN, BARON_OPEN = 1200, 360, 1140    # 20:00, +6:00; only show from 19:00
 ALERT_LEAD = 45                                    # within this many seconds = "soon" (urgent)
+SETUP_LEAD = 75                                    # inside this = start SETTING UP (shove + ward)
 
 # ---- economy proxy weights for the win read (see win_prob) ----
 LEVEL_GOLD = 130          # each champ level ~ this much "economy" (captures the XP lead)
@@ -63,7 +64,8 @@ def objectives(data):
     def add(label, nxt):
         secs = int(round(nxt - gt))
         out.append({"label": label, "secs": secs, "up": secs <= 0,
-                    "urgent": 0 < secs <= ALERT_LEAD})
+                    "urgent": 0 < secs <= ALERT_LEAD,
+                    "setup": ALERT_LEAD < secs <= SETUP_LEAD})
 
     # Dragon: first at 5:00, then 5:00 after each kill. Once a team has soul (4 elemental
     # kills) or Elder has spawned, there are no more elemental drakes -> drop the timer.
@@ -199,6 +201,109 @@ def win_prob(dd, data):
     return {"pct": int(round(pct * 100)), "ahead": diff >= 0, "basis": kdiff + drk}
 
 
+_JG_SIDE = {"TOP": "topside", "MIDDLE": "mid", "MID": "mid", "BOTTOM": "botside", "UTILITY": "botside"}
+JG_STALE = 120             # a sighting older than this is no read at all
+
+
+def _is_jungler(p):
+    if (p.get("position") or "").upper() == "JUNGLE":
+        return True
+    ss = p.get("summonerSpells") or {}
+    for k in ("summonerSpellOne", "summonerSpellTwo"):
+        if "smite" in ((ss.get(k) or {}).get("displayName") or "").lower():
+            return True
+    return False
+
+
+def jungle_read(dd, data):
+    """Where the enemy jungler was LAST SEEN, inferred from the events they took part in:
+    drake = botside, grubs/herald/baron = topside, champion kills = the victim's lane side.
+    The Live Client has no positions, but its event feed names everyone involved - which is
+    exactly the info a jungler tracks by hand. Returns {champ, side, what, ago} or None."""
+    split = _team_split(data)
+    if not split:
+        return None
+    _me, _allies, enemies, _t = split
+    jg = next((p for p in enemies if _is_jungler(p)), None)
+    if jg is None:
+        return None
+    jg_name = lg._gname(jg.get("riotId") or jg.get("summonerName") or "")
+    if not jg_name:
+        return None
+    gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
+    pos_of = {}
+    for p in (data.get("allPlayers") or []):
+        pos_of[lg._gname(p.get("riotId") or p.get("summonerName") or "")] = (p.get("position") or "").upper()
+    best = None                                   # (event_time, side, what)
+    for e in _events(data):
+        t, n = e.get("EventTime"), e.get("EventName")
+        if t is None:
+            continue
+        involved = [e.get("KillerName", ""), e.get("VictimName", "")] + list(e.get("Assisters") or [])
+        if jg_name not in (lg._gname(x) for x in involved if x):
+            continue
+        if n == "DragonKill":
+            side, what = "botside", "drake"
+        elif n == "HordeKill":
+            side, what = "topside", "grubs"
+        elif n == "RiftHeraldKill":
+            side, what = "topside", "herald"
+        elif n == "BaronKill":
+            side, what = "topside", "baron"
+        elif n == "ChampionKill":
+            victim = lg._gname(e.get("VictimName") or "")
+            if victim == jg_name:                 # the jungler DIED - that's a timer, not a sighting
+                side, what = "dead", "died"
+            else:
+                side = _JG_SIDE.get(pos_of.get(victim, ""), "a fight")
+                what = "kill"
+        else:
+            continue
+        if best is None or t > best[0]:
+            best = (t, side, what)
+    if best is None:
+        return None
+    ago = int(gt - best[0])
+    if ago > JG_STALE:
+        return None
+    champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](jg.get("championName", "")), 0),
+                              jg.get("championName", "?"))
+    return {"champ": champ, "side": best[1], "what": best[2], "ago": ago}
+
+
+GANK_LVL_GAP = 2           # enemy this many levels behind their lane = a gank window
+
+
+def gank_window(dd, data):
+    """The most gankable enemy LANE right now: alive and >=2 levels behind their direct
+    counterpart (a level lead is the cleanest 'you win the 2v1' signal :2999 exposes).
+    Returns {lane, champ, lvl, vs_lvl} or None. Positions come from the live client, so
+    this only fires in ranked/normals where positions are reported."""
+    split = _team_split(data)
+    if not split:
+        return None
+    _me, allies, enemies, _t = split
+    ally_lvl = {}
+    for p in allies:
+        pos = (p.get("position") or "").upper()
+        if pos:
+            ally_lvl[pos] = int(p.get("level", 1) or 1)
+    best = None
+    for p in enemies:
+        pos = (p.get("position") or "").upper()
+        if pos in ("", "JUNGLE") or pos not in ally_lvl:
+            continue
+        if p.get("isDead"):
+            continue
+        gap = ally_lvl[pos] - int(p.get("level", 1) or 1)
+        if gap >= GANK_LVL_GAP and (best is None or gap > best[0]):
+            champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](p.get("championName", "")), 0),
+                                      p.get("championName", "?"))
+            best = (gap, {"lane": _JG_SIDE.get(pos, pos.lower()), "champ": champ,
+                          "lvl": int(p.get("level", 1) or 1), "vs_lvl": ally_lvl[pos]})
+    return best[1] if best else None
+
+
 _UNSET = object()
 
 
@@ -222,9 +327,17 @@ def pulse(dd, data=_UNSET):
         wp = win_prob(dd, data)
     except Exception:
         wp = None
-    if not (objs or spike or wp):
+    try:
+        jg = jungle_read(dd, data)
+    except Exception:
+        jg = None
+    try:
+        gank = gank_window(dd, data)
+    except Exception:
+        gank = None
+    if not (objs or spike or wp or jg or gank):
         return None
-    return {"objectives": objs, "spike": spike, "winprob": wp}
+    return {"objectives": objs, "spike": spike, "winprob": wp, "jungle": jg, "gank": gank}
 
 
 def _fmt(secs):

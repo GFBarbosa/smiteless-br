@@ -293,11 +293,17 @@ def recommend(dd, st=None, data=_UNSET):
         ah = next((i for i in pool["seq"] if "antiheal" in pool["cats"].get(i, set()) and i not in used), None) if pool else None
         tag = ", ".join(st["heal_names"][:2]) or "lifesteal"
         add("antiheal", ah, f"{nm(ah) if ah else 'Grievous Wounds item'}  ·  cut {tag} healing")
-    # 3) the next standard build item (advances as you buy)
+    # 3) the next standard build item (advances as you buy). When your banked gold already
+    #    covers its FULL price, say so - that's a "good back" window (rough on purpose: it
+    #    ignores components you own, so it never overpromises).
     if pool:
         nxt = next((i for i in pool["seq"] if i not in owned and i not in used), None)
         if nxt:
-            add("build", nxt, f"{nm(nxt)}  ·  next item")
+            cost = ((dd.get("item_data", {}).get(nxt, {}) or {}).get("gold") or {}).get("total", 0) or 0
+            if cost and st.get("my_gold", 0) >= cost:
+                add("build", nxt, f"{nm(nxt)}  ·  affordable NOW — good back")
+            else:
+                add("build", nxt, f"{nm(nxt)}  ·  next item")
     # 4) boots cue vs heavy CC / magic
     if pool and pool["boots"] and not (owned & set(pool["boots"])) and (st["cc"] >= 3 or threat == "AP"):
         merc = next((b for b in pool["boots"] if "Mercury" in nm(b) and b not in used), None)
