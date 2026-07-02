@@ -175,6 +175,43 @@ def get_icon(dd, cid, size):
         return None
 
 
+_ITEM_ICONS = {}
+
+
+def get_item_icon(dd, iid, size):
+    """Item icon from ddragon, disk-cached per patch like champ icons."""
+    ck = (iid, size)
+    if ck in _ITEM_ICONS:
+        return _ITEM_ICONS[ck]
+    if not iid:
+        return None
+    d = os.path.join(ICONCACHE, dd["ver"], "items")
+    os.makedirs(d, exist_ok=True)
+    fp = os.path.join(d, f"{iid}.png")
+    if not os.path.exists(fp):
+        url = f"https://ddragon.leagueoflegends.com/cdn/{dd['ver']}/img/item/{iid}.png"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
+            data = urllib.request.urlopen(req, timeout=8).read()
+            tmp = f"{fp}.{os.getpid()}.tmp"
+            open(tmp, "wb").write(data)
+            os.replace(tmp, fp)
+        except Exception:
+            return None
+    try:
+        im = Image.open(fp).convert("RGBA").resize((size, size))
+        if len(_ITEM_ICONS) > 200:
+            _ITEM_ICONS.clear()
+        _ITEM_ICONS[ck] = im
+        return im
+    except Exception:
+        try:
+            os.remove(fp)
+        except Exception:
+            pass
+        return None
+
+
 def get_splash(dd, cid, size):
     ck = (cid, size)
     if ck in _SPLASH:
@@ -247,6 +284,7 @@ def build_data(dd, cid, role):
                     stat_mod_ids=rp.get("stat_mod_ids", []),
                     shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
                     core=[dd["items"].get(i, "") for i in core["ids"]],
+                    core_ids=list(core["ids"]),
                     summoner_ids=ss["ids"],
                     summs=[dd["spells"].get(i, "") for i in ss["ids"]],
                     skills=(sm["ids"] if sm else []),
@@ -713,6 +751,13 @@ def render_profile(dd, p, expanded=None, details=None):
             img.paste(splash, (hx0, hy0), mask)
             shade_mask = mask.point(lambda v: int(v * 0.33))
             img.paste((10, 14, 22), (hx0, hy0, hx1, hy1), shade_mask)
+            # bottom gradient so the headline/sparkline sit on a readable base
+            gh = 46
+            grad = Image.new("L", (bw, gh), 0)
+            gd = ImageDraw.Draw(grad)
+            for yy_ in range(gh):
+                gd.line([(0, yy_), (bw, yy_)], fill=int(200 * (yy_ / gh)))
+            img.paste((12, 15, 24), (hx0, hy1 - gh, hx1, hy1), grad)
         else:
             # Fallback: enlarge champ icon so the header never appears blank.
             fic = get_icon(dd, best_cid, hy1 - hy0 - 8)
@@ -803,6 +848,7 @@ def render_profile(dd, p, expanded=None, details=None):
     # ---- top champions ----
     cy = HEAD + BAND + STATS + 6
     d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
+    d.line([132, cy + 7, W - 20, cy + 7], fill=(36, 40, 52), width=1)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
     cw = min(150, (W - 28) // nch)
     x = 14
@@ -814,8 +860,12 @@ def render_profile(dd, p, expanded=None, details=None):
             img.paste(ic, (x + 10, cy + 24), ic)
         d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=font(12, 1), fill=TEXT)
         wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
-        d.text((x + 54, cy + 44), f"{c['wr']}%", font=font(13, 1), fill=wcol)
-        d.text((x + 92, cy + 46), f"{c['g']}g", font=font(10), fill=MUTED)
+        d.text((x + 54, cy + 42), f"{c['wr']}%", font=font(13, 1), fill=wcol)
+        d.text((x + 92, cy + 44), f"{c['g']}g", font=font(10), fill=MUTED)
+        # mini win-rate bar along the card bottom
+        bw_ = cw - 28
+        _rrect(d, (x + 10, cy + 60, x + 10 + bw_, cy + 62), 1, fill=(42, 46, 60))
+        _rrect(d, (x + 10, cy + 60, x + 10 + int(bw_ * min(1.0, c["wr"] / 100.0)), cy + 62), 1, fill=_dim(wcol, 0.9))
         if c.get("avg") is not None:
             gcol = GRADE_COLOR["A"] if c["avg"] >= 85 else (GRADE_COLOR["B"] if c["avg"] >= 70 else MUTED)
             d.text((x + cw - 16, cy + 25), str(c["avg"]), font=font(11, 1), fill=gcol, anchor="ra")
@@ -824,13 +874,15 @@ def render_profile(dd, p, expanded=None, details=None):
 
     # ---- recent games ----
     d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
+    d.line([124, games_top - 15, W - 350, games_top - 15], fill=(36, 40, 52), width=1)
     d.text((W - 20, games_top - 21), "click a game to expand  ·  score = vs your role's goals",
            font=font(10), fill=(118, 116, 108), anchor="ra")
     hit_games, hit_reviews, yy = [], [], games_top
     for i, g in enumerate(games):
         acc = GREEN if g["win"] else REDWR
+        rowbg = PCARD2 if i % 2 == 0 else (28, 32, 43)     # alternate row tint
         _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))
-        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=PCARD2)
+        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=rowbg)
         cid = dd["name2id"].get(dd["norm"](g["champ"]))
         ic = get_icon(dd, cid, 32)
         if ic:
@@ -1024,9 +1076,13 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
             d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
 
 
-def draw_build_block(d, dd, x, y, build, hits=None):
-    d.text((x, y), "RUNES", font=font(11, 1), fill=GOLD)
-    d.text((x, y + 18), build.get("keystone", ""), font=font(14, 1), fill=TEXT)
+def draw_build_block(d, img, dd, x, y, build, hits=None):
+    """The champ-select runes/build card: keystone + rune words, the core build as real
+    ITEM ICONS, summoners, skill order, and the import button - in one framed card."""
+    cw, chh = 396, 236
+    _rrect(d, (x - 16, y - 10, x - 16 + cw, y - 10 + chh), 12, fill=(20, 23, 32), outline=PEDGE, width=1)
+    d.text((x, y), "RUNES", font=font(10, 1), fill=GOLD)
+    d.text((x, y + 16), build.get("keystone", ""), font=font(15, 1), fill=TEXT)
     minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
     if minor:
         d.text((x, y + 40), minor, font=font(11), fill=MUTED)
@@ -1037,14 +1093,27 @@ def draw_build_block(d, dd, x, y, build, hits=None):
     shards = [s for s in build.get("shards", []) if s]
     if shards:
         d.text((x, y + 76), "Shards:  " + "  /  ".join(shards), font=font(11), fill=MUTED)
-    d.text((x, y + 104), "BUILD", font=font(11, 1), fill=GOLD)
-    d.text((x, y + 122), " > ".join(c for c in build.get("core", []) if c), font=font(12), fill=TEXT)
-    d.text((x, y + 142), "Summoners:  " + " / ".join(build.get("summs", [])), font=font(11), fill=MUTED)
+    d.line([x, y + 98, x - 32 + cw, y + 98], fill=PEDGE, width=1)
+    d.text((x, y + 106), "CORE BUILD", font=font(10, 1), fill=GOLD)
+    ids = build.get("core_ids") or []
+    ix = x
+    if ids:
+        for j, iid in enumerate(ids[:4]):
+            ic = get_item_icon(dd, iid, 34)
+            if ic:
+                _rrect(d, (ix - 1, y + 121, ix + 35, y + 157), 6, outline=PEDGE, width=1)
+                img.paste(ic, (ix, y + 122), ic)
+            if j < min(len(ids), 4) - 1:
+                d.text((ix + 40, y + 132), "›", font=font(14, 1), fill=MUTED)
+            ix += 52
+    else:
+        d.text((x, y + 124), " > ".join(c for c in build.get("core", []) if c), font=font(12), fill=TEXT)
+    d.text((x, y + 164), "Summoners:  " + " / ".join(build.get("summs", [])), font=font(11), fill=MUTED)
     skills = [s for s in build.get("skills", []) if s]
     if skills:
-        d.text((x, y + 160), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
+        d.text((x + 190, y + 164), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
     # Keep import action visually grouped with the runes/summoners block.
-    bx, by, bw, bh = x, y + 182, 188, 28
+    bx, by, bw, bh = x, y + 186, 188, 28
     _rrect(d, (bx, by, bx + bw, by + bh), 8, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
     d.text((bx + (bw // 2), by + (bh // 2) + 1), "Import runes + summs", font=font(10, 1), fill=TEXT, anchor="mm")
     if hits is not None:
@@ -1158,6 +1227,12 @@ def suggest_bans(dd, my_cid, role, taken=(), topn=3):
     if not my_cid:
         return []
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
+    if not role:                                   # blind pick / no assigned position -> the
+        try:                                       # champ's most-played role (else no data at all,
+            import lolitems as _li                 # which showed as 'lock or hover' despite a lock)
+            role = _li.primary_role(dd, my_cid)
+        except Exception:
+            role = "mid"
     ck = (my_cid, role)
     if ck in _BAN_CACHE:
         cands = _BAN_CACHE[ck]
@@ -1222,10 +1297,14 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
                 img.paste(ic, (x, y0 + 19), ic)
             d.text((x + 32, y0 + 25), f"{my_wr:.0f}%", font=font(9), fill=REDWR)
             x += 62
-    else:
-        d.text((x, y0 + 26), "lock or hover your champ", font=font(10), fill=MUTED)
+    elif ban_ideas is not None:                    # champ known, but nothing statistically scary
+        d.text((x, y0 + 26), "no hard counters — ban comfort/meta", font=font(10), fill=MUTED)
+        x += 150
+    else:                                          # truly no champ hovered yet
+        d.text((x, y0 + 26), "hover your champ for ban ideas", font=font(10), fill=MUTED)
         x += 150
     x = max(x, x0 + 210) + 18
+    d.line([x - 12, y0 + 8, x - 12, y0 + 44], fill=PEDGE, width=1)
     # --- lobby bans ---
     bm, bt = (bans or ({}, {}))[0] or [], (bans or ((), ()))[1] or []
     d.text((x, y0 + 6), "BANS", font=font(9, 1), fill=(125, 166, 216))
@@ -1244,6 +1323,7 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
         bx = x + 70
     # --- enemy picks (visible in some queues / after reveal) ---
     x = max(bx + 26, x0 + 560)
+    d.line([x - 12, y0 + 8, x - 12, y0 + 44], fill=PEDGE, width=1)
     d.text((x, y0 + 6), "ENEMY PICKS", font=font(9, 1), fill=(216, 130, 130))
     if enemy_picks:
         for cid in enemy_picks[:5]:
@@ -1267,6 +1347,15 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     img = Image.new("RGB", (W2, H), BG)
     d = ImageDraw.Draw(img)
     hits = []                                    # clickable icon rects -> op.gg URL
+    if champ_select and my_cid:                  # splash strip behind the champ-select header
+        strip = get_splash(dd, my_cid, (W2, 66))
+        if strip:
+            img.paste(strip, (0, 0))
+            shade = Image.new("L", (W2, 66), 0)
+            sd = ImageDraw.Draw(shade)
+            for yy_ in range(66):                # darken evenly + fade to BG at the bottom edge
+                sd.line([(0, yy_), (W2, yy_)], fill=min(255, 150 + int(yy_ * 1.6)))
+            img.paste(Image.new("RGB", (W2, 66), BG), (0, 0), shade)
     # header
     ic = get_icon(dd, my_cid, 48)
     if ic:
@@ -1310,7 +1399,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         _rrect(d, (bx0, 68, bx1, 92), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
         d.text((cxc, 80), txt, font=bf, fill=(240, 150, 150), anchor="mm")
     if champ_select and build:
-        draw_build_block(d, dd, cxc + 34, TOP + 6, build, hits=hits)
+        draw_build_block(d, img, dd, cxc + 50, TOP + 16, build, hits=hits)
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -1336,7 +1425,10 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                 a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
                 draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a, self_kit=my_kit)))
         elif champ_select:
-            d.text((388, y + 24), lbl, font=font(10), fill=(120, 118, 110), anchor="la")
+            cf = font(9, 1)
+            cw_ = d.textlength(lbl.upper(), font=cf)
+            _rrect(d, (384, y + 20, 384 + cw_ + 14, y + 36), 7, fill=(30, 34, 46), outline=PEDGE, width=1)
+            d.text((391, y + 24), lbl.upper(), font=cf, fill=(150, 148, 138))
     if champ_select and suggestions:
         # Draw this AFTER the team rows so it can't be covered by row backgrounds. Header and
         # icons are flush top-left of the rail; tight vertical step fits 5 suggestions.
@@ -1481,7 +1573,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
-                    ideas = suggest_bans(dd, my_cid, my_role, taken=taken)
+                    ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None
                     emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                          "enemies are hidden in champ select - matchups + player scout load at the loading screen",
                          roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge,
