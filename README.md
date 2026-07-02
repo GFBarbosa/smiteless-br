@@ -77,9 +77,16 @@ The overlay has:
     WR, excluding your own account and detected duo from ally averaging.
 13. **Live game intel** (in the item widget) — a transparent **win read** (logistic on net
     item-gold + level + drake/baron lead), **objective spawn timers** (drake / void grubs /
-    baron, event-driven off the Live Client so respawns stay correct), and a **power-spike
+    baron, event-driven off the Live Client so respawns stay correct, with a **"set up"** cue
+    75–45s out — the winning play is the setup, not the spawn), and a **power-spike
     alert** when an enemy carry has completed items *and* is fed. No model, no key — straight
     off the :2999 Live Client API.
+16. **Enemy jungle tracker** — where the enemy jungler was **last seen**, inferred from the
+    events they took part in (drake = botside, grubs/herald = topside, kills = that lane's
+    side; their death = "free map"). Plus a **gank window** call — the enemy lane that's
+    alive and 2+ levels down right now — and a **back-timing** nudge when your banked gold
+    covers your next item in full.
+17. **Shareable profile card** — a **Save card** button on the profile exports it as a PNG.
 14. **Dodge alerts** — a high-confidence "**consider dodging**" banner in champ select when
     op.gg lane matchups say the draft is lost across most lanes. Deliberately strict (it has
     to clear an average-disadvantage, losing-lane-count, hard-counter, and no-carry-lane gate
