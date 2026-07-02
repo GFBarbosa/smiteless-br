@@ -72,7 +72,10 @@ The overlay has:
     same game scores the same no matter how the other nine did, so a hard-carry loss still
     scores high. Grades: **S = 100+**, **A = 85–99**, **B = 70–84**, **C = 55–69**, **D < 55**.
 11. **Champ-select helpers** — "Good this game" suggested champions rail, one-click
-    **Import runes + summs** in the build block, and Flash key preference support.
+    **Import runes + summs** in the build block, Flash key preference support, and a
+    **draft-intel band**: **good bans** (your champ's hardest counters, weighted by how
+    strong they are this patch), the lobby's **bans** as they happen, and **enemy picks**
+    where the queue reveals them.
 12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
     WR, excluding your own account and detected duo from ally averaging.
 13. **Live game intel** (in the item widget) — a transparent **win read** (logistic on net
@@ -83,10 +86,13 @@ The overlay has:
     off the :2999 Live Client API.
 16. **Enemy jungle tracker** — where the enemy jungler was **last seen**, inferred from the
     events they took part in (drake = botside, grubs/herald = topside, kills = that lane's
-    side; their death = "free map"). Plus a **gank window** call — the enemy lane that's
-    alive and 2+ levels down right now — and a **back-timing** nudge when your banked gold
-    covers your next item in full.
+    side; their death = "free map"), drawn as an **X on a mini-map** in the widget and kept
+    on screen (dimmed as it ages) instead of vanishing. Plus a **gank window** call — the
+    enemy lane that's alive and 2+ levels down right now — and a **back-timing** nudge when
+    your banked gold covers your next item in full.
 17. **Shareable profile card** — a **Save card** button on the profile exports it as a PNG.
+18. **Profile stats** — averages strip (KDA, kill participation, CS/min, damage share), role
+    split, per-champ average score, and per-game CS/min · KP · duration on every row.
 14. **Dodge alerts** — a high-confidence "**consider dodging**" banner in champ select when
     op.gg lane matchups say the draft is lost across most lanes. Deliberately strict (it has
     to clear an average-disadvantage, losing-lane-count, hard-counter, and no-carry-lane gate
