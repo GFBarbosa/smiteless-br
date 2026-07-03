@@ -933,7 +933,10 @@ def render_profile(dd, p, expanded=None, details=None):
         d.text((436, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
         d.text((510, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
         extra = []
-        if g.get("csm"):
+        if (g.get("pos") or "").upper() == "UTILITY":     # a support's cs/min is noise: show vision
+            if g.get("vision") and g.get("dur"):
+                extra.append(f"{g['vision'] / max(1.0, g['dur'] / 60.0):.1f} vis/m")
+        elif g.get("csm"):
             extra.append(f"{g['csm']} cs/m")
         if g.get("kp") is not None:
             extra.append(f"{g['kp']}% kp")
@@ -1376,6 +1379,161 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
         d.text((x, y0 + 26), "hidden in ranked", font=font(10), fill=MUTED)
 
 
+VW = 384                 # width of the vertical (docked) champ-select panel
+
+
+def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
+                       enemy_picks=None, ban_ideas=None, dodge=None):
+    """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
+    your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
+    your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
+    H = 940
+    img = Image.new("RGB", (VW, H), BG)
+    d = ImageDraw.Draw(img)
+    hits = []
+    # header: splash strip + champ + role
+    if my_cid:
+        strip = get_splash(dd, my_cid, (VW, 84))
+        if strip:
+            img.paste(strip, (0, 0))
+            shade = Image.new("L", (VW, 84), 0)
+            sd = ImageDraw.Draw(shade)
+            for yy in range(84):
+                sd.line([(0, yy), (VW, yy)], fill=min(255, 140 + int(yy * 1.5)))
+            img.paste(Image.new("RGB", (VW, 84), BG), (0, 0), shade)
+    ic = get_icon(dd, my_cid, 52)
+    if ic:
+        img.paste(ic, (14, 14), ic)
+    d.text((78, 16), dd["id2name"].get(my_cid, "pick a champ"), font=font(17, 1), fill=GOLD)
+    sub = (my_role or "?").upper()
+    if build:
+        sub += f"   ·   {build['wr']:.1f}%  {build['tier']}"
+    d.text((78, 44), sub, font=font(11, 1), fill=TEXT)
+    d.text((VW - 12, 6), "SMITELESS", font=font(8, 1), fill=(120, 118, 108), anchor="ra")
+    y = 92
+    if dodge:
+        _rrect(d, (10, y, VW - 10, y + 26), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
+        d.text((VW // 2, y + 13), "⚠ CONSIDER DODGING — " + str(dodge.get("losing", "")) + " lanes behind",
+               font=font(10, 1), fill=(240, 150, 150), anchor="mm")
+        y += 34
+    # runes + build card
+    if build:
+        card_h = 214
+        _rrect(d, (10, y, VW - 10, y + card_h), 10, fill=(20, 23, 32), outline=PEDGE, width=1)
+        x = 24
+        d.text((x, y + 10), "RUNES", font=font(9, 1), fill=GOLD)
+        d.text((x, y + 24), build.get("keystone", ""), font=font(14, 1), fill=TEXT)
+        minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
+        for i, ln in enumerate(_wrap(minor, font(10), VW - 48)[:2]):
+            d.text((x, y + 46 + i * 14), ln, font=font(10), fill=MUTED)
+        sec = "  ·  ".join(r for r in build.get("secondary", []) if r)
+        d.text((x, y + 76), f"{build.get('secondary_tree', '')}: {sec}"[:60], font=font(10), fill=(150, 170, 200))
+        shards = " / ".join(s for s in build.get("shards", []) if s)
+        d.text((x, y + 92), f"Shards: {shards}", font=font(10), fill=MUTED)
+        d.line([x, y + 110, VW - 24, y + 110], fill=PEDGE, width=1)
+        d.text((x, y + 116), "CORE BUILD", font=font(9, 1), fill=GOLD)
+        ix = x
+        for j, iid in enumerate((build.get("core_ids") or [])[:4]):
+            iic = get_item_icon(dd, iid, 32)
+            if iic:
+                _rrect(d, (ix - 1, y + 131, ix + 33, y + 165), 6, outline=PEDGE, width=1)
+                img.paste(iic, (ix, y + 132), iic)
+            if j < min(len(build.get("core_ids") or []), 4) - 1:
+                d.text((ix + 37, y + 141), "›", font=font(12, 1), fill=MUTED)
+            ix += 48
+        d.text((x, y + 172), "Summs: " + " / ".join(build.get("summs", [])), font=font(10), fill=MUTED)
+        sk = [s for s in build.get("skills", []) if s]
+        if sk:
+            d.text((x + 170, y + 172), "Max: " + " > ".join(sk), font=font(10), fill=MUTED)
+        bx, by, bw, bh = x, y + 186, 160, 22
+        _rrect(d, (bx, by, bx + bw, by + bh), 7, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
+        d.text((bx + bw // 2, by + bh // 2), "Import runes + summs", font=font(9, 1), fill=TEXT, anchor="mm")
+        hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
+        y += card_h + 10
+    else:
+        d.text((20, y + 6), "lock or hover a champ for runes + build", font=font(11), fill=MUTED)
+        y += 30
+    # suggested picks (horizontal icons)
+    d.text((20, y), "GOOD THIS GAME", font=font(9, 1), fill=GOLD)
+    xx = 20
+    for cid in (suggestions or [])[:6]:
+        sic = get_icon(dd, cid, 40)
+        if sic:
+            img.paste(sic, (xx, y + 16), sic)
+        xx += 50
+    if not suggestions:
+        d.text((20, y + 20), "computing…", font=font(10), fill=MUTED)
+    y += 66
+    # good bans
+    d.text((20, y), "GOOD BANS", font=font(9, 1), fill=GOLD)
+    if ban_ideas:
+        xx = 20
+        for cid, my_wr in ban_ideas[:3]:
+            bic = get_icon(dd, cid, 34)
+            if bic:
+                img.paste(bic, (xx, y + 16), bic)
+            d.text((xx + 17, y + 54), f"{my_wr:.0f}%", font=font(9), fill=REDWR, anchor="ma")
+            xx += 58
+    elif ban_ideas is not None:
+        d.text((20, y + 20), "no hard counters — ban comfort/meta", font=font(10), fill=MUTED)
+    else:
+        d.text((20, y + 20), "hover your champ for ban ideas", font=font(10), fill=MUTED)
+    y += 74
+    # lobby bans
+    bm, bt = (bans or ((), ()))[0] or [], (bans or ((), ()))[1] or []
+    d.text((20, y), "BANS", font=font(9, 1), fill=(125, 166, 216))
+    xx = 20
+    for cid in bm[:5]:
+        _ban_icon(img, dd, cid, xx, y + 15, 26)
+        xx += 30
+    if bm and bt:
+        d.text((xx + 4, y + 20), "·", font=font(12, 1), fill=MUTED)
+        xx += 16
+    for cid in bt[:5]:
+        _ban_icon(img, dd, cid, xx, y + 15, 26)
+        xx += 30
+    if not (bm or bt):
+        d.text((60, y), "none yet", font=font(9), fill=MUTED)
+    y += 52
+    # enemy picks when a queue reveals them
+    if enemy_picks:
+        d.text((20, y), "ENEMY PICKS", font=font(9, 1), fill=(216, 130, 130))
+        xx = 20
+        for cid in enemy_picks[:5]:
+            eic = get_icon(dd, cid, 26)
+            if eic:
+                img.paste(eic, (xx, y + 15), eic)
+            xx += 30
+        y += 52
+    # your team
+    d.text((20, y), "YOUR TEAM", font=font(9, 1), fill=(125, 166, 216))
+    y += 16
+    for cid, role in (allies or [])[:5]:
+        _rrect(d, (12, y, VW - 12, y + 40), 8, fill=ALLY_BG, outline=PEDGE, width=1)
+        if cid:
+            aic = get_icon(dd, cid, 30)
+            if aic:
+                img.paste(aic, (20, y + 5), aic)
+            me = (cid == my_cid)
+            d.text((58, y + 11), dd["id2name"].get(cid, "?") + ("  YOU" if me else ""),
+                   font=font(12, 1), fill=GOLD if me else TEXT)
+        else:
+            d.text((58, y + 11), "picking…", font=font(11), fill=MUTED)
+        rl = lb.ROLE.get((role or "").lower(), role or "")
+        if rl:
+            cf = font(8, 1)
+            cw_ = d.textlength(rl.upper(), font=cf)
+            _rrect(d, (VW - 26 - cw_ - 12, y + 11, VW - 26, y + 27), 6, fill=(30, 34, 46), outline=PEDGE, width=1)
+            d.text((VW - 32 - cw_ / 2 - 3, y + 14), rl.upper(), font=cf, fill=(150, 148, 138), anchor="ma")
+        y += 46
+    d.text((20, y + 6), "enemies hidden in ranked · board opens at loading screen",
+           font=font(9), fill=(110, 108, 100))
+    out = img.crop((0, 0, VW, min(H, y + 26)))    # trim the unused tail; panel ends after the team
+    out.hitmap = hits
+    out.dock_left = True                          # smiteoverlay: park this next to the client
+    return out
+
+
 def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None, bans=None, enemy_picks=None, ban_ideas=None):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
@@ -1615,10 +1773,17 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
                     ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None
-                    emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
-                         "enemies are hidden in champ select - matchups + player scout load at the loading screen",
-                         roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge,
-                         bans=(bans_my, bans_their), enemy_picks=enemy_ids, ban_ideas=ideas))
+                    if settings.get("dock_champ_select", True):
+                        # tall panel that docks LEFT of the client (the overlay parks it there
+                        # and nudges the client right if there's no room)
+                        emit(render_cs_vertical(dd, my_cid, my_role, allies, build,
+                             suggestions=sugg, bans=(bans_my, bans_their),
+                             enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge))
+                    else:
+                        emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
+                             "enemies are hidden in champ select - matchups + player scout load at the loading screen",
+                             roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge,
+                             bans=(bans_my, bans_their), enemy_picks=enemy_ids, ban_ideas=ideas))
                     last_cs_sig = sig
                 time.sleep(2)
                 continue

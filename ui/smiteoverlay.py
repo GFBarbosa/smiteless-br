@@ -124,6 +124,37 @@ def restore_foreground(target):
         pass
 
 
+def client_rect():
+    """(hwnd, (l, t, r, b)) of the League client window, or (None, None)."""
+    try:
+        hwnd = _user32.FindWindowW("RCLIENT", None)
+        if not hwnd or not _user32.IsWindowVisible(hwnd):
+            return None, None
+        r = wintypes.RECT()
+        _user32.GetWindowRect(hwnd, ctypes.byref(r))
+        return hwnd, (r.left, r.top, r.right, r.bottom)
+    except Exception:
+        return None, None
+
+
+def monitor_of(x, y):
+    """The monitor rect containing point (x, y), else the primary."""
+    mons = monitors()
+    for m in mons:
+        if m[0] <= x < m[2] and m[1] <= y < m[3]:
+            return m
+    return mons[0]
+
+
+def move_window(hwnd, x, y):
+    try:
+        _user32.SetWindowPos(hwnd, 0, int(x), int(y), 0, 0,
+                             SWP_NOSIZE | 0x0004 | SWP_NOACTIVATE)   # SWP_NOZORDER
+        return True
+    except Exception:
+        return False
+
+
 def _open_profile():
     """Open the Profile window as its own process (works frozen or as dev scripts)."""
     import subprocess
@@ -343,7 +374,8 @@ def main():
     make_no_activate(hwnd)
 
     st = {"img": None, "dirty": False, "ref": None, "size": None, "hitmap": [],
-          "pos": None, "shown": False, "closing": False, "done": False}
+          "pos": None, "shown": False, "closing": False, "done": False,
+          "docked": False, "client_moved": None, "barh": bar_h}
     lock = threading.Lock()
 
     def emit(pil_img):                           # called from the worker thread (no Tk here!)
@@ -351,8 +383,49 @@ def main():
             st["img"] = pil_img
             st["dirty"] = True
 
+    def _restore_client():
+        cm = st.get("client_moved")
+        if cm:
+            move_window(cm[0], cm[1], cm[2])
+            st["client_moved"] = None
+
+    def _dock(pil):
+        """Park the panel LEFT of the League client; nudge the client right when there's no
+        room (and remember where it was so we can put it back)."""
+        hwnd_c, rect = client_rect()
+        if not rect:
+            return                               # client not found -> normal centering
+        need = pil.width + 12
+        mon = monitor_of((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2)
+        x = rect[0] - need
+        if x < mon[0] + 4:                       # no room -> shift the client right, park at edge
+            shift = (mon[0] + 4) - x
+            new_cx = min(rect[0] + shift, mon[2] - (rect[2] - rect[0]) - 4)
+            if new_cx > rect[0] and move_window(hwnd_c, new_cx, rect[1]):
+                if st["client_moved"] is None:
+                    st["client_moved"] = (hwnd_c, rect[0], rect[1])
+            x = mon[0] + 4
+        st["pos"] = (x, max(mon[1] + 4, rect[1]))
+        st["docked"] = True
+        st["barh"] = 0                           # key bar is noise in the docked panel
+        try:
+            bar.pack_forget()
+        except Exception:
+            pass
+
+    def _undock():
+        _restore_client()
+        st["docked"] = False
+        st["pos"] = None                         # recenter on the next frame
+        st["barh"] = bar_h
+        try:
+            bar.pack(side="bottom", fill="x")
+        except Exception:
+            pass
+
     def close(*_):
         st["closing"] = True
+        _restore_client()
         try:
             root.destroy()
         except Exception:
@@ -375,7 +448,7 @@ def main():
         st["pos"] = (st["pos"][0] + dx, st["pos"][1] + dy)
         st["last"] = (e.x_root, e.y_root)
         w, h = st["size"]
-        root.geometry(f"{w}x{h + bar_h}+{st['pos'][0]}+{st['pos'][1]}")
+        root.geometry(f"{w}x{h + st['barh']}+{st['pos'][0]}+{st['pos'][1]}")
 
     def on_release(e):
         if st.get("press") and not st["moved"]:  # a click, not a drag
@@ -414,7 +487,7 @@ def main():
 
     def place(size):
         w, h = size
-        wh = h + bar_h                           # window = board image + the key bar below it
+        wh = h + st["barh"]                      # window = board image + the key bar (when shown)
         if st["pos"] is None:                    # center on the target monitor, once
             l, t, r, b = target_monitor()
             st["pos"] = (l + ((r - l) - w) // 2, t + ((b - t) - wh) // 2)
@@ -433,6 +506,13 @@ def main():
             label.configure(image=ref)
             st["ref"] = ref                      # keep a reference or it gets GC'd (blank image)
             st["hitmap"] = getattr(pil, "hitmap", [])   # clickable icon rects for this frame
+            want_dock = bool(getattr(pil, "dock_left", False))
+            if want_dock and not st["docked"]:
+                _dock(pil)                       # champ-select panel -> park left of the client
+                st["size"] = None                # force re-place at the docked position
+            elif not want_dock and st["docked"]:
+                _undock()                        # board/loading frame -> back to normal centering
+                st["size"] = None
             if st["size"] != pil.size:
                 st["size"] = pil.size
                 place(pil.size)

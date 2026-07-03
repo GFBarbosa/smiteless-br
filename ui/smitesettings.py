@@ -132,6 +132,7 @@ def main():
     intel = tk.BooleanVar(value=s.get("game_intel", True))
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
+    dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
@@ -147,6 +148,7 @@ def main():
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
+    _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
 
     fkey = tk.Frame(body, bg=PANEL)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
@@ -257,7 +259,7 @@ def main():
                   "matchup_tips": tips.get(), "gank_kit": kit.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
-                  "dodge_alerts": dodge.get(),
+                  "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
@@ -270,7 +272,7 @@ def main():
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
-        for v in (tips, kit, duo, widget, intel, dragon, dodge, autoq, auto, homeonstart):
+        for v in (tips, kit, duo, widget, intel, dragon, dodge, dock, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)
         _upd_flash()

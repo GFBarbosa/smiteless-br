@@ -257,6 +257,21 @@ _ROLE_TARGETS = {
     "BOTTOM": {"kp": 0.58, "dmg": 0.27, "obj": 0.18, "d10": 1.9, "csm": 7.2, "vpm": 0.70},
     "UTILITY": {"kp": 0.62, "dmg": 0.08, "obj": 0.22, "d10": 1.8, "csm": 1.2, "vpm": 1.80},
 }
+_ARCHES = ("marksman", "assassin", "mage", "tank", "fighter", "enchanter")
+# archetype x role win-condition lines (falls back to role-generic)
+_WIN_CON = {
+    ("assassin", "MID"): "Shove, then look for picks in fog — one pick a rotation snowballs mid.",
+    ("assassin", "JUNGLE"): "Path toward the fed lane; your job is deleting their carry, not tanking.",
+    ("mage", "MID"): "Crash waves, poke them out, and hit your spike before the next objective.",
+    ("mage", "UTILITY"): "Poke before the engage — a half-HP enemy team can't contest the objective.",
+    ("marksman", "BOTTOM"): "Farm to your item spikes and stay behind your frontline — you win fights that go long.",
+    ("tank", "TOP"): "You don't need kills: soak side pressure and be the first body at every objective.",
+    ("tank", "UTILITY"): "Pick ONE target to engage on and commit — half-engages are how supports die alone.",
+    ("tank", "JUNGLE"): "Your ganks work because of CC, not damage — dive when your laner can follow.",
+    ("fighter", "TOP"): "Win the side lane, force two to answer you, and your team plays 4v3 elsewhere.",
+    ("fighter", "JUNGLE"): "Convert farm into skirmish wins — you beat their jungler 1v1 at even gold.",
+    ("enchanter", "UTILITY"): "Your carry's HP bar is your score — save the peel for the dive, not the poke.",
+}
 _ROLE_WIN_CONDITION = {
     "TOP": "Use your lead to pressure side lane and force numbers advantage.",
     "JUNGLE": "Convert tempo into neutral control and first move on river fights.",
@@ -266,8 +281,31 @@ _ROLE_WIN_CONDITION = {
 }
 
 
-def review_for_player(parts, my_puuid, dur):
-    """Role/champ-aware top-3 review notes. A/S games get strengths, otherwise improvements."""
+def _champ_arch(dd, champ_name):
+    """Coarse archetype from ddragon tags (enchanter = Support-tag non-tank)."""
+    if not dd:
+        return None
+    cid = dd["name2id"].get(dd["norm"](champ_name or ""))
+    tags = set(dd.get("id2tags", {}).get(cid, []))
+    if "Marksman" in tags:
+        return "marksman"
+    if "Assassin" in tags:
+        return "assassin"
+    if "Support" in tags and "Tank" not in tags:
+        return "enchanter"
+    if "Tank" in tags:
+        return "tank"
+    if "Mage" in tags:
+        return "mage"
+    if "Fighter" in tags:
+        return "fighter"
+    return None
+
+
+def review_for_player(parts, my_puuid, dur, dd=None):
+    """Top-3 review notes, built from a ROLE-SPECIFIC stat pool (supports are judged on
+    vision/peel/KP - never CS/min; junglers on objectives/tempo; laners on farm/pressure),
+    with champion-archetype flavor. A/S games get strengths, otherwise improvements."""
     mine = next((p for p in parts if p.get("puuid") == my_puuid), None)
     if not mine:
         return {"kind": "improve", "tips": []}
@@ -286,59 +324,101 @@ def review_for_player(parts, my_puuid, dur):
     pos = (mine.get("pos") or "").upper()
     if pos == "MIDDLE":
         pos = "MID"
-    role_cfg = _ROLE_TARGETS.get(pos, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
+    t = _ROLE_TARGETS.get(pos, {"kp": 0.52, "dmg": 0.18, "obj": 0.17, "d10": 2.0, "csm": 5.6, "vpm": 0.9})
     champ = mine.get("champ", "your champ")
     role_name = _ROLE_LABEL.get(pos, "role")
+    arch = _champ_arch(dd, champ)
     score, letter, _label = _grade_game(parts, mine, dur)
     positive = letter in ("A", "S", "S+")
     lane_opp = next((p for p in parts if int(p.get("team") or 0) != team and (p.get("pos") or "").upper() == pos), None)
+    is_sup, is_jg, is_lane = pos == "UTILITY", pos == "JUNGLE", pos in ("TOP", "MID", "BOTTOM")
     cands = []
-    if positive:
-        if d10 <= role_cfg["d10"]:
-            cands.append(("deaths", role_cfg["d10"] - d10 + 0.05,
-                          f"{champ} {role_name}: strong discipline at {d10:.1f} deaths/10m."))
-        if kp >= role_cfg["kp"]:
-            cands.append(("kp", kp - role_cfg["kp"] + 0.05,
-                          f"{champ}: high fight impact ({kp*100:.0f}% KP) kept your team in every skirmish."))
-        if dmg_share >= role_cfg["dmg"]:
-            cands.append(("dmg", dmg_share - role_cfg["dmg"] + 0.05,
-                          f"{champ}: carried damage load ({dmg_share*100:.0f}% share) for your role."))
-        if team_obj >= 3 and obj_share >= role_cfg["obj"]:
-            cands.append(("obj", obj_share - role_cfg["obj"] + 0.05,
+
+    # ---- deaths: every role, but the phrasing follows the champ's job ----
+    if positive and d10 <= t["d10"]:
+        cands.append(("deaths", t["d10"] - d10 + 0.05,
+                      f"{champ} {role_name}: strong discipline at {d10:.1f} deaths/10m."))
+    elif not positive and d10 > t["d10"]:
+        if is_sup and arch == "enchanter":
+            hint = "You're the win condition they click first — hug your carry, not the frontline."
+        elif is_sup:
+            hint = "Engage WITH follow-up — going in alone just hands over your shutdown."
+        elif arch == "assassin":
+            hint = "Wait for the enemy's lockdown to be used before you commit."
+        elif arch == "marksman":
+            hint = "Position a step behind — you deal the same damage from a safer angle."
+        else:
+            hint = "Hold cooldowns for second engage windows."
+        cands.append(("deaths", d10 - t["d10"] + 0.05,
+                      f"{champ} {role_name}: deaths were high ({d10:.1f}/10m). {hint}"))
+
+    # ---- KP: every role ----
+    if positive and kp >= t["kp"]:
+        cands.append(("kp", kp - t["kp"] + 0.05,
+                      f"{champ}: high fight impact ({kp*100:.0f}% KP) kept your team in every skirmish."))
+    elif not positive and kp < t["kp"]:
+        where = "roam to river/mid after every crash" if is_sup else \
+                ("be there BEFORE the fight starts — path toward your winning lane" if is_jg
+                 else "move earlier on river/side fights")
+        cands.append(("kp", t["kp"] - kp + 0.05,
+                      f"{champ}: KP was {kp*100:.0f}% (target ~{int(t['kp']*100)}%) — {where}."))
+
+    # ---- vision: PRIMARY for support/jungle, ignored for laners ----
+    if is_sup or is_jg:
+        if positive and vpm >= t["vpm"]:
+            cands.append(("vision", (vpm - t["vpm"]) / 2.0 + 0.06,
+                          f"{champ}: vision was excellent ({vpm:.1f}/min) — that's how fights get taken on your terms."))
+        elif not positive and vpm < t["vpm"]:
+            what = "control wards + sweep before every objective" if is_jg else \
+                   "deep wards when ahead, defensive wards when behind"
+            cands.append(("vision", (t["vpm"] - vpm) / 2.0 + 0.06,
+                          f"{champ}: vision was low ({vpm:.1f}/min, target ~{t['vpm']:.1f}) — {what}."))
+
+    # ---- objectives: primary for jungle, notable for support/top ----
+    if team_obj >= 3:
+        wobj = 0.10 if is_jg else 0.05
+        if positive and obj_share >= t["obj"]:
+            cands.append(("obj", obj_share - t["obj"] + wobj,
                           f"{champ}: objective impact was excellent ({obj_share*100:.0f}% participation share)."))
-        if csm >= role_cfg["csm"]:
-            cands.append(("farm", (csm - role_cfg["csm"]) / 10.0 + 0.03,
+        elif not positive and obj_share < t["obj"]:
+            hint = "your smite decides these — arrive with tempo, not last" if is_jg else \
+                   "be first to the setup at spawn timers"
+            cands.append(("obj", t["obj"] - obj_share + wobj,
+                          f"{champ}: objective involvement lagged ({obj_share*100:.0f}% share) — {hint}."))
+
+    # ---- farm: laners + jungle ONLY (a support's CS is noise, never advice) ----
+    if not is_sup:
+        if positive and csm >= t["csm"]:
+            cands.append(("farm", (csm - t["csm"]) / 10.0 + 0.03,
                           f"{champ}: efficient economy ({csm:.1f} CS/min) kept your spikes on time."))
-        if lane_opp and pos in ("TOP", "MID", "BOTTOM"):
-            od = float(lane_opp.get("dmg") or 0)
-            if mine.get("dmg", 0) > od:
-                cands.append(("lane", (mine.get("dmg", 0) - od) / max(1.0, od) + 0.03,
-                              f"{champ}: you out-pressured lane counterpart in damage ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k)."))
-    else:
-        if d10 > role_cfg["d10"]:
-            cands.append(("deaths", d10 - role_cfg["d10"] + 0.05,
-                          f"{champ} {role_name}: deaths were high ({d10:.1f}/10m). Hold cooldowns for second engage windows."))
-        if kp < role_cfg["kp"]:
-            cands.append(("kp", role_cfg["kp"] - kp + 0.05,
-                          f"{champ}: KP was {kp*100:.0f}% (target ~{int(role_cfg['kp']*100)}%). Move earlier on river/side fights."))
-        if dmg_share < role_cfg["dmg"]:
-            cands.append(("dmg", role_cfg["dmg"] - dmg_share + 0.05,
-                          f"{champ}: damage share was low ({dmg_share*100:.0f}%). Take more front-half trades around power spikes."))
-        if team_obj >= 3 and obj_share < role_cfg["obj"]:
-            cands.append(("obj", role_cfg["obj"] - obj_share + 0.05,
-                          f"{champ}: objective involvement lagged ({obj_share*100:.0f}% share). Be first to setup at spawn timers."))
-        if pos != "UTILITY" and csm < role_cfg["csm"]:
-            cands.append(("farm", (role_cfg["csm"] - csm) / 10.0 + 0.03,
-                          f"{champ}: farm pace was {csm:.1f} CS/min. Protect side waves before forcing next play."))
-        if pos in ("JUNGLE", "UTILITY") and vpm < role_cfg["vpm"]:
-            cands.append(("vision", (role_cfg["vpm"] - vpm) / 3.0 + 0.03,
-                          f"{champ}: vision tempo was low ({vpm:.2f}/min). Reset earlier for control wards before objectives."))
-        if lane_opp and pos in ("TOP", "MID", "BOTTOM"):
-            od = float(lane_opp.get("dmg") or 0)
-            if mine.get("dmg", 0) < od * 0.85:
-                cands.append(("lane", (od - mine.get("dmg", 0)) / max(1.0, od) + 0.04,
-                              f"{champ}: lane pressure was behind ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k). Contest prio on better windows."))
-    cands.append(("identity", 0.01, f"{champ} win condition: {_ROLE_WIN_CONDITION.get(pos, _ROLE_WIN_CONDITION['MID'])}"))
+        elif not positive and csm < t["csm"]:
+            hint = "full-clear between plays — ganks aren't worth three camps" if is_jg else \
+                   "protect side waves before forcing the next play"
+            cands.append(("farm", (t["csm"] - csm) / 10.0 + 0.03,
+                          f"{champ}: farm pace was {csm:.1f} CS/min — {hint}."))
+
+    # ---- damage share: carries (and mage supports); never tanks/enchanters ----
+    dmg_relevant = (is_lane or (is_sup and arch == "mage")) and arch not in ("tank", "enchanter")
+    if dmg_relevant:
+        if positive and dmg_share >= t["dmg"]:
+            cands.append(("dmg", dmg_share - t["dmg"] + 0.05,
+                          f"{champ}: carried damage load ({dmg_share*100:.0f}% share) for your role."))
+        elif not positive and dmg_share < t["dmg"]:
+            cands.append(("dmg", t["dmg"] - dmg_share + 0.05,
+                          f"{champ}: damage share was low ({dmg_share*100:.0f}%) — take more front-half trades around power spikes."))
+
+    # ---- lane pressure vs your direct opponent: laners only ----
+    if lane_opp and is_lane:
+        od = float(lane_opp.get("dmg") or 0)
+        if positive and mine.get("dmg", 0) > od:
+            cands.append(("lane", (mine.get("dmg", 0) - od) / max(1.0, od) + 0.03,
+                          f"{champ}: you out-pressured your lane opponent ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k dmg)."))
+        elif not positive and mine.get("dmg", 0) < od * 0.85:
+            cands.append(("lane", (od - mine.get("dmg", 0)) / max(1.0, od) + 0.04,
+                          f"{champ}: lane pressure was behind ({int(mine.get('dmg', 0)//1000)}k vs {int(od//1000)}k) — contest prio on better windows."))
+
+    wc = _WIN_CON.get((arch, pos)) or _ROLE_WIN_CONDITION.get(pos, _ROLE_WIN_CONDITION["MID"])
+    cands.append(("identity", 0.01, f"{champ} win condition: {wc}"))
     cands.sort(key=lambda x: x[1], reverse=True)
     seen, out = set(), []
     for k, _w, txt in cands:
@@ -390,7 +470,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
         if other and not rid and mine.get("name"):
             rid = mine["name"]                     # clicked-through by puuid: recover the name
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
-        review = review_for_player(d["parts"], puuid, d.get("dur", 0))
+        review = review_for_player(d["parts"], puuid, d.get("dur", 0), dd=dd)
         team = int(mine.get("team") or 0)
         team_k = sum(int(p.get("k") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
         team_dmg = sum(float(p.get("dmg") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
