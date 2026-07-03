@@ -881,8 +881,10 @@ def render_profile(dd, p, expanded=None, details=None):
 
     # ---- top champions ----
     cy = HEAD + BAND + STATS + 6
-    d.text((20, cy), "TOP CHAMPIONS", font=font(11, 1), fill=GOLD)
-    d.line([132, cy + 7, W - 20, cy + 7], fill=(36, 40, 52), width=1)
+    ch_label = "TOP CHAMPIONS · THIS SEASON" if p.get("season_champs") else "TOP CHAMPIONS · RECENT"
+    d.text((20, cy), ch_label, font=font(11, 1), fill=GOLD)
+    d.line([40 + int(d.textlength(ch_label, font=font(11, 1))), cy + 7, W - 20, cy + 7],
+           fill=(36, 40, 52), width=1)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
     cw = min(186, (W - 28) // nch)               # wider cards in the landscape layout
     x = 14

@@ -64,6 +64,9 @@ def main():
     elif cmd == "stats":
         import smitestats
         smitestats.main()
+    elif cmd == "keycheck":
+        import smitekeycheck
+        smitekeycheck.main()
     elif cmd == "update":
         import smiteupdate
         smiteupdate.main(rest)

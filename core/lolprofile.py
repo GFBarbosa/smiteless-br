@@ -358,19 +358,26 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
     None if we can't tell who you are (client closed)."""
     key = key or ls.read_key()
     if not key:
-        return {"error": "no Riot API key"}
-    other = bool(riot_id or puuid)
-    rid = riot_id
-    if not other:
-        rid = current_riot_id()
-        if not rid:
-            return None
-    if not puuid:
-        puuid = ls.resolve_puuid(rid, key)
-    if not puuid:
-        return {"riot_id": rid, "error": "couldn't find that player (check Name#TAG)"}
-    rk = ls.rank(puuid, key)
-    ids = ls.recent_ids(puuid, key, count) or []
+        return {"error": "no Riot API key — add one in Settings"}
+    try:
+        ls.ensure_key_namespace(key)      # key rotated? old caches hold old-key puuids -> wipe
+        other = bool(riot_id or puuid)
+        rid = riot_id
+        if not other:
+            rid = current_riot_id()
+            if not rid:
+                return None
+        if not puuid:
+            puuid = ls.resolve_puuid(rid, key)
+        if not puuid:
+            return {"riot_id": rid, "error": "couldn't find that player — expired key? (check Settings)"}
+        rk = ls.rank(puuid, key)
+        # ALL queues, not just ranked solo - normals/flex players have match histories too.
+        # match_detail keeps only Summoner's Rift (CLASSIC) games.
+        ids = ls.recent_ids(puuid, key, count, queue="all") or []
+    except ls.KeyStale:
+        return {"riot_id": rid if 'rid' in dir() else None,
+                "error": "your Riot API key expired — paste a new one in Settings"}
     games, champ = [], {}
     wins = 0
     for mid in ids:
@@ -433,6 +440,40 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
             "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
             "session": (None if other else _session(hist, games)),
             "coach": _coach(champs), "lp_trend": trend}
+
+
+SEASON_START = 1767225600   # 2026-01-01 UTC - season 16; update at the next season rollover
+_SR_QUEUES = {400, 420, 430, 440, 480, 490, 700}   # Summoner's Rift queues (normals/ranked/swift)
+
+
+def season_champs(dd, puuid, key, cap=60):
+    """Top champions across THE SEASON (not just the games on screen): one ids call
+    (startTime-filtered, up to 100) + permanently-cached match results. Returns
+    [{champ, g, w, wr}] sorted by games. Partial data on a throttled dev key still works."""
+    try:
+        ids = ls._get(f"https://{ls.REGIONAL}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
+                      f"{puuid}/ids?startTime={SEASON_START}&start=0&count=100", key) or []
+    except ls.KeyStale:
+        return []
+    agg = {}
+    for mid in ids[:cap]:
+        try:
+            res = ls.match_results(mid, key)
+        except ls.KeyStale:
+            break
+        if not res or puuid not in res:
+            continue
+        q = res.get("_q")
+        if q is not None and q not in _SR_QUEUES:   # skip ARAM/arena (old caches lack _q -> keep)
+            continue
+        win, cname = res[puuid]
+        c = agg.setdefault(cname, {"g": 0, "w": 0})
+        c["g"] += 1
+        c["w"] += 1 if win else 0
+    out = sorted(({"champ": c, "g": v["g"], "w": v["w"],
+                   "wr": round(v["w"] / v["g"] * 100)} for c, v in agg.items()),
+                 key=lambda x: (-x["g"], -x["wr"]))
+    return out
 
 
 DUO_SHARED = 3             # shared recent matches to call two players a likely duo

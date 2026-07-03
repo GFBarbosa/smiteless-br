@@ -145,6 +145,7 @@ VerNewer(a, b) {
 SetTimer(CheckUpdate, -12000)                  ; first check ~12s after launch
 SetTimer(CheckUpdate, 5 * 60 * 1000)           ; then every 5 minutes
 SetTimer(AutoUpdateOnLaunch, -7000)            ; auto-apply update attempt on launch
+SetTimer((*) => Launch("keycheck"), -20000)    ; expired Riot dev key? -> paste-a-new-one prompt
 SetTimer(OpenHomeOnStartup, -9000)             ; open profile/home shortly after startup
 SetTimer(AutoAcceptTick, 1200)                 ; poll ready-check and auto-accept if enabled
 

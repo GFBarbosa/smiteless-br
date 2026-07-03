@@ -181,8 +181,14 @@ def main():
         if not prof or not prof.get("games"):
             header.config(image="")
             canvas.delete("all")
-            msg = (prof.get("error") if prof else None) or \
-                "couldn't read your profile — is the League client open, with a Riot key set?"
+            if prof and prof.get("error"):
+                msg = prof["error"]
+            elif prof and prof.get("riot_id"):
+                msg = (f"no recent Summoner's Rift games found for {prof['riot_id']} — "
+                       "ARAM/Arena don't show here. If that seems wrong, your Riot key may "
+                       "have expired (Settings → Riot API Key).")
+            else:
+                msg = "couldn't read your profile — is the League client open, with a Riot key set?"
             canvas.create_text(sc.PW // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.PW - 100)
             return
         st["prof"] = prof
@@ -194,6 +200,32 @@ def main():
             status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
         loadbtn.config(state="normal", text="Load more")
         savebtn.config(state="normal", command=_save_card)
+        _fill_season(prof)
+
+    def _fill_season(prof):
+        """Upgrade TOP CHAMPIONS (and the coach) to season-wide numbers in the background."""
+        pu = prof.get("puuid")
+        if not pu or prof.get("season_champs"):
+            return
+
+        def work():
+            try:
+                champs = lp.season_champs(dd, pu, key)
+            except Exception:
+                champs = []
+            if not champs:
+                return
+
+            def apply():
+                cur = st.get("prof") or {}
+                if cur.get("puuid") != pu:            # user navigated away meanwhile
+                    return
+                cur["champs"] = champs[:6]
+                cur["coach"] = lp._coach(champs)
+                cur["season_champs"] = True
+                _render()
+            root.after(0, apply)
+        threading.Thread(target=work, daemon=True).start()
 
     def _load(more=False):
         if st["busy"]:

@@ -147,7 +147,10 @@ def ensure_key_namespace(key):
     except Exception:
         pass
     if old != h:
-        for sub in ("puuid", "ids", "match", "rank", "mastery"):
+        # matchx/idsall too: profile match caches embed per-key-encrypted puuids, so under a
+        # NEW key the "which one is me" lookup silently never matches -> empty match history
+        # (bit anyone rotating daily dev keys).
+        for sub in ("puuid", "ids", "idsall", "match", "matchx", "rank", "mastery"):
             shutil.rmtree(os.path.join(CACHE, sub), ignore_errors=True)
         try:
             os.makedirs(CACHE, exist_ok=True)
@@ -156,8 +159,12 @@ def ensure_key_namespace(key):
             pass
 
 
-def recent_ids(puuid, key, count):
-    fp = _cache_path("ids", puuid)
+def recent_ids(puuid, key, count, queue="ranked"):
+    """Recent match ids. queue='ranked' (solo 420 - the scout's form read) or 'all'
+    (every queue - the PROFILE's match history, so normals/flex players see games too;
+    ARAM etc. get filtered later by match_detail's CLASSIC check)."""
+    kind = "ids" if queue == "ranked" else "idsall"
+    fp = _cache_path(kind, puuid)
     if os.path.exists(fp):
         try:
             c = json.load(open(fp))
@@ -165,8 +172,9 @@ def recent_ids(puuid, key, count):
                 return c["ids"][:count]
         except Exception:
             pass
+    filt = "queue=420&type=ranked&" if queue == "ranked" else ""
     d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/by-puuid/"
-             f"{puuid}/ids?queue=420&type=ranked&start=0&count={count}", key)
+             f"{puuid}/ids?{filt}start=0&count={count}", key)
     if d is None:
         return []
     try:
@@ -189,6 +197,7 @@ def match_results(mid, key):
         return None
     res = {p["puuid"]: [bool(p["win"]), p.get("championName", "")]
            for p in d["info"]["participants"]}
+    res["_q"] = d["info"].get("queueId", 0)      # queue id, so aggregates can filter SR-only
     try:
         json.dump(res, open(fp, "w"))
     except Exception:
