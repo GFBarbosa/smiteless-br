@@ -29,7 +29,11 @@ overlay** — a live, always-on-top window that polls the League client/API dire
 updates **in place** as champ-select picks come in and the game progresses. It auto-opens
 when a match starts and never steals focus from the game.
 
-![Smiteless overlay](docs/overlay-v2.png)
+![The in-game scoreboard](docs/board.png)
+
+| Champ select (docks left of the client) | The home / profile page |
+|:---:|:---:|
+| ![Champ select panel](docs/champselect.png) | ![Profile](docs/profile.png) |
 
 The overlay has:
 
@@ -66,18 +70,21 @@ The overlay has:
 8. **Home / profile page** — open outside a game and you get a dedicated profile window with
    a fixed top section + scroll-only match history, in-card **Load more**, expandable game
    details, and click-through full review panels.
-9. **Post-game review engine** — each recent game gets role/champion-aware review notes from
-   deaths, KP, damage share, objective participation (plus farm/vision/lane pressure context);
-   **A/S** games switch to positive "what you did well" notes.
+9. **Post-game review engine** — each recent game gets notes from a **role-specific stat
+   pool** with champion-archetype flavor: supports are judged on vision/peel/KP (never
+   CS/min), junglers on objectives/pathing/smite tempo, laners on farm/damage/lane pressure —
+   and the win-condition line blends archetype × role ("assassin mid: shove, then look for
+   picks in fog"). **A/S** games switch to positive "what you did well" notes.
 10. **Per-game score** — graded against your **role's own benchmarks** (KDA, kill
     participation, damage, objectives, CS, vision, deaths), **never against the lobby** — the
     same game scores the same no matter how the other nine did, so a hard-carry loss still
     scores high. Grades: **S = 100+**, **A = 85–99**, **B = 70–84**, **C = 55–69**, **D < 55**.
-11. **Champ-select helpers** — "Good this game" suggested champions rail, one-click
-    **Import runes + summs** in the build block, Flash key preference support, and a
-    **draft-intel band**: **good bans** (your champ's hardest counters, weighted by how
-    strong they are this patch), the lobby's **bans** as they happen, and **enemy picks**
-    where the queue reveals them.
+11. **Champ-select helpers** — by default a **tall panel that docks LEFT of the League
+    client** (moving the client right if needed, and back afterwards): runes, the core build
+    as item icons, one-click **Import runes + summs**, "Good this game" suggested picks,
+    **good bans** (your champ's hardest counters, weighted by how strong they are this
+    patch), the lobby's **bans** as they happen, and your team with role chips. Flash key
+    preference supported; a Settings toggle restores the classic wide board.
 12. **Queue read** — in-game winners/losers/even queue prediction from team-vs-enemy recent
     WR, excluding your own account and detected duo from ally averaging.
 13. **Live game intel** (in the item widget) — a transparent **win read** (logistic on net
@@ -93,7 +100,9 @@ The overlay has:
     call — the enemy lane that's alive and 2+ levels down right now.
 17. **Shareable profile card** — a **Save card** button on the profile exports it as a PNG.
 18. **Profile stats** — averages strip (KDA, kill participation, CS/min, damage share), role
-    split, per-champ average score, and per-game CS/min · KP · duration on every row.
+    split, per-game CS/min (vision/min for supports) · KP · duration on every row, and
+    **TOP CHAMPIONS across THIS SEASON** (all your season's SR games, filled in the
+    background), which also feeds the pool coach.
 19. **Any player's profile** — a **search box** (Name#TAG) on the profile window, and every
     player name in an expanded game is **clickable** to open *their* profile (same scoring,
     same match history), with a **← my profile** button to come back.
@@ -117,10 +126,10 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
 
 - **Lives in your system tray.** A tray icon with a right-click menu: **Open overlay**,
   **Item widget**, **Settings**, **Auto-open at champ select** (toggle), **Reload**, **Exit**.
-- **Auto-opens at champ select** and **fills in live** as picks lock — your team on the
-  left, your full rune page + build (and skill order) on the right (enemies are hidden in
-  champ select). At the loading screen / in-game it transitions to the full scoreboard,
-  matchups, gank tags, the player scout, and duo markers — all updating in the same window.
+- **Auto-opens at champ select** and **fills in live** as picks lock — the docked panel
+  (runes, build, picks, bans) sits beside the client and updates as the draft happens. At
+  the loading screen / in-game it transitions to the full scoreboard, matchups, gank tags,
+  the player scout, and duo markers — all updating in the same window.
 - **Profile auto-opens after the game** (on your **second monitor** if you have one) so
   recent-game review is immediately visible, and the in-game board closes itself promptly so
   it doesn't linger over the post-game screen.
@@ -136,6 +145,9 @@ Everything that states a number traces to a real source (op.gg, the Riot API, or
   closes it; it **auto-closes** shortly after the match ends so the next game is fresh.
 - **Updates**: startup auto-apply attempt + periodic background checks; tray notifies when a
   newer release exists.
+- **Riot key freshness check on launch** — if your saved (daily dev) key has expired, a small
+  prompt opens to paste a fresh one: Get key → Paste → Save. Silent when the key is fine or
+  the scout was never set up.
 - **Never steals focus** (`WS_EX_NOACTIVATE`) — opens on your second monitor if you have one.
 - Run League in **Borderless** so the overlay renders over the game (fullscreen-exclusive
   hides all overlays — same requirement as Blitz/Porofessor).
@@ -165,6 +177,7 @@ overlay re-reads it every frame, so gank tags update within a few seconds.
 - **Dragon spawn audio** — the 45/30/15s ocarina chime before a drake spawns.
 - **Dragon spawn volume** — slider, 0 (silent) to 100, for that chime (applies next game).
 - **Dodge alerts** — the champ-select "consider dodging" banner.
+- **Dock champ-select panel by client** — the tall docked panel (off = classic wide board).
 - **Flash key preference** — slider: left = Flash on D, right = Flash on F (applied on import).
 - **Start with Windows** — adds/removes a registry Run key so the tray launches at login.
 
@@ -302,6 +315,8 @@ had to change when the files moved into folders.
   `pystray` icon + native Win32 hotkey + watcher + a "Start with Windows" registry toggle.
 - `tools/selftest.py` — `python tools/selftest.py` health-checks every dependency (Pillow,
   Data Dragon, op.gg, Riot key, claude CLI, LCU) and tells you what's working at a glance.
+- `tools/smitestats.py` — the **Usage stats** window (installs ≈ GitHub release download counts).
+- `tools/smitekeycheck.py` — the on-launch expired-key prompt.
 
 **root**
 - `smiteless.ahk` — the persistent **tray app** (AutoHotkey, default): tray icon + right-click
