@@ -18,6 +18,7 @@ import lolbuild as lb
 import lolgame as lg
 import lolscout as ls
 import lolmatchup as lm
+import lollive as ll
 import lolprofile as lp
 import phasecheck
 import smiteconfig as cfg
@@ -33,9 +34,11 @@ BLUE = (45, 108, 181); RED = (181, 64, 74)
 ALLY_BG = (22, 29, 42); ENEMY_BG = (40, 24, 28)
 GREEN = (95, 196, 122); REDWR = (224, 100, 108); TAN = (203, 196, 150)
 WSQ = (86, 184, 112); LSQ = (201, 85, 96)
-GANK = {"GANK": ((34, 74, 47), (122, 214, 146)),
+GANK = {"BEST": ((28, 82, 46), (150, 240, 168)),
+        "GANK": ((34, 74, 47), (122, 214, 146)),
         "EVEN": ((58, 52, 24), (214, 185, 74)),
-        "TOUGH": ((78, 36, 41), (228, 130, 130))}
+        "TOUGH": ((78, 36, 41), (228, 130, 130)),
+        "AVOID": ((88, 26, 32), (240, 110, 110))}
 ROLES = [("top", "top"), ("jungle", "jg"), ("mid", "mid"), ("adc", "adc"), ("support", "sup")]
 LANE_MACRO = {
     "top": "Lane: freeze when ahead, shove + TP/roam with prio.   After: splitpush a side lane, draw pressure, TP to fights.",
@@ -475,6 +478,20 @@ def gank_score(ally_wr, e_n, e_w, e_cg, e_cw, e_form=None, self_kit=0.0):
 
 def gank_label(score):
     return "GANK" if score >= GANK_T else ("TOUGH" if score <= -GANK_T else "EVEN")
+
+
+def rank_gank_labels(scores):
+    """{role: label} with RELATIVE forcing: with 2+ scored lanes, SOMEONE is always the
+    strong side (BEST) and someone the weak side (AVOID) - ganking is a comparison, not an
+    absolute. Lanes in between keep their absolute GANK/EVEN/TOUGH labels."""
+    out = {r: gank_label(s) for r, s in scores.items()}
+    if len(scores) >= 2:
+        best = max(scores, key=scores.get)
+        worst = min(scores, key=scores.get)
+        if best != worst:
+            out[best] = "BEST"
+            out[worst] = "AVOID"
+    return out
 
 
 def queue_prediction(my_cid, scout_map, duo_map):
@@ -1102,7 +1119,8 @@ def _wr_line(d, x, y, sc, anchor, live=True):
 
 def draw_badge(d, cx, y, rating):
     bg, fg = GANK[rating]
-    label = {"GANK": "gank", "EVEN": "even", "TOUGH": "tough"}[rating]
+    label = {"BEST": "★ gank", "GANK": "gank", "EVEN": "even",
+             "TOUGH": "tough", "AVOID": "avoid"}[rating]
     f = font(11, 1)
     half = d.textlength(label, font=f) / 2 + 8
     d.rounded_rectangle([cx - half, y, cx + half, y + 17], radius=8, fill=bg)
@@ -1206,6 +1224,15 @@ def draw_build_block(d, img, dd, x, y, build, hits=None):
     d.text((bx + (bw // 2), by + (bh // 2) + 1), "Import runes + summs", font=font(10, 1), fill=TEXT, anchor="mm")
     if hits is not None:
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
+    _auto_chip(d, bx + bw + 8, by + 3, cfg_load_auto(), hits)
+
+
+def cfg_load_auto():
+    try:
+        import smiteconfig as _cfg
+        return bool(_cfg.load().get("auto_import", False))
+    except Exception:
+        return False
 
 
 def _profile_url(riot_id):
@@ -1426,8 +1453,23 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
 VW = 384                 # width of the vertical (docked) champ-select panel
 
 
+def _auto_chip(d, x, y, on, hits):
+    """The AUTO toggle drawn beside the import button; clicking flips cfg.auto_import."""
+    label = "AUTO ✓" if on else "AUTO"
+    f = font(9, 1)
+    w = int(d.textlength(label, font=f)) + 18
+    fill = (34, 64, 46) if on else (30, 34, 46)
+    edge = (95, 200, 126) if on else PEDGE
+    _rrect(d, (x, y, x + w, y + 22), 7, fill=fill, outline=edge, width=1)
+    d.text((x + 9, y + 5), label, font=f, fill=(150, 220, 170) if on else MUTED)
+    if hits is not None:
+        hits.append((x, y, x + w, y + 22, "action:toggle_auto_import"))
+    return w
+
+
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
-                       enemy_picks=None, ban_ideas=None, dodge=None):
+                       enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
+                       note=None):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
@@ -1493,6 +1535,9 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         _rrect(d, (bx, by, bx + bw, by + bh), 7, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
         d.text((bx + bw // 2, by + bh // 2), "Import runes + summs", font=font(9, 1), fill=TEXT, anchor="mm")
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
+        aw = _auto_chip(d, bx + bw + 8, by, auto_import, hits)
+        if note:
+            d.text((bx + bw + 8 + aw + 8, by + 5), note, font=font(9), fill=GREEN)
         y += card_h + 10
     else:
         d.text((20, y + 6), "lock or hover a champ for runes + build", font=font(11), fill=MUTED)
@@ -1578,7 +1623,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     return out
 
 
-def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None, bans=None, enemy_picks=None, ban_ideas=None):
+def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None, bans=None, enemy_picks=None, ban_ideas=None, live_gank=None):
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
@@ -1643,6 +1688,22 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         d.text((cxc, 80), txt, font=bf, fill=(240, 150, 150), anchor="mm")
     if champ_select and build:
         draw_build_block(d, img, dd, cxc + 50, TOP + 16, build, hits=hits)
+    # gank scores for every enemy lane FIRST, so labels can be RELATIVE (someone is always
+    # the strong side, someone the weak side) and shifted by the live game state.
+    glabels = {}
+    if roles_known and not champ_select:
+        gscores = {}
+        for role, _lbl in ROLES:
+            e_cid = enemy_role.get(role)
+            if not e_cid or role == my_role:
+                continue
+            es = scout_map.get((e_cid, False))
+            a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
+            s = gank_score(lanes.get(role), *a, self_kit=my_kit)
+            if live_gank:
+                s += float(live_gank.get(role, 0.0))
+            gscores[role] = s
+        glabels = rank_gank_labels(gscores)
     for i, (role, lbl) in enumerate(ROLES):
         y = TOP + i * ROWH
         a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
@@ -1661,12 +1722,10 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
             _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)], "R")
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
-            if role == my_role or not e_cid:
-                d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
+            if role in glabels:
+                draw_badge(d, cxc, y + 25, glabels[role])
             else:
-                es = scout_map.get((e_cid, False))
-                a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
-                draw_badge(d, cxc, y + 25, gank_label(gank_score(lanes.get(role), *a, self_kit=my_kit)))
+                d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
         elif champ_select:
             cf = font(9, 1)
             cw_ = d.textlength(lbl.upper(), font=cf)
@@ -1695,7 +1754,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16 + xoff, ly), "rank · L10 W/L · mastery · ● duo = premade   |   gank = matchup + enemy form/streak + YOUR champ's kit   |   click → u.gg",
+    d.text((16 + xoff, ly), "rank · L10 W/L · mastery · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live: deaths + levels shift it)   |   click → u.gg",
            font=font(11), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
@@ -1759,6 +1818,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     deadline = time.time() + 420          # cap the pre-game wait (champ select + loading)
     build = None
     build_cid = 0
+    auto_done = 0                         # champ we already auto-imported for (once per lock)
+    auto_note = None                      # "auto-imported ✓" note shown on the panel
     last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
     shown = False                         # have we rendered a real session (champ select / game)?
     inactive = 0                          # consecutive reads with the client out of an active phase
@@ -1806,9 +1867,22 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     continue
                 bans_my = info.get("bans_my") or []
                 bans_their = info.get("bans_their") or []
+                # AUTO-IMPORT: the moment the champ is LOCKED (not hovered), push runes+summs
+                # once. A different lock (re-pick) imports again; failures show on the panel.
+                if (settings.get("auto_import", False) and info.get("locked")
+                        and my_cid and build and auto_done != my_cid):
+                    auto_done = my_cid
+                    try:
+                        import lolimport as limp
+                        limp.import_build(dd, my_cid, my_role, build)
+                        auto_note = "auto-imported ✓"
+                    except Exception as e:
+                        auto_note = f"auto-import failed: {str(e)[:38]}"
+                    last_cs_sig = None            # re-render with the note
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
-                       tuple(bans_my), tuple(bans_their))
+                       tuple(bans_my), tuple(bans_their),
+                       bool(settings.get("auto_import", False)), auto_note)
                 if sig != last_cs_sig:
                     ally_ids = [c for c, _ in allies if c]
                     enemy_ids = [c for c, _ in enemies if c]
@@ -1822,7 +1896,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         # and nudges the client right if there's no room)
                         emit(render_cs_vertical(dd, my_cid, my_role, allies, build,
                              suggestions=sugg, bans=(bans_my, bans_their),
-                             enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge))
+                             enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
+                             auto_import=bool(settings.get("auto_import", False)),
+                             note=auto_note))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",
@@ -1851,9 +1927,11 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         tips_on = settings.get("matchup_tips", True)
         tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
                                       my_role, patch) if (tips_on and opp_cid) else None)}
+        live_box = {"adj": None}                      # live gank adjustments (evolves in-game)
+
         def paint(note=""):
             emit(render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
-                 src, note, lane_tip=tip_box["tip"]))
+                 src, note, lane_tip=tip_box["tip"], live_gank=live_box["adj"]))
 
         paint()
         # Generate the matchup tip in the BACKGROUND (web search, ~60-120s) so it never
@@ -1892,6 +1970,17 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             ph = phasecheck.phase()
             if ph in ("InProgress", "GameStart", "Reconnect"):
                 miss = blip = 0                       # still in this game
+                # LIVE gank shift: strong/weak side follows the game state (deaths, level
+                # deficits, deaths-in-progress). Repaint only when the read actually moves.
+                try:
+                    raw = lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata",
+                                  timeout=2, insecure=True)
+                    adj = ll.lane_live_adj(dd, raw, ally_role, enemy_role)
+                    if adj and adj != live_box["adj"]:
+                        live_box["adj"] = adj
+                        paint()
+                except Exception:
+                    pass
                 continue
             if ph == "ChampSelect":                   # a NEW champ select -> refresh, don't close
                 restart = True
@@ -1907,6 +1996,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         if not restart:
             return                                    # stop() requested -> close
         build_cid, last_cs_sig = 0, None              # re-render fresh for the new champ select
+        auto_done, auto_note = 0, None
         continue
 
 

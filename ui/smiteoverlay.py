@@ -296,6 +296,7 @@ def main():
             try:
                 import lolbuild as lb
                 import lolgame as lg
+                import lolimport as limp
                 dd = lb.ddragon()
                 info, err = lg.resolve(dd)
                 if err:
@@ -304,52 +305,8 @@ def main():
                     raise RuntimeError("import works in champ select only")
                 cid = info.get("my") or 0
                 role = info.get("pos") or "jungle"
-                if not cid:
-                    raise RuntimeError("lock a champion first")
                 build = sc.build_data(dd, cid, role)
-                if not build:
-                    raise RuntimeError("no op.gg build for this champ/role yet")
-                perks = (build.get("primary_ids") or []) + (build.get("secondary_ids") or []) + (build.get("stat_mod_ids") or [])
-                if len(perks) < 9:
-                    raise RuntimeError("rune data incomplete")
-                page = {
-                    "name": f"Smiteless {dd['id2name'].get(cid, 'Champ')} {role.title()}",
-                    "primaryStyleId": int(build.get("primary_page_id") or 0),
-                    "subStyleId": int(build.get("secondary_page_id") or 0),
-                    "selectedPerkIds": [int(x) for x in perks[:9]],
-                    "current": True,
-                }
-                try:
-                    _lcu_json("POST", "/lol-perks/v1/pages", page)
-                except Exception:
-                    pages = _lcu_json("GET", "/lol-perks/v1/pages") or []
-                    editable = [p for p in pages if p.get("isEditable", True)]
-                    target = None
-                    for p in editable:
-                        if (p.get("name") or "").startswith("Smiteless "):
-                            target = p
-                            break
-                    if target is None:
-                        target = next((p for p in editable if p.get("current")), None)
-                    if target is None and editable:
-                        target = editable[0]
-                    if not target or not target.get("id"):
-                        raise RuntimeError("rune page limit reached and no editable page is available")
-                    up = dict(page)
-                    up["id"] = int(target["id"])
-                    _lcu_json("PUT", f"/lol-perks/v1/pages/{int(target['id'])}", up)
-                sums = build.get("summoner_ids") or []
-                if len(sums) >= 2:
-                    s1, s2 = int(sums[0]), int(sums[1])
-                    flash_on_d = cfg.load().get("flash_on_d", True)
-                    if 4 in (s1, s2):
-                        if flash_on_d and s2 == 4:
-                            s1, s2 = s2, s1
-                        if (not flash_on_d) and s1 == 4:
-                            s1, s2 = s2, s1
-                    _lcu_json("PATCH", "/lol-champ-select/v1/session/my-selection",
-                              {"spell1Id": s1, "spell2Id": s2})
-                msg = f"imported for {dd['id2name'].get(cid, '?')} ({role})"
+                msg = limp.import_build(dd, cid, role, build)
                 root.after(0, lambda: status.config(text=msg, fg=GREEN))
             except Exception as e:
                 root.after(0, lambda: status.config(text=f"import failed: {e}", fg=RED))
@@ -458,6 +415,12 @@ def main():
                     if isinstance(url, str) and url.startswith("action:"):
                         if url == "action:import_build":
                             import_build()
+                        elif url == "action:toggle_auto_import":
+                            s = cfg.load()
+                            s["auto_import"] = not s.get("auto_import", False)
+                            cfg.save(s)
+                            status.config(text=f"auto-import {'ON — runes+summs apply on lock' if s['auto_import'] else 'off'}",
+                                          fg=GREEN if s["auto_import"] else MUTED)
                     else:
                         webbrowser.open(url)
                     break

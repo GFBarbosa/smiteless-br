@@ -408,6 +408,35 @@ def _jg_callog(gt, cs):
 _TRACKER = JgTracker()
 
 
+def lane_live_adj(dd, data, ally_role, enemy_role):
+    """{role: score_adjustment} for the gank ratings from the CURRENT game state, so the
+    strong/weak side shifts as the game evolves: an enemy lane that's dying, levels behind
+    its counterpart, or literally dead right now becomes the gank side; a fed one stops
+    being one. Champs are matched by name->cid, so it works even when the live client
+    reports no positions."""
+    players = data.get("allPlayers") or []
+    by_cid = {}
+    for p in players:
+        cid = dd["name2id"].get(dd["norm"](p.get("championName", ""))) or 0
+        if cid and cid not in by_cid:
+            by_cid[cid] = p
+    out = {}
+    for role, e_cid in (enemy_role or {}).items():
+        ep = by_cid.get(e_cid)
+        if not ep:
+            continue
+        adj = 0.0
+        sc_ = ep.get("scores") or {}
+        adj += (int(sc_.get("deaths", 0) or 0) - int(sc_.get("kills", 0) or 0)) * 1.2
+        ap = by_cid.get((ally_role or {}).get(role))
+        if ap:
+            adj += (int(ap.get("level", 1) or 1) - int(ep.get("level", 1) or 1)) * 1.8
+        if ep.get("isDead"):
+            adj += 5.0                             # dead RIGHT NOW: free lane pressure
+        out[role] = round(adj, 1)
+    return out
+
+
 GANK_LVL_GAP = 2           # enemy this many levels behind their lane = a gank window
 
 

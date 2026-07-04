@@ -133,6 +133,7 @@ def main():
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
+    autoimp = tk.BooleanVar(value=s.get("auto_import", False))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
@@ -145,6 +146,7 @@ def main():
     _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
+    _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
     _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
@@ -260,6 +262,7 @@ def main():
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
+                  "auto_import": autoimp.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())

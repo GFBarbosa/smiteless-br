@@ -113,6 +113,7 @@ def _from_champ_select(dd):
     save_role(my, pos)
     return dict(my=my, pos=pos, allies=allies, enemies=enemies,
                 bans_my=bans_my, bans_their=bans_their,
+                locked=bool(mine.get("championId", 0)),   # locked in, not just hovering
                 phase="ChampSelect", source="champ select")
 
 
