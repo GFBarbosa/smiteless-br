@@ -10,6 +10,9 @@ import os, shutil, subprocess, tempfile
 
 MODEL = "sonnet"      # quality model for the guide/tips
 TIMEOUT = 120         # generous default; callers can override (e.g. web-search tips use 170)
+# Never flash a console: from the windowed (frozen) app, spawning a console subprocess pops
+# a blank "claude" terminal on the loading screen. CREATE_NO_WINDOW keeps it invisible.
+_NO_WINDOW = 0x08000000
 
 
 def find_claude():
@@ -35,13 +38,15 @@ def call_claude(prompt, allow_tools=None, timeout=None, model=None):
         p = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace", cwd=tempfile.gettempdir(),
+            creationflags=_NO_WINDOW,
         )
     except (FileNotFoundError, OSError) as e:
         return None, f"couldn't launch claude ({e})"
     try:
         out, err = p.communicate(input=prompt, timeout=(timeout or TIMEOUT))
     except subprocess.TimeoutExpired:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True,
+                       creationflags=_NO_WINDOW)
         try:
             p.communicate(timeout=5)
         except Exception:

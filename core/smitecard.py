@@ -213,6 +213,43 @@ def get_item_icon(dd, iid, size):
         return None
 
 
+_FACES = {}             # cid -> (fx, fy) normalized face center in the splash (or None)
+_FACES_LOADED = False
+
+
+def _faces_path():
+    return os.path.join(ICONCACHE, "faces.json")
+
+
+def _face_center(dd, cid, splash):
+    """Face center for banner cropping: template-match the champ's icon (Riot's own face
+    crop) inside the splash once, then disk-cache forever. None -> caller's fixed bias."""
+    global _FACES_LOADED
+    if not _FACES_LOADED:
+        _FACES_LOADED = True
+        try:
+            _FACES.update({int(k): (tuple(v) if v else None)
+                           for k, v in json.load(open(_faces_path(), encoding="utf-8")).items()})
+        except Exception:
+            pass
+    if cid in _FACES:
+        return _FACES[cid]
+    try:
+        import lolvision as lv
+        icon = get_icon(dd, cid, 96)
+        face = lv.find_face(splash, icon) if icon else None
+    except Exception:
+        face = None
+    _FACES[cid] = face
+    try:
+        os.makedirs(ICONCACHE, exist_ok=True)
+        json.dump({str(k): (list(v) if v else None) for k, v in _FACES.items()},
+                  open(_faces_path(), "w", encoding="utf-8"))
+    except Exception:
+        pass
+    return face
+
+
 def get_splash(dd, cid, size):
     ck = (cid, size)
     if ck in _SPLASH:
@@ -243,14 +280,21 @@ def get_splash(dd, cid, size):
         _SPLASH_RAW[cid] = base
     try:
         tw, th = size
-        im = _SPLASH_RAW[cid].copy()
+        base = _SPLASH_RAW[cid]
+        face = _face_center(dd, cid, base)         # (fx, fy) or None
+        im = base.copy()
         sw, sh = im.size
         scale = max(float(tw) / max(1, sw), float(th) / max(1, sh))
         rw, rh = max(1, int(sw * scale)), max(1, int(sh * scale))
         im = im.resize((rw, rh), Image.LANCZOS)
-        x0 = (rw - tw) // 2
-        # Bias crop slightly upward so faces (usually upper-half) stay in frame.
-        y0 = int(max(0, min(rh - th, (rh - th) * 0.22)))
+        if face:
+            # center the crop on the FACE (slightly above center vertically - portraits
+            # read better with headroom), clamped to the art bounds
+            x0 = int(max(0, min(rw - tw, face[0] * rw - tw * 0.5)))
+            y0 = int(max(0, min(rh - th, face[1] * rh - th * 0.42)))
+        else:
+            x0 = (rw - tw) // 2
+            y0 = int(max(0, min(rh - th, (rh - th) * 0.22)))   # old fixed upper-bias fallback
         im = im.crop((x0, y0, x0 + tw, y0 + th))
         _SPLASH[ck] = im
         return im
