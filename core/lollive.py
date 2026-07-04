@@ -10,6 +10,7 @@ Three reads off a single /liveclientdata/allgamedata fetch:
 
 All timings are Season-16 (2026) defaults and live at the top so they're trivial to dial in.
 """
+import os
 import lolbuild as lb
 import lolgame as lg
 
@@ -218,11 +219,56 @@ def _is_jungler(p):
     return False
 
 
+_TURRET_LANE = {"L": "topside", "C": "mid", "R": "botside"}
+
+
+def _jg_events(data, jg_g):
+    """Newest event the jungler took part in -> (event_gt, side, what) or None. Sources:
+    drake = botside; grubs/herald/baron = topside; tower kills = the tower's own lane
+    (parsed from the turret name); champion kills = the victim's lane; their own death."""
+    pos_of = {}
+    for p in (data.get("allPlayers") or []):
+        pos_of[lg._gname(p.get("riotId") or p.get("summonerName") or "")] = (p.get("position") or "").upper()
+    best = None
+    for e in _events(data):
+        t, n = e.get("EventTime"), e.get("EventName")
+        if t is None:
+            continue
+        involved = [e.get("KillerName", ""), e.get("VictimName", "")] + list(e.get("Assisters") or [])
+        if jg_g not in (lg._gname(x) for x in involved if x):
+            continue
+        if n == "DragonKill":
+            side, what = "botside", "drake"
+        elif n == "HordeKill":
+            side, what = "topside", "grubs"
+        elif n == "RiftHeraldKill":
+            side, what = "topside", "herald"
+        elif n == "BaronKill":
+            side, what = "topside", "baron"
+        elif n == "TurretKilled":
+            tn = e.get("TurretKilled") or ""
+            lane = next((_TURRET_LANE[c] for c in ("L", "C", "R") if f"_{c}_" in tn), None)
+            if not lane:
+                continue
+            side, what = lane, "tower"
+        elif n == "ChampionKill":
+            victim = lg._gname(e.get("VictimName") or "")
+            if victim == jg_g:                    # the jungler DIED - that's a timer, not a sighting
+                side, what = "dead", "died"
+            else:
+                side = _JG_SIDE.get(pos_of.get(victim, ""), "a fight")
+                what = "kill"
+        else:
+            continue
+        if best is None or t > best[0]:
+            best = (t, side, what)
+    return best
+
+
 def jungle_read(dd, data):
-    """Where the enemy jungler was LAST SEEN, inferred from the events they took part in:
-    drake = botside, grubs/herald/baron = topside, champion kills = the victim's lane side.
-    The Live Client has no positions, but its event feed names everyone involved - which is
-    exactly the info a jungler tracks by hand. Returns {champ, side, what, ago} or None."""
+    """Where the enemy jungler was LAST SEEN, from the events they took part in.
+    Returns {champ, side, what, ago} or None. (The stateful tracker below supersedes this
+    in the widget; kept as the simple one-shot read.)"""
     split = _team_split(data)
     if not split:
         return None
@@ -234,36 +280,7 @@ def jungle_read(dd, data):
     if not jg_name:
         return None
     gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
-    pos_of = {}
-    for p in (data.get("allPlayers") or []):
-        pos_of[lg._gname(p.get("riotId") or p.get("summonerName") or "")] = (p.get("position") or "").upper()
-    best = None                                   # (event_time, side, what)
-    for e in _events(data):
-        t, n = e.get("EventTime"), e.get("EventName")
-        if t is None:
-            continue
-        involved = [e.get("KillerName", ""), e.get("VictimName", "")] + list(e.get("Assisters") or [])
-        if jg_name not in (lg._gname(x) for x in involved if x):
-            continue
-        if n == "DragonKill":
-            side, what = "botside", "drake"
-        elif n == "HordeKill":
-            side, what = "topside", "grubs"
-        elif n == "RiftHeraldKill":
-            side, what = "topside", "herald"
-        elif n == "BaronKill":
-            side, what = "topside", "baron"
-        elif n == "ChampionKill":
-            victim = lg._gname(e.get("VictimName") or "")
-            if victim == jg_name:                 # the jungler DIED - that's a timer, not a sighting
-                side, what = "dead", "died"
-            else:
-                side = _JG_SIDE.get(pos_of.get(victim, ""), "a fight")
-                what = "kill"
-        else:
-            continue
-        if best is None or t > best[0]:
-            best = (t, side, what)
+    best = _jg_events(data, jg_name)
     champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](jg.get("championName", "")), 0),
                               jg.get("championName", "?"))
     if best is None:
@@ -275,6 +292,120 @@ def jungle_read(dd, data):
                 "stale": True, "enemy_team": jg.get("team", "")}
     return {"champ": champ, "side": best[1], "what": best[2], "ago": ago,
             "stale": ago > JG_FRESH, "enemy_team": jg.get("team", "")}
+
+
+class JgTracker:
+    """Stateful enemy-jungler tracker: gives a definite state EVERY tick, not just when an
+    event happens. Knowledge sources, all fog-safe to claim:
+      - events (kills/objectives/towers)     -> SEEN <side>
+      - their death + respawnTimer           -> DEAD, back in Xs
+      - creepScore ticking up                -> farm registered (if the API vision-gates enemy
+        CS, a tick also implies they were just seen - either way: benign)
+      - CS frozen while alive, no events     -> NO SIGN for Xs (in fog / on the move) - the
+        actionable 'respect the gank' state, valid whether or not CS leaks through fog.
+    Identity is sticky for the whole game; a gameTime reset (new game) clears it."""
+    SEEN_FRESH = 25        # an event this recent is a live sighting
+    SIGN_WINDOW = 35       # a cs tick within this = 'farm registered'
+    WARN_AFTER = 45        # alive + nothing for this long -> warning state
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.gname = None
+        self.champ = "?"
+        self.last_gt = 0.0
+        self.cs = None
+        self.cs_gt = None          # game-time of the last observed cs increase
+        self.seen = None           # newest (event_gt, side, what)
+        self.dead = False
+        self.respawn = 0
+        self.was_dead = False
+
+    def update(self, dd, data):
+        gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
+        if gt + 30 < self.last_gt:                # gameTime went backwards -> a NEW game
+            self.reset()
+        self.last_gt = max(self.last_gt, gt)
+        split = _team_split(data)
+        if not split:
+            return self._status(gt)               # partial payload -> hold current knowledge
+        _me, _allies, enemies, _t = split
+        jg = None
+        if self.gname:                            # sticky identity: same jungler all game
+            jg = next((p for p in enemies
+                       if lg._gname(p.get("riotId") or p.get("summonerName") or "") == self.gname), None)
+        if jg is None:
+            jg = next((p for p in enemies if _is_jungler(p)), None)
+            if jg is not None:
+                self.gname = lg._gname(jg.get("riotId") or jg.get("summonerName") or "")
+                self.champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](jg.get("championName", "")), 0),
+                                               jg.get("championName", "?"))
+        if jg is None:
+            return self._status(gt)
+        cs = int((jg.get("scores") or {}).get("creepScore", 0) or 0)
+        if self.cs is None or cs > self.cs:
+            if self.cs is not None:
+                _jg_callog(gt, cs)                # calibration: does enemy CS move in fog?
+            self.cs, self.cs_gt = cs, gt
+        self.dead = bool(jg.get("isDead"))
+        self.respawn = int(float(jg.get("respawnTimer") or 0))
+        if self.was_dead and not self.dead:       # just respawned: they're AT BASE, a known spot
+            self.seen = (gt, "their base", "respawned")   # restarts the no-sign clock too
+        self.was_dead = self.dead
+        s = _jg_events(data, self.gname)
+        if s and (self.seen is None or s[0] > self.seen[0]):
+            self.seen = s
+        return self._status(gt)
+
+    def _status(self, gt):
+        if not self.gname:
+            return None
+        last_side = self.seen[1] if (self.seen and self.seen[1] != "dead") else None
+        last_ago = int(gt - self.seen[0]) if self.seen else None
+        out = {"champ": self.champ, "state": "unknown", "side": None, "what": None,
+               "ago": None, "idle": None, "respawn": 0,
+               "last_side": last_side, "last_ago": last_ago,
+               # legacy fields so older render paths keep working
+               "stale": True, "enemy_team": ""}
+        if self.dead:
+            out.update(state="dead", respawn=self.respawn)
+            return out
+        if self.seen and gt - self.seen[0] <= self.SEEN_FRESH and self.seen[1] != "dead":
+            out.update(state="seen", side=self.seen[1], what=self.seen[2],
+                       ago=int(gt - self.seen[0]), stale=False)
+            return out
+        acts = [x for x in (self.cs_gt, self.seen[0] if self.seen else None) if x is not None]
+        if not acts:
+            return out
+        idle = int(gt - max(acts))
+        out["idle"] = idle
+        if self.cs_gt is not None and gt - self.cs_gt <= self.SIGN_WINDOW:
+            out["state"] = "farming"
+        elif idle >= self.WARN_AFTER:
+            out["state"] = "nosign"
+        else:
+            out["state"] = "moving"
+        return out
+
+
+_CALLOG = os.path.expanduser("~/.claude/cache/smiteless_jgcal.jsonl")
+
+
+def _jg_callog(gt, cs):
+    """Log enemy-jungler cs ticks so we can find out empirically whether the live API
+    vision-gates enemy CS (smooth camp-sized ticks = it leaks; big bursts after gaps = it
+    syncs on sight). Tiny, capped, local-only."""
+    try:
+        if os.path.exists(_CALLOG) and os.path.getsize(_CALLOG) > 256 * 1024:
+            os.remove(_CALLOG)
+        with open(_CALLOG, "a", encoding="utf-8") as f:
+            f.write('{"gt": %.1f, "cs": %d}\n' % (gt, cs))
+    except Exception:
+        pass
+
+
+_TRACKER = JgTracker()
 
 
 GANK_LVL_GAP = 2           # enemy this many levels behind their lane = a gank window
@@ -334,7 +465,7 @@ def pulse(dd, data=_UNSET):
     except Exception:
         wp = None
     try:
-        jg = jungle_read(dd, data)
+        jg = _TRACKER.update(dd, data)   # stateful: a definite jungler state EVERY tick
     except Exception:
         jg = None
     try:

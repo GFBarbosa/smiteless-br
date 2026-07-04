@@ -246,17 +246,35 @@ def main():
                          "bold" if o["urgent"] else "normal"), fg=col, bg=BG).pack(side="left")
         jg, gk, sp = pulse.get("jungle"), pulse.get("gank"), pulse.get("spike")
         if jg:
-            dead = jg.get("what") == "died"
-            stale = bool(jg.get("stale"))
-            if jg.get("side") is None:
-                jtxt, jcol = f"⌖ {jg['champ']}: {jg['what']}", MUTED
-            elif dead:
-                jtxt, jcol = f"⌖ {jg['champ']} DIED {jg['ago']}s ago — free map", GREEN
+            state = jg.get("state")
+            jbold = False
+            if state == "dead":
+                r = jg.get("respawn") or 0
+                jtxt = f"⌖ {jg['champ']} DEAD — back in {r}s · free map" if r else \
+                       f"⌖ {jg['champ']} DEAD — free map"
+                jcol, jbold = GREEN, True
+            elif state == "seen":
+                jtxt = f"⌖ {jg['champ']} SEEN {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago"
+                jcol, jbold = TEAL, True
+            elif state == "nosign":
+                tail = f" (last: {jg['last_side']})" if jg.get("last_side") else ""
+                jtxt = f"⌖ {jg['champ']} NO SIGN {jg['idle']}s — respect the gank{tail}"
+                jcol, jbold = RED, True
+            elif state == "farming":
+                tail = f" · last seen {jg['last_side']}" if jg.get("last_side") else ""
+                jtxt = f"⌖ {jg['champ']} farm registered{tail}"
+                jcol = MUTED
+            elif state == "moving":
+                jtxt = f"⌖ {jg['champ']} on the move ({jg.get('idle', 0)}s quiet)"
+                jcol = GOLD
+            elif jg.get("side"):                          # legacy one-shot read shape
+                jtxt = f"⌖ {jg['champ']} last seen {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago"
+                jcol = TEAL
             else:
-                jtxt = f"⌖ {jg['champ']} last seen {jg['side'].upper()} · {jg['what']} {jg['ago']}s ago"
-                jcol = MUTED if stale else TEAL
-            tk.Label(intel, text=jtxt, font=("Segoe UI", 9), fg=jcol, bg=BG,
-                     anchor="w", justify="left").pack(fill="x")
+                jtxt = f"⌖ {jg['champ']}: {jg.get('what') or 'no read yet'}"
+                jcol = MUTED
+            tk.Label(intel, text=jtxt, font=("Segoe UI Semibold", 9) if jbold else ("Segoe UI", 9),
+                     fg=jcol, bg=BG, anchor="w", justify="left").pack(fill="x")
         if gk:
             tk.Label(intel, text=f"◎ GANK: {gk['lane']} — {gk['champ']} lvl {gk['lvl']} vs {gk['vs_lvl']}",
                      font=("Segoe UI Semibold", 9), fg=GREEN, bg=BG, anchor="w").pack(fill="x")
