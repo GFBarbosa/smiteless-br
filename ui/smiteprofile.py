@@ -133,6 +133,12 @@ def main():
     savebtn.pack(side="right", padx=(0, 4), pady=7)
     savebtn.bind("<Enter>", lambda e: savebtn.config(bg=BTN_HOVER))
     savebtn.bind("<Leave>", lambda e: savebtn.config(bg=BTN))
+    refreshbtn = tk.Button(bar, text="⟳ Refresh", bg=BTN, fg=GOLD, activebackground=BTN_HOVER,
+                           activeforeground=GOLD, relief="flat", font=("Segoe UI", 9, "bold"),
+                           padx=12, pady=4, cursor="hand2", state="disabled")
+    refreshbtn.pack(side="right", padx=(0, 4), pady=7)
+    refreshbtn.bind("<Enter>", lambda e: refreshbtn.config(bg=BTN_HOVER))
+    refreshbtn.bind("<Leave>", lambda e: refreshbtn.config(bg=BTN))
 
     def _save_card():
         prof = st.get("prof")
@@ -200,6 +206,7 @@ def main():
             status.config(text=f"{len(prof['games'])} games  ·  click a game for the full breakdown")
         loadbtn.config(state="normal", text="Load more")
         savebtn.config(state="normal", command=_save_card)
+        refreshbtn.config(state="normal", text="⟳ Refresh")
         _fill_season(prof)
 
     def _fill_season(prof):
@@ -227,26 +234,30 @@ def main():
             root.after(0, apply)
         threading.Thread(target=work, daemon=True).start()
 
-    def _load(more=False):
+    def _load(more=False, force=False):
         if st["busy"]:
             return
         st["busy"] = True
         if more:
             st["count"] += 10
             loadbtn.config(text="loading…", state="disabled")
+        if force:
+            refreshbtn.config(text="⟳ …", state="disabled")
         view = st["view"]
 
         def work():
             try:
                 if view:
-                    prof = lp.build_profile(dd, count=st["count"],
+                    prof = lp.build_profile(dd, count=st["count"], force=force,
                                             riot_id=view.get("riot_id"), puuid=view.get("puuid"))
                 else:
-                    prof = lp.build_profile(dd, count=st["count"])
+                    prof = lp.build_profile(dd, count=st["count"], force=force)
             except Exception:
                 prof = None
             root.after(0, lambda: _apply(prof))
         threading.Thread(target=work, daemon=True).start()
+
+    refreshbtn.config(command=lambda: _load(force=True))
 
     def _open_view(riot_id=None, puuid=None):
         """Switch the window to another player's profile (search / clicked a name)."""
@@ -354,8 +365,46 @@ def main():
                 _render()
                 return
 
+    def _player_menu(event, riot_id, puuid):
+        """Right-click a player -> look them up anywhere / open their Smiteless profile / copy."""
+        import webbrowser
+        m = tk.Menu(root, tearoff=0, bg="#171a24", fg=TXT, activebackground=BTN_HOVER,
+                    activeforeground=TXT, bd=0, font=("Segoe UI", 9))
+        who = (riot_id or "player").split("#")[0]
+        m.add_command(label=f"{who}", state="disabled")
+        m.add_separator()
+        me = (st["prof"] or {}).get("puuid")
+        if puuid and puuid != me:
+            m.add_command(label="View on Smiteless",
+                          command=lambda: _open_view(riot_id=(riot_id or None), puuid=puuid))
+            m.add_separator()
+        for label, url in sc.site_urls(riot_id):
+            m.add_command(label=label, command=lambda u=url: webbrowser.open(u))
+        if riot_id:
+            m.add_separator()
+            m.add_command(label="Copy name",
+                          command=lambda: (root.clipboard_clear(), root.clipboard_append(riot_id),
+                                           status.config(text=f"copied {riot_id}")))
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    def _on_right(event):
+        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        for x0, y0, x1, y1, pu, nm in st["hit_players"]:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                if pu:
+                    _player_menu(event, nm, pu)
+                return
+        # right-clicking the profile owner's own art/header works too
+        if st.get("prof") and st["prof"].get("riot_id") and st["prof"]["riot_id"] != "?":
+            _player_menu(event, st["prof"]["riot_id"], st["prof"].get("puuid"))
+
     loadbtn.config(command=lambda: _load(True))
     canvas.bind("<Button-1>", _on_click)
+    canvas.bind("<Button-3>", _on_right)
+    header.bind("<Button-3>", _on_right)                   # right-click the header art too
     canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
     root.bind("<Escape>", lambda e: root.destroy())
     root.after(60, lambda: _load(False))

@@ -1235,6 +1235,10 @@ def cfg_load_auto():
         return False
 
 
+_SITE_REGION = {"na1": "na", "euw1": "euw", "eun1": "eune", "kr": "kr", "br1": "br",
+                "jp1": "jp", "oc1": "oce", "la1": "lan", "la2": "las", "tr1": "tr", "ru": "ru"}
+
+
 def _profile_url(riot_id):
     """u.gg profile URL for a 'Name#TAG' riot id, or None. (u.gg plays nicer than op.gg
     behind Cloudflare WARP.) u.gg uses the platform code directly, e.g. na1."""
@@ -1243,6 +1247,25 @@ def _profile_url(riot_id):
     region = getattr(ls, "PLATFORM", "na1")
     name, tag = riot_id.rsplit("#", 1)
     return f"https://u.gg/lol/profile/{region}/{urllib.parse.quote(name)}-{urllib.parse.quote(tag)}/overview"
+
+
+def site_urls(riot_id):
+    """[(label, url)] to look a player up across the sites, for the right-click menu.
+    Porofessor links to their LIVE game if they're in one (best 'info gathering')."""
+    if not riot_id or "#" not in riot_id:
+        return []
+    plat = getattr(ls, "PLATFORM", "na1")
+    reg = _SITE_REGION.get(plat, "na")
+    name, tag = riot_id.rsplit("#", 1)
+    q = urllib.parse.quote(name)
+    slug = f"{q}-{urllib.parse.quote(tag)}"
+    return [
+        ("u.gg", f"https://u.gg/lol/profile/{plat}/{slug}/overview"),
+        ("op.gg", f"https://op.gg/summoners/{reg}/{slug}"),
+        ("League of Graphs", f"https://www.leagueofgraphs.com/summoner/{reg}/{slug}"),
+        ("Deeplol", f"https://www.deeplol.gg/summoner/{plat}/{slug}"),
+        ("Porofessor (live game)", f"https://porofessor.gg/live/{reg}/{slug}"),
+    ]
 
 
 _PICK_CACHE = {}

@@ -431,7 +431,7 @@ def review_for_player(parts, my_puuid, dur, dd=None):
     return {"kind": ("positive" if positive else "improve"), "tips": out}
 
 
-def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
+def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False):
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,
     LP trend and the tilt nudge are self-only (they come from the local snapshot history).
@@ -451,6 +451,8 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None):
             puuid = ls.resolve_puuid(rid, key)
         if not puuid:
             return {"riot_id": rid, "error": "couldn't find that player — expired key? (check Settings)"}
+        if force:
+            ls.forget_player(puuid)            # Refresh: drop TTL'd caches so a fresh game shows
         rk = ls.rank(puuid, key)
         # ALL queues, not just ranked solo - normals/flex players have match histories too.
         # match_detail keeps only Summoner's Rift (CLASSIC) games.

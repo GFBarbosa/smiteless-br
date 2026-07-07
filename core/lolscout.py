@@ -128,6 +128,23 @@ def _get(url, key, timeout=8):
     return None                                     # exhausted retries (e.g. persistent 403) -> skip
 
 
+def forget_player(puuid, riot_id=None):
+    """Drop the TTL'd caches for ONE player (match-id list + rank + mastery) so the next
+    fetch is fresh - a just-finished game isn't in the 10-min ids cache or the 30-min rank
+    cache yet, which is what made the profile look 'not updated'. Match data is immutable,
+    so matchx/match stay cached (the new game re-fetches when its id appears)."""
+    if not puuid:
+        return
+    for kind in ("ids", "idsall", "rank", "mastery"):   # files: {puuid}.json / {puuid}_{cid}.json
+        d = os.path.join(CACHE, kind)
+        try:
+            for f in os.listdir(d):
+                if f.startswith(puuid):
+                    os.remove(os.path.join(d, f))
+        except Exception:
+            pass
+
+
 def _cache_path(kind, name):
     d = os.path.join(CACHE, kind)
     os.makedirs(d, exist_ok=True)
