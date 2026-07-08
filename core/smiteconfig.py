@@ -56,17 +56,36 @@ def load():
 
 
 def save(s):
-    clean = {}
+    # MERGE onto whatever's already on disk: only keys present in `s` are updated, everything
+    # else is preserved. Rebuilding from DEFAULTS used to mean a save that didn't carry every
+    # key (e.g. a partial update) silently reverted the rest — that's how Flash-on-D kept
+    # coming back. Missing-from-both keys fall back to their default.
+    try:
+        cur = json.load(open(PATH, encoding="utf-8"))
+        if not isinstance(cur, dict):
+            cur = {}
+    except Exception:
+        cur = {}
+    clean = dict(cur)
     for k in DEFAULTS:
-        try:
-            v = type(DEFAULTS[k])(s.get(k, DEFAULTS[k]))
-        except Exception:
-            v = DEFAULTS[k]
-        lo, hi = RANGES[k]
-        clean[k] = min(hi, max(lo, v))
+        if k in s:
+            try:
+                v = type(DEFAULTS[k])(s[k])
+            except Exception:
+                v = cur.get(k, DEFAULTS[k])
+            lo, hi = RANGES[k]
+            clean[k] = min(hi, max(lo, v))
+        elif k not in clean:
+            clean[k] = DEFAULTS[k]
     for k in BOOLS:
-        clean[k] = bool(s.get(k, BOOLS[k]))
-    clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
+        if k in s:
+            clean[k] = bool(s[k])
+        elif k not in clean:
+            clean[k] = BOOLS[k]
+    if "fav_champs" in s:
+        clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
+    elif "fav_champs" not in clean:
+        clean["fav_champs"] = []
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"

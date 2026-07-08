@@ -1154,14 +1154,70 @@ def draw_form(d, x, y, form):
         d.rectangle([cx, y, cx + sq, y + sq], fill=WSQ if win else LSQ)
 
 
+# How good is this player, this game — a grade from their scout (rank = skill, recent form,
+# comfort on the champ). S = smurf/sicko (gold glow); F = griefing / way out of depth (avoid).
+_RANK_BASE = {"IRON": 16, "BRONZE": 26, "SILVER": 36, "GOLD": 46, "PLATINUM": 56,
+              "EMERALD": 66, "DIAMOND": 78, "MASTER": 90, "GRANDMASTER": 95, "CHALLENGER": 100}
+_DIV_NUDGE = {"I": 6, "II": 4, "III": 2, "IV": 0}
+_RATE_COLOR = {"S": (236, 206, 128), "A": (95, 200, 126), "B": (120, 166, 232),
+               "C": (150, 148, 138), "D": (206, 130, 86), "F": (210, 66, 74)}
+
+
+def player_rating(sc):
+    """(grade, color) for a scouted player, or (None, None) when there's nothing to judge
+    (unranked with no recent games). Absolute-ish so a smurf in the lobby lights up gold and
+    someone tanking/way-out-of-depth goes dark."""
+    if not sc:
+        return None, None
+    r = sc.get("rank") or {}
+    tier = (r.get("tier") or "").upper()
+    n, w = sc.get("n", 0) or 0, sc.get("w", 0) or 0
+    have_rank = tier in _RANK_BASE
+    if not have_rank and n < 3:
+        return None, None
+    score = _RANK_BASE[tier] + _DIV_NUDGE.get(r.get("div", ""), 0) if have_rank else 50.0
+    if n >= 3:                                        # recent L10 winrate, weighted by sample
+        score += (w / n * 100.0 - 50.0) * (0.30 if n >= 6 else 0.18)
+    stv = _streak(sc.get("form") or [])               # hot/cold streak
+    if abs(stv) >= 3:
+        score += 4 if stv > 0 else -4
+    m = sc.get("mastery") or {}
+    cg = sc.get("cg", 0) or 0
+    if cg == 0 and not m.get("points"):
+        score -= 6                                    # first-timing this champ
+    elif (m.get("points", 0) or 0) >= 50000 or cg >= 4:
+        score += 3                                    # comfort pick
+    score = max(0.0, min(100.0, score))
+    g = ("S" if score >= 88 else "A" if score >= 76 else "B" if score >= 63
+         else "C" if score >= 49 else "D" if score >= 37 else "F")
+    return g, _RATE_COLOR[g]
+
+
+def _grade_chip(d, cx, cy, grade, col):
+    """A bold grade letter in a chip, centered on (cx, cy)."""
+    w, h = 22, 20
+    fill = tuple(int(c * 0.28) for c in col)
+    _rrect(d, (cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2), 6, fill=fill, outline=col, width=1)
+    d.text((cx, cy), grade, font=font(13, 1, grade), fill=col, anchor="mm")
+
+
 def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=True):
     if not cid:
         return
+    grade, gcol = player_rating(sc)
+    box_fill, box_edge, box_w = accent_bg, PEDGE, 1
+    if grade == "S":
+        box_edge, box_w = gcol, 2                     # banner glows gold
+    elif grade == "F":
+        box_fill, box_edge, box_w = (14, 11, 13), gcol, 2   # black-hole: dark fill, red ring
     name = dd["id2name"].get(cid, "?")
     icon = get_icon(dd, cid, 38)
     cw = 372
     if side == "L":
-        _rrect(d, (x, y + 9, x + cw, y + ROWH - 5), 9, fill=accent_bg, outline=PEDGE, width=1)
+        if box_w == 2:                                # S/F: soft outer glow ring
+            _rrect(d, (x - 2, y + 7, x + cw + 2, y + ROWH - 3), 11,
+                   outline=tuple(int(c * 0.5) for c in box_edge), width=1)
+        _rrect(d, (x, y + 9, x + cw, y + ROWH - 5), 9, fill=box_fill, outline=box_edge, width=box_w)
         d.rectangle([x, y + 16, x + 3, y + ROWH - 12], fill=accent)
         ix = x + 12
         if icon:
@@ -1171,8 +1227,13 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         _wr_line(d, tx, y + 35, sc, "la", live)
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
+        if grade:
+            _grade_chip(d, x + cw - 20, y + 21, grade, gcol)
     else:
-        _rrect(d, (x - cw, y + 9, x, y + ROWH - 5), 9, fill=accent_bg, outline=PEDGE, width=1)
+        if box_w == 2:
+            _rrect(d, (x - cw - 2, y + 7, x + 2, y + ROWH - 3), 11,
+                   outline=tuple(int(c * 0.5) for c in box_edge), width=1)
+        _rrect(d, (x - cw, y + 9, x, y + ROWH - 5), 9, fill=box_fill, outline=box_edge, width=box_w)
         d.rectangle([x - 3, y + 16, x, y + ROWH - 12], fill=accent)
         ix = x - 12 - 38
         if icon:
@@ -1182,6 +1243,8 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         _wr_line(d, tx, y + 35, sc, "ra", live)
         if sc and sc.get("form"):
             draw_form(d, x - cw + 6, y + 38, sc["form"])
+        if grade:
+            _grade_chip(d, x - cw + 20, y + 21, grade, gcol)
 
 
 def _wr_line(d, x, y, sc, anchor, live=True):
