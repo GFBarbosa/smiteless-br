@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.58
+- **Click a "Good this game" face to hover it** in champ select. It selects (hovers) the champ for you — it never locks — and the panel updates to that champ's runes and build. Handy for trying suggestions quickly.
+
 ## v0.2.57
 - **This page.** Added a **Patch notes** window (right-click the tray → Patch notes) so you can see what changed each update. It shows the notes for your installed version and pulls the very latest from GitHub when you're online.
 

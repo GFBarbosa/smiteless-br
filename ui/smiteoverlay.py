@@ -313,6 +313,21 @@ def main():
 
         threading.Thread(target=work, daemon=True).start()
 
+    def hover_pick(cid):
+        """Click a 'good this game' face -> HOVER that champ in champ select (never locks).
+        The panel then re-renders to the hovered champ (its runes/build) on its own."""
+        def work():
+            try:
+                import lolbuild as lb
+                import lolimport as limp
+                dd = lb.ddragon()
+                limp.hover_champ(cid)
+                nm = dd["id2name"].get(cid, "champ")
+                root.after(0, lambda: status.config(text=f"hovered {nm}", fg=GREEN))
+            except Exception as e:
+                root.after(0, lambda: status.config(text=f"hover failed: {e}", fg=RED))
+        threading.Thread(target=work, daemon=True).start()
+
     mkbtn("Get key ↗", open_dev_site).pack(side="left", padx=2, pady=4)
     entry = tk.Entry(bar, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
                      font=("Consolas", 8), width=30)
@@ -415,6 +430,8 @@ def main():
                     if isinstance(url, str) and url.startswith("action:"):
                         if url == "action:import_build":
                             import_build()
+                        elif url.startswith("action:pick:"):
+                            hover_pick(int(url.rsplit(":", 1)[1]))
                         elif url.startswith("action:rune:"):
                             try:
                                 sc.set_rune_idx(int(url.rsplit(":", 1)[1]))

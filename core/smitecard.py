@@ -1696,13 +1696,16 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
                 d.text((xx + 3, y + 17), str(rank_i + 1), font=font(9, 1), fill=GOLD)
             xx += 50
         y += 66
-    # suggested picks (horizontal icons)
+    # suggested picks (horizontal icons) — click a face to HOVER it in champ select (not lock)
     d.text((20, y), "GOOD THIS GAME", font=font(9, 1), fill=GOLD)
+    if suggestions:
+        d.text((VW - 12, y + 1), "click to hover", font=font(8), fill=(120, 118, 108), anchor="ra")
     xx = 20
     for cid in (suggestions or [])[:6]:
         sic = get_icon(dd, cid, 40)
         if sic:
             img.paste(sic, (xx, y + 16), sic)
+        hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
         d.text((20, y + 20), "computing…", font=font(10), fill=MUTED)

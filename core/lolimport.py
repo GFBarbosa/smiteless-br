@@ -36,6 +36,33 @@ def _lcu_json(method, path, payload=None, timeout=5):
         return {}
 
 
+def hover_champ(cid):
+    """HOVER (select, not lock) a champion in champ select via the LCU: PATCH your in-progress
+    pick action with the championId and no 'completed' flag. The client then shows it as your
+    intent, and the overlay re-renders to that champ. Returns "hovered"; raises RuntimeError
+    with a friendly message on anything expected. Never locks — that's a separate action."""
+    if not cid:
+        raise RuntimeError("no champion")
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+    except Exception:
+        raise RuntimeError("not in champ select")
+    if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
+        raise RuntimeError("not in champ select")
+    cell = sess.get("localPlayerCellId")
+    action_id = None
+    for group in (sess.get("actions") or []):
+        for a in group:
+            if (a.get("actorCellId") == cell and a.get("type") == "pick"
+                    and not a.get("completed")):
+                action_id = a.get("id")               # your current (un-locked) pick slot
+    if action_id is None:
+        raise RuntimeError("can't hover yet — wait for your turn (or you've already locked)")
+    _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+              {"championId": int(cid)})
+    return "hovered"
+
+
 def import_build(dd, cid, role, build):
     """Push `build`'s runes + summoners for cid/role into the client. Returns a status
     string; raises RuntimeError with a friendly message on anything expected."""
