@@ -37,6 +37,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 def load():
     s = dict(DEFAULTS)
     s.update(BOOLS)
+    s["fav_champs"] = []          # ordered favourite picks: ["Kha'Zix", "Ahri, mid", ...]
     try:
         raw = json.load(open(PATH, encoding="utf-8"))
         for k in DEFAULTS:
@@ -47,6 +48,8 @@ def load():
         for k in BOOLS:
             if k in raw:
                 s[k] = bool(raw[k])
+        if isinstance(raw.get("fav_champs"), list):
+            s["fav_champs"] = [str(x).strip() for x in raw["fav_champs"] if str(x).strip()][:20]
     except Exception:
         pass
     return s
@@ -63,6 +66,7 @@ def save(s):
         clean[k] = min(hi, max(lo, v))
     for k in BOOLS:
         clean[k] = bool(s.get(k, BOOLS[k]))
+    clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"

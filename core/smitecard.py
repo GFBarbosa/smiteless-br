@@ -98,7 +98,23 @@ _SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
 _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
 
 
-def font(size, bold=False):
+# Glyphs Segoe UI regular/bold don't carry -> they render as tofu boxes. Segoe UI Symbol
+# has all of them AND the same Latin, so a mixed string ("★ gank") drawn wholly in it looks
+# right (it just loses bold weight on those few short labels, which is fine).
+_SYM_MISSING = "▸▾★⚠✓⟳✚⚑◆"
+
+
+def font(size, bold=False, text=None):
+    """Segoe UI (bold optional). If `text` carries a glyph Segoe UI lacks (★ ▸ ⚠ ✓ …),
+    fall back to Segoe UI Symbol for the whole string so it doesn't render as a tofu box."""
+    if text and any(ch in _SYM_MISSING for ch in text):
+        key = ("sym", size)
+        if key not in _FONTS:
+            try:
+                _FONTS[key] = ImageFont.truetype(r"C:\Windows\Fonts\seguisym.ttf", size)
+            except Exception:
+                _FONTS[key] = font(size, bold)      # no symbol font -> at least don't crash
+        return _FONTS[key]
     key = (size, bold)
     if key not in _FONTS:
         fp = r"C:\Windows\Fonts\seguisb.ttf" if bold else r"C:\Windows\Fonts\segoeui.ttf"
@@ -305,32 +321,77 @@ def get_splash(dd, cid, size):
         return None
 
 
+_SHARD = {5008: "Adaptive", 5005: "AtkSpd", 5007: "Haste", 5011: "Health",
+          5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
+
+
+def _rune_page(dd, rp):
+    """Decode ONE op.gg rune page into the fields render + import both use."""
+    pr = rp.get("primary_rune_ids", [])
+    sr = rp.get("secondary_rune_ids", [])
+    pl, wn = rp.get("play", 0) or 0, rp.get("win", 0) or 0
+    return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
+                primary=[dd["runes"].get(i, "") for i in pr],
+                secondary=[dd["runes"].get(i, "") for i in sr],
+                primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
+                secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
+                primary_ids=pr,
+                secondary_ids=sr,
+                primary_page_id=rp.get("primary_page_id"),
+                secondary_page_id=rp.get("secondary_page_id"),
+                stat_mod_ids=rp.get("stat_mod_ids", []),
+                shards=[_SHARD.get(i, "") for i in rp.get("stat_mod_ids", [])],
+                rune_play=pl,
+                rune_wr=(wn / pl * 100) if pl else 0.0)
+
+
+# Which of the op.gg rune pages is currently selected in the champ-select panel (a click
+# on a rune-set chip changes this). Process-wide, since the overlay's click handler and its
+# render loop share this module; reset to 0 (most-played) whenever the champ changes.
+_RUNE_SEL = {"idx": 0}
+
+
+def set_rune_idx(n):
+    _RUNE_SEL["idx"] = max(0, int(n))
+
+
+def get_rune_idx():
+    return _RUNE_SEL["idx"]
+
+
+def pick_rune(build, idx=None):
+    """`build` with its rune fields set to the selected rune page (default = the current
+    selection). Non-destructive; used for BOTH the panel display and the import so the two
+    never disagree."""
+    opts = (build or {}).get("rune_options") or []
+    if not opts:
+        return build
+    i = _RUNE_SEL["idx"] if idx is None else int(idx)
+    i = max(0, min(i, len(opts) - 1))
+    b = dict(build)
+    b.update(opts[i])
+    return b
+
+
 def build_data(dd, cid, role):
-    """op.gg build/runes for a champ+role, or None on any missing/odd data (never crashes)."""
+    """op.gg build/runes for a champ+role, or None on any missing/odd data (never crashes).
+    Carries the top rune pages in `rune_options` (index 0 = most-played, the default);
+    top-level rune fields mirror option 0 so old callers keep working unchanged."""
     try:
         d = lb.opgg(cid, role or "jungle")
         if not d or "summary" not in d or not d.get("runes"):
             return None
         av = d["summary"]["average_stats"]
-        rp = max(d["runes"], key=lambda r: r["play"])
+        pages = sorted((r for r in d["runes"] if r.get("primary_rune_ids")),
+                       key=lambda r: r.get("play", 0), reverse=True)
+        opts = [_rune_page(dd, rp) for rp in pages[:3]]
+        if not opts:
+            return None
         core = max(d["core_items"], key=lambda x: x["play"])
         ss = max(d["summoner_spells"], key=lambda x: x["play"])
-        shard = {5008: "Adaptive", 5005: "AtkSpd", 5007: "Haste", 5011: "Health",
-                 5001: "HP-scale", 5010: "MoveSpd", 5013: "Tenacity"}
-        pr = rp.get("primary_rune_ids", [])
-        sr = rp.get("secondary_rune_ids", [])
         sm = max(d["skill_masteries"], key=lambda x: x["play"]) if d.get("skill_masteries") else None
-        return dict(keystone=dd["runes"].get(pr[0], "") if pr else "",
-                    primary=[dd["runes"].get(i, "") for i in pr],
-                    secondary=[dd["runes"].get(i, "") for i in sr],
-                    primary_tree=dd["trees"].get(rp.get("primary_page_id"), ""),
-                    secondary_tree=dd["trees"].get(rp.get("secondary_page_id"), ""),
-                    primary_ids=pr,
-                    secondary_ids=sr,
-                    primary_page_id=rp.get("primary_page_id"),
-                    secondary_page_id=rp.get("secondary_page_id"),
-                    stat_mod_ids=rp.get("stat_mod_ids", []),
-                    shards=[shard.get(i, "") for i in rp.get("stat_mod_ids", [])],
+        base = dict(opts[0])                       # default = most-played rune page
+        base.update(rune_options=opts,
                     core=[dd["items"].get(i, "") for i in core["ids"]],
                     core_ids=list(core["ids"]),
                     summoner_ids=ss["ids"],
@@ -338,8 +399,42 @@ def build_data(dd, cid, role):
                     skills=(sm["ids"] if sm else []),
                     wr=av.get("win_rate", 0) * 100,
                     tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
+        return base
     except Exception:
         return None
+
+
+_ROLE_ALIAS = {"jg": "jungle", "jung": "jungle", "jungle": "jungle", "mid": "mid",
+               "middle": "mid", "top": "top", "adc": "adc", "bot": "adc", "bottom": "adc",
+               "marksman": "adc", "carry": "adc", "sup": "support", "supp": "support",
+               "support": "support", "utility": "support"}
+
+
+def _norm_role(r):
+    return _ROLE_ALIAS.get((r or "").strip().lower(), (r or "").strip().lower())
+
+
+def recommend_favs(dd, my_role, taken, fav_list, topn=6):
+    """Ordered champ ids from the user's favourites still OPEN this champ select (not banned
+    or picked). A favourite tagged with a role ('Ahri, mid') only shows when it matches your
+    assigned role; untagged favourites always qualify. Recommend-only — never hovers/locks."""
+    mr = _norm_role(my_role)
+    taken = set(taken or [])
+    out, seen = [], set()
+    for entry in (fav_list or []):
+        parts = [p.strip() for p in str(entry).split(",")]
+        name = parts[0] if parts else ""
+        tag = _norm_role(parts[1]) if len(parts) > 1 and parts[1] else None
+        cid = dd["name2id"].get(dd["norm"](name)) if name else None
+        if not cid or cid in seen or cid in taken:
+            continue
+        if tag and mr and tag != mr:
+            continue
+        out.append(cid)
+        seen.add(cid)
+        if len(out) >= topn:
+            break
+    return out
 
 
 # Gank score = transparent weighted math (no AI). The champ-vs-champ matchup is the
@@ -689,8 +784,9 @@ def _draw_session_coach(d, p, y):
                 txt, col = f"▸ ease off {c['champ']} {c['wr']}%", REDWR
             else:                                         # a slumping MAIN: variance, not the pick
                 txt, col = f"▸ rough patch on {c['champ']} — variance, not the pick", TAN
-            d.text((cx, y), txt, font=f, fill=col, anchor="ra")
-            cx -= d.textlength(txt, font=f) + 16
+            cf = font(11, 1, txt)                          # ▸ needs Segoe UI Symbol
+            d.text((cx, y), txt, font=cf, fill=col, anchor="ra")
+            cx -= d.textlength(txt, font=cf) + 16
 
 
 def _profile_headline(p):
@@ -1005,7 +1101,7 @@ def render_profile(dd, p, expanded=None, details=None):
             extra.append(f"{int(g['dur'] // 60)}m")
         if extra:
             d.text((W - 46, yy + 16), "  ·  ".join(extra), font=font(10), fill=(110, 108, 100), anchor="ra")
-        d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13), fill=MUTED, anchor="ra")
+        d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13, text="▾"), fill=MUTED, anchor="ra")
         hit_games.append((yy, yy + 44, i))
         yy += 50
         if i in expanded:
@@ -1121,7 +1217,7 @@ def draw_badge(d, cx, y, rating):
     bg, fg = GANK[rating]
     label = {"BEST": "★ gank", "GANK": "gank", "EVEN": "even",
              "TOUGH": "tough", "AVOID": "avoid"}[rating]
-    f = font(11, 1)
+    f = font(11, 1, label)
     half = d.textlength(label, font=f) / 2 + 8
     d.rounded_rectangle([cx - half, y, cx + half, y + 17], radius=8, fill=bg)
     d.text((cx, y + 8), label, font=f, fill=fg, anchor="mm")
@@ -1479,7 +1575,7 @@ VW = 384                 # width of the vertical (docked) champ-select panel
 def _auto_chip(d, x, y, on, hits):
     """The AUTO toggle drawn beside the import button; clicking flips cfg.auto_import."""
     label = "AUTO ✓" if on else "AUTO"
-    f = font(9, 1)
+    f = font(9, 1, label)
     w = int(d.textlength(label, font=f)) + 18
     fill = (34, 64, 46) if on else (30, 34, 46)
     edge = (95, 200, 126) if on else PEDGE
@@ -1490,16 +1586,32 @@ def _auto_chip(d, x, y, on, hits):
     return w
 
 
+def _rune_chip(d, x, y, idx, wr, sel, hits):
+    """A little clickable rune-set tab: '1 · 52%'. Selected one is highlighted green."""
+    label = f"{idx + 1} · {wr:.0f}%"
+    f = font(9, 1)
+    w = int(d.textlength(label, font=f)) + 16
+    fill = (40, 54, 40) if sel else (28, 32, 44)
+    edge = (140, 190, 118) if sel else PEDGE
+    _rrect(d, (x, y, x + w, y + 20), 6, fill=fill, outline=edge, width=1)
+    d.text((x + 8, y + 4), label, font=f, fill=(178, 222, 150) if sel else MUTED)
+    if hits is not None:
+        hits.append((x, y, x + w, y + 20, f"action:rune:{idx}"))
+    return w
+
+
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
                        enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
-                       note=None):
+                       note=None, favs=None):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
-    H = 940
+    H = 1010
     img = Image.new("RGB", (VW, H), BG)
     d = ImageDraw.Draw(img)
     hits = []
+    if build:
+        build = pick_rune(build)                   # show/import the selected rune set (#3)
     # header: splash strip + champ + role
     if my_cid:
         strip = get_splash(dd, my_cid, (VW, 84))
@@ -1523,7 +1635,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     if dodge:
         _rrect(d, (10, y, VW - 10, y + 26), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
         d.text((VW // 2, y + 13), "⚠ CONSIDER DODGING — " + str(dodge.get("losing", "")) + " lanes behind",
-               font=font(10, 1), fill=(240, 150, 150), anchor="mm")
+               font=font(10, 1, "⚠"), fill=(240, 150, 150), anchor="mm")
         y += 34
     # runes + build card
     if build:
@@ -1531,6 +1643,12 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         _rrect(d, (10, y, VW - 10, y + card_h), 10, fill=(20, 23, 32), outline=PEDGE, width=1)
         x = 24
         d.text((x, y + 10), "RUNES", font=font(9, 1), fill=GOLD)
+        opts = build.get("rune_options") or []
+        if len(opts) > 1:                                  # rune-set picker (#3): click to switch
+            cxr = 78
+            for oi, opt in enumerate(opts):
+                cxr += _rune_chip(d, cxr, y + 6, oi, opt.get("rune_wr", 0.0),
+                                  oi == get_rune_idx(), hits) + 6
         d.text((x, y + 24), build.get("keystone", ""), font=font(14, 1), fill=TEXT)
         minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
         for i, ln in enumerate(_wrap(minor, font(10), VW - 48)[:2]):
@@ -1560,11 +1678,24 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
         aw = _auto_chip(d, bx + bw + 8, by, auto_import, hits)
         if note:
-            d.text((bx + bw + 8 + aw + 8, by + 5), note, font=font(9), fill=GREEN)
+            d.text((bx + bw + 8 + aw + 8, by + 5), note, font=font(9, text=note), fill=GREEN)
         y += card_h + 10
     else:
         d.text((20, y + 6), "lock or hover a champ for runes + build", font=font(11), fill=MUTED)
         y += 30
+    # YOUR favorites, in your priority order, filtered to what's still open for your role
+    # (#5, recommend-only: no hover/lock, purely "pick one of these").
+    if favs:
+        d.text((20, y), "YOUR PICKS", font=font(9, 1), fill=(214, 184, 120))
+        xx = 20
+        for rank_i, cid in enumerate(favs[:6]):
+            fic = get_icon(dd, cid, 40)
+            if fic:
+                img.paste(fic, (xx, y + 16), fic)
+                _rrect(d, (xx, y + 16, xx + 15, y + 30), 4, fill=(0, 0, 0))
+                d.text((xx + 3, y + 17), str(rank_i + 1), font=font(9, 1), fill=GOLD)
+            xx += 50
+        y += 66
     # suggested picks (horizontal icons)
     d.text((20, y), "GOOD THIS GAME", font=font(9, 1), fill=GOLD)
     xx = 20
@@ -1703,8 +1834,8 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         _rrect(d, (qx0, 69, qx1, 87), 8, fill=qr["bg"], outline=PEDGE, width=1)
         d.text((cxc, 78), qr["text"], font=qf, fill=qr["fill"], anchor="mm")
     if champ_select and dodge:
-        bf = font(12, 1)
         txt = "⚠ CONSIDER DODGING — " + dodge["reason"]
+        bf = font(12, 1, txt)
         tw = d.textlength(txt, font=bf)
         bx0, bx1 = cxc - tw / 2 - 12, cxc + tw / 2 + 12
         _rrect(d, (bx0, 68, bx1, 92), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
@@ -1777,8 +1908,8 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    d.text((16 + xoff, ly), "rank · L10 W/L · mastery · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live: deaths + levels shift it)   |   click → u.gg",
-           font=font(11), fill=(120, 118, 110))
+    _legend = "rank · L10 W/L · mastery · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live: deaths + levels shift it)   |   click → u.gg"
+    d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
     img.hitmap = hits
@@ -1879,6 +2010,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
             build = build_data(dd, my_cid, my_role)
             build_cid = my_cid
+            set_rune_idx(0)                        # new champ -> back to the most-played rune set
         src = info.get("source", "")
         if not enemy_role:                 # champ select / loading: enemies + scout not live yet
             if src == "champ select":
@@ -1897,22 +2029,24 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     auto_done = my_cid
                     try:
                         import lolimport as limp
-                        limp.import_build(dd, my_cid, my_role, build)
+                        limp.import_build(dd, my_cid, my_role, pick_rune(build))   # selected rune set
                         auto_note = "auto-imported ✓"
                     except Exception as e:
                         auto_note = f"auto-import failed: {str(e)[:38]}"
                     last_cs_sig = None            # re-render with the note
+                ally_ids = [c for c, _ in allies if c]
+                enemy_ids = [c for c, _ in enemies if c]
+                taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
+                favs = recommend_favs(dd, my_role, taken, settings.get("fav_champs"))
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),
-                       bool(settings.get("auto_import", False)), auto_note)
+                       bool(settings.get("auto_import", False)), auto_note,
+                       get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
-                    ally_ids = [c for c, _ in allies if c]
-                    enemy_ids = [c for c, _ in enemies if c]
                     sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5)
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
-                    taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
                     ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None
                     if settings.get("dock_champ_select", True):
                         # tall panel that docks LEFT of the client (the overlay parks it there
@@ -1921,7 +2055,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              suggestions=sugg, bans=(bans_my, bans_their),
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
-                             note=auto_note))
+                             note=auto_note, favs=favs))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",
@@ -1983,6 +2117,31 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             paint()                                   # still lands (and gets cached) before we exit
         if not monitor:
             return
+        # DUO RE-CHECK (#4): if the initial scout left gaps (a player's match list came back
+        # empty — rate-limit / transient failure), a real premade can go unflagged. Once, a
+        # little later (so the rate-limit window clears), re-scout and fill those gaps, then
+        # ask the loop to repaint. NOTE: Riot's API exposes no party/premade info, so duos are
+        # always inferred from shared recent games; a genuine first-game-together pair that
+        # shares no history still can't be detected — this only recovers ones we missed.
+        rescan = {"repaint": False}
+        gaps = [k for k, e in scout_map.items() if not e.get("mids")]
+        if gaps:
+            def _refill():
+                time.sleep(20)
+                try:
+                    fresh = {}
+                    for r in ls.iter_scout_struct(dd, n_scout):
+                        if "error" in r:
+                            return
+                        fresh[(r["cid"], r["is_ally"])] = r
+                    for k in gaps:
+                        fr = fresh.get(k)
+                        if fr and fr.get("mids"):
+                            scout_map[k] = fr          # atomic item set; loop repaints below
+                            rescan["repaint"] = True
+                except Exception:
+                    pass
+            threading.Thread(target=_refill, daemon=True).start()
         # Overlay: board is complete -> keep it on screen and watch THIS game's phase.
         #   new champ select   -> refresh this same window to the new draft (don't go stale)
         #   game over (lobby)  -> close, so the next champ select opens fresh
@@ -1990,6 +2149,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         miss, blip, restart = 0, 0, False
         while not stop():
             time.sleep(5)
+            if rescan["repaint"]:                     # gap-fill found new duo data -> redraw
+                rescan["repaint"] = False
+                paint()
             ph = phasecheck.phase()
             if ph in ("InProgress", "GameStart", "Reconnect"):
                 miss = blip = 0                       # still in this game

@@ -407,6 +407,29 @@ def main():
     header.bind("<Button-3>", _on_right)                   # right-click the header art too
     canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
     root.bind("<Escape>", lambda e: root.destroy())
+
+    # Close automatically once you enter champ select (or a game) — the docked champ-select
+    # panel / in-game overlay takes over there, so the profile window shouldn't linger.
+    def _watch_phase():
+        def work():
+            try:
+                import phasecheck
+                ph = phasecheck.phase()
+            except Exception:
+                ph = ""
+            if ph in ("ChampSelect", "GameStart", "InProgress", "Reconnect"):
+                try:
+                    root.after(0, root.destroy)
+                except Exception:
+                    pass
+            else:
+                try:
+                    root.after(2500, _watch_phase)
+                except Exception:
+                    pass
+        threading.Thread(target=work, daemon=True).start()
+    root.after(2500, _watch_phase)
+
     root.after(60, lambda: _load(False))
     root.mainloop()
 

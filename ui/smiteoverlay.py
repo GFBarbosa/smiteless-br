@@ -305,7 +305,7 @@ def main():
                     raise RuntimeError("import works in champ select only")
                 cid = info.get("my") or 0
                 role = info.get("pos") or "jungle"
-                build = sc.build_data(dd, cid, role)
+                build = sc.pick_rune(sc.build_data(dd, cid, role))   # honor the selected rune set
                 msg = limp.import_build(dd, cid, role, build)
                 root.after(0, lambda: status.config(text=msg, fg=GREEN))
             except Exception as e:
@@ -415,6 +415,12 @@ def main():
                     if isinstance(url, str) and url.startswith("action:"):
                         if url == "action:import_build":
                             import_build()
+                        elif url.startswith("action:rune:"):
+                            try:
+                                sc.set_rune_idx(int(url.rsplit(":", 1)[1]))
+                                status.config(text="rune set switched — re-importing / re-rendering…", fg=MUTED)
+                            except Exception:
+                                pass
                         elif url == "action:toggle_auto_import":
                             s = cfg.load()
                             s["auto_import"] = not s.get("auto_import", False)

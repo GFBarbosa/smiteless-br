@@ -152,6 +152,20 @@ def main():
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
 
+    tk.Label(body, text="FAVOURITE PICKS", bg=BG, fg=GOLD,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
+    tk.Label(body, text="One champ per line, in priority order. Add a role to limit it to that "
+             "role — e.g.  Kha'Zix, jungle.  In champ select the panel lists your top still-open "
+             "picks (recommend-only — it never hovers or locks for you).",
+             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
+    favfr = tk.Frame(body, bg=PANEL)
+    favfr.pack(fill="x", padx=14, pady=(0, 6))
+    fav_text = tk.Text(favfr, height=5, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
+                       font=("Consolas", 9), wrap="none", highlightthickness=0, bd=0)
+    fav_text.pack(fill="x", padx=8, pady=8)
+    fav_text.insert("1.0", "\n".join(s.get("fav_champs") or []))
+
     fkey = tk.Frame(body, bg=PANEL)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
     tk.Label(fkey, text="FLASH KEY", bg=PANEL, fg=TXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
@@ -255,6 +269,7 @@ def main():
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
+        favs = [ln.strip() for ln in fav_text.get("1.0", "end").splitlines() if ln.strip()]
         cfg.save({"streak_influence": int(infl.get()), "gank_threshold": float(thr.get()),
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()),
@@ -262,7 +277,7 @@ def main():
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
-                  "auto_import": autoimp.get(),
+                  "auto_import": autoimp.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
