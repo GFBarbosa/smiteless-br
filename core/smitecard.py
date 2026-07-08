@@ -1359,7 +1359,7 @@ def site_urls(riot_id):
         ("u.gg", f"https://u.gg/lol/profile/{plat}/{slug}/overview"),
         ("op.gg", f"https://op.gg/summoners/{reg}/{slug}"),
         ("League of Graphs", f"https://www.leagueofgraphs.com/summoner/{reg}/{slug}"),
-        ("Deeplol", f"https://www.deeplol.gg/summoner/{plat}/{slug}"),
+        ("Deeplol", f"https://www.deeplol.gg/summoner/{reg}/{slug}"),
         ("Porofessor (live game)", f"https://porofessor.gg/live/{reg}/{slug}"),
     ]
 
