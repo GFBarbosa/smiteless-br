@@ -1453,6 +1453,39 @@ def _ally_comp_bonus(dd, cid, ally_ids):
     return b
 
 
+def game_plan(dd, ally_ids, enemy_ids):
+    """2-3 blunt win-condition bullets from the two comps (champ tags only — robust, no
+    per-patch curation): the enemy's damage split, whether they have a frontline, and how much
+    engage each side has. Returns [] when there isn't enough to say."""
+    tags = dd.get("id2tags", {})
+
+    def prof(ids):
+        rows = [set(tags.get(i, [])) for i in ids if i]
+        return {
+            "n": len(rows),
+            "ad": sum(1 for s in rows if ("Marksman" in s or "Fighter" in s or "Assassin" in s) and "Mage" not in s),
+            "ap": sum(1 for s in rows if "Mage" in s),
+            "front": sum(1 for s in rows if "Tank" in s),
+            "engage": sum(1 for s in rows if ("Tank" in s) or ("Fighter" in s)),
+        }
+    them, me = prof(enemy_ids), prof(ally_ids)
+    out = []
+    if them["n"] >= 3:
+        if them["ad"] >= 3 and them["ad"] >= them["ap"] * 2:
+            out.append("Enemy damage is mostly AD — an early armor item swings fights.")
+        elif them["ap"] >= 3 and them["ap"] >= them["ad"] * 2:
+            out.append("Enemy damage is mostly AP — an early MR item swings fights.")
+    if them["n"] >= 4 and them["front"] == 0:
+        out.append("They have no real frontline — dive their carries, win the chaos.")
+    if them["engage"] >= 3:
+        out.append("Heavy engage comp — respect all-ins; hold summs/peel for their dive.")
+    elif them["n"] >= 4 and them["engage"] <= 1:
+        out.append("Low enemy engage — you pick the fights; poke, then all-in when they group.")
+    if me["n"] >= 4 and me["front"] == 0:
+        out.append("No frontline on your team — play for picks, avoid messy 5v5s.")
+    return out[:3]
+
+
 MIN_MASTERY = 5         # only suggest champs you're at LEAST this mastery level on
 PREF_MASTERY = 7        # ...preferring mastery 7+ ("comfort") first
 
@@ -1859,7 +1892,10 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
     band_h = 60 if champ_select else 0           # draft-intel band: good bans · bans · enemy picks
-    H = (TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46 + band_h)
+    # game plan: comp-level win conditions (in-game / loading, once both teams are known)
+    plan = game_plan(dd, list(ally_role.values()), list(enemy_role.values())) if (roles_known and not champ_select and enemy_role) else []
+    plan_h = (20 + len(plan) * 15 + 6) if plan else 0
+    H = ((TOP + 5 * ROWH + 12 + panel_h + 48) if panel else (TOP + 5 * ROWH + 46 + band_h)) + plan_h
     rail_w = 96 if (champ_select and suggestions) else 0
     W2 = W + rail_w
     xoff = rail_w
@@ -1985,6 +2021,12 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
+    if plan:
+        _rrect(d, (12 + xoff, ly, W2 - 12, ly + plan_h - 4), 8, fill=(22, 25, 34), outline=PEDGE, width=1)
+        d.text((22 + xoff, ly + 6), "GAME PLAN", font=font(9, 1), fill=GOLD)
+        for i, b in enumerate(plan):
+            d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
+        ly += plan_h
     _legend = "rank · L10 W/L · mastery · S-F = how they've been playing (recent W/L + KDA, not rank) · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live)   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
