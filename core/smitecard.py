@@ -349,10 +349,12 @@ def _rune_page(dd, rp):
 # on a rune-set chip changes this). Process-wide, since the overlay's click handler and its
 # render loop share this module; reset to 0 (most-played) whenever the champ changes.
 _RUNE_SEL = {"idx": 0}
+_RUNE_EVENT = threading.Event()          # set on a rune-chip click -> wakes the champ-select loop now
 
 
 def set_rune_idx(n):
     _RUNE_SEL["idx"] = max(0, int(n))
+    _RUNE_EVENT.set()                    # re-render immediately instead of waiting out the 2s poll
 
 
 def get_rune_idx():
@@ -387,15 +389,20 @@ def build_data(dd, cid, role):
         opts = [_rune_page(dd, rp) for rp in pages[:3]]
         if not opts:
             return None
+        # each rune set carries its own summoners: op.gg doesn't link them, so pair the Nth-most
+        # rune page with the Nth-most summoner combo (capped). Selecting a set shows+imports these.
+        sspells = sorted((x for x in d.get("summoner_spells", []) if x.get("ids")),
+                         key=lambda x: x.get("play", 0), reverse=True)
+        for i, opt in enumerate(opts):
+            combo = list(sspells[min(i, len(sspells) - 1)]["ids"]) if sspells else []
+            opt["summoner_ids"] = combo
+            opt["summs"] = [dd["spells"].get(s, "") for s in combo]
         core = max(d["core_items"], key=lambda x: x["play"])
-        ss = max(d["summoner_spells"], key=lambda x: x["play"])
         sm = max(d["skill_masteries"], key=lambda x: x["play"]) if d.get("skill_masteries") else None
-        base = dict(opts[0])                       # default = most-played rune page
+        base = dict(opts[0])                       # default = most-played rune page (runes + summoners)
         base.update(rune_options=opts,
                     core=[dd["items"].get(i, "") for i in core["ids"]],
                     core_ids=list(core["ids"]),
-                    summoner_ids=ss["ids"],
-                    summs=[dd["spells"].get(i, "") for i in ss["ids"]],
                     skills=(sm["ids"] if sm else []),
                     wr=av.get("win_rate", 0) * 100,
                     tier={1: "S", 2: "A", 3: "B", 4: "C", 5: "D"}.get(av.get("tier"), ""))
@@ -2224,7 +2231,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              roles_known=True, live=False, champ_select=True, suggestions=sugg, dodge=dodge,
                              bans=(bans_my, bans_their), enemy_picks=enemy_ids, ban_ideas=ideas))
                     last_cs_sig = sig
-                time.sleep(2)
+                _RUNE_EVENT.wait(2)          # 2s poll, but a rune-chip click wakes it instantly
+                _RUNE_EVENT.clear()
                 continue
             # LOADING screen: positional preview (no roles yet)
             champs_ready = bool(allies) and bool(enemies)

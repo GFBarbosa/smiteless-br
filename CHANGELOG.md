@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.2.74
+- **Rune sets now switch instantly.** Clicking one of the 3 rune-set tabs in champ select used to lag up to ~2 seconds before it updated — now it's immediate.
+- **Each rune set carries its own summoners.** Picking a set now also shows (and imports) the summoner spells that go with it, not just the runes.
+
 ## v0.2.73
 - **Removed the gank-tuning dials.** The "streak influence", "gank decisiveness (threshold)", and "champ kit in gank rating" settings are gone — they caused more confusion than help. The gank ratings now always use the tuned defaults, and any custom values you'd set are reset back to default.
 
