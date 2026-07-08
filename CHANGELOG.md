@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.72
+- **Favourite picks now use a dropdown.** In Settings, pick a champ from a searchable dropdown (type to filter), choose a role (or "any"), and hit **+ Add** — no more typing names by hand. Your list shows below with **Remove** and **↑/↓** to set priority order.
+
 ## v0.2.71
 - **Game plan now shows in champ select too.** As soon as the enemy team locks in (draft), the docked champ-select panel shows the same GAME PLAN box — read their comp and plan your win condition before the game even starts.
 - **Player grades in the queue read.** The in-game winners/losers-queue chip now also shows each team's average letter grade (e.g. "WINNERS QUEUE 80% vs 30% · grades S vs F") — a KDA/form-based second opinion next to the win-rate read.

@@ -152,19 +152,114 @@ def main():
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
 
+    from tkinter import ttk
+    import lolbuild as _lb
+    try:
+        _dd = _lb.ddragon()
+        _champ_names = sorted(_dd["id2name"].values())
+        _norm, _name2id, _id2name = _dd["norm"], _dd["name2id"], _dd["id2name"]
+    except Exception:
+        _champ_names, _name2id, _id2name = [], {}, {}
+        _norm = lambda x: "".join(c for c in (x or "").lower() if c.isalnum())
+
+    # dark-ish theming for the ttk combobox (field + its dropdown list)
+    try:
+        _st = ttk.Style()
+        _st.theme_use("clam")
+        _st.configure("Fav.TCombobox", fieldbackground=ENTRY_BG, background=BTN, foreground=TXT,
+                      arrowcolor=TXT, bordercolor=BTN, lightcolor=BTN, darkcolor=BTN)
+        root.option_add("*TCombobox*Listbox.background", ENTRY_BG)
+        root.option_add("*TCombobox*Listbox.foreground", TXT)
+        root.option_add("*TCombobox*Listbox.selectBackground", BTN_A)
+        root.option_add("*TCombobox*Listbox.selectForeground", TXT)
+    except Exception:
+        pass
+
     tk.Label(body, text="FAVOURITE PICKS", bg=BG, fg=GOLD,
              font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
-    tk.Label(body, text="One champ per line, in priority order. Add a role to limit it to that "
-             "role — e.g.  Kha'Zix, jungle.  In champ select the panel lists your top still-open "
-             "picks (recommend-only — it never hovers or locks for you).",
+    tk.Label(body, text="Pick a champ from the dropdown and Add it — order is priority (use ↑/↓). "
+             "A role limits it to that role. In champ select the panel lists your top still-open "
+             "picks (recommend-only — it never hovers or locks).",
              bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
     favfr = tk.Frame(body, bg=PANEL)
     favfr.pack(fill="x", padx=14, pady=(0, 6))
-    fav_text = tk.Text(favfr, height=5, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
-                       font=("Consolas", 9), wrap="none", highlightthickness=0, bd=0)
-    fav_text.pack(fill="x", padx=8, pady=8)
-    fav_text.insert("1.0", "\n".join(s.get("fav_champs") or []))
+
+    addrow = tk.Frame(favfr, bg=PANEL)
+    addrow.pack(fill="x", padx=8, pady=(8, 4))
+    champ_var = tk.StringVar()
+    champ_cb = ttk.Combobox(addrow, textvariable=champ_var, values=_champ_names, width=18,
+                            style="Fav.TCombobox", font=("Segoe UI", 9))
+    champ_cb.pack(side="left")
+    role_var = tk.StringVar(value="any role")
+    role_om = tk.OptionMenu(addrow, role_var, "any role", "top", "jungle", "mid", "adc", "support")
+    role_om.config(bg=BTN, fg=TXT, activebackground=BTN_A, activeforeground=TXT, relief="flat",
+                   highlightthickness=0, font=("Segoe UI", 8), width=8, cursor="hand2")
+    role_om["menu"].config(bg=PANEL, fg=TXT, activebackground=BTN_A)
+    role_om.pack(side="left", padx=6)
+
+    listfr = tk.Frame(favfr, bg=PANEL)
+    listfr.pack(fill="x", padx=8, pady=(0, 8))
+    fav_list = tk.Listbox(listfr, height=5, bg=ENTRY_BG, fg=TXT, selectbackground=BTN_A,
+                          selectforeground=TXT, relief="flat", highlightthickness=0, bd=0,
+                          font=("Consolas", 9), activestyle="none")
+    fav_list.pack(side="left", fill="x", expand=True)
+    for _entry in (s.get("fav_champs") or []):
+        fav_list.insert("end", _entry)
+
+    def _canon(nm):
+        nm = (nm or "").strip()
+        if not nm:
+            return None
+        if not _name2id:                       # ddragon unavailable -> accept the raw name
+            return nm
+        cid = _name2id.get(_norm(nm))
+        return _id2name.get(cid) if cid else None
+
+    def _filter_champs(_e=None):
+        t = champ_var.get().strip().lower()
+        champ_cb["values"] = [n for n in _champ_names if t in n.lower()] if t else _champ_names
+
+    def _add_fav(_e=None):
+        nm = _canon(champ_var.get())
+        if not nm:
+            return
+        role = role_var.get()
+        entry = nm if role == "any role" else f"{nm}, {role}"
+        if entry.lower() not in [fav_list.get(i).lower() for i in range(fav_list.size())]:
+            fav_list.insert("end", entry)
+        champ_var.set("")
+        champ_cb["values"] = _champ_names
+
+    def _rm_fav():
+        sel = fav_list.curselection()
+        if sel:
+            fav_list.delete(sel[0])
+
+    def _move(delta):
+        sel = fav_list.curselection()
+        if not sel:
+            return
+        i = sel[0]
+        j = i + delta
+        if 0 <= j < fav_list.size():
+            v = fav_list.get(i)
+            fav_list.delete(i)
+            fav_list.insert(j, v)
+            fav_list.selection_set(j)
+
+    def _favbtn(parent, txt, cmd):
+        return tk.Button(parent, text=txt, command=cmd, bg=BTN, fg=TXT, activebackground=BTN_A,
+                         activeforeground=TXT, relief="flat", bd=0, padx=8, pady=2,
+                         font=("Segoe UI", 8, "bold"), cursor="hand2")
+    _favbtn(addrow, "+ Add", _add_fav).pack(side="left", padx=(6, 0))
+    champ_cb.bind("<KeyRelease>", _filter_champs)
+    champ_cb.bind("<Return>", _add_fav)
+    favbtns = tk.Frame(listfr, bg=PANEL)
+    favbtns.pack(side="left", fill="y", padx=(6, 0))
+    _favbtn(favbtns, "Remove", _rm_fav).pack(fill="x", pady=1)
+    _favbtn(favbtns, "↑", lambda: _move(-1)).pack(fill="x", pady=1)
+    _favbtn(favbtns, "↓", lambda: _move(1)).pack(fill="x", pady=1)
 
     tk.Label(body, text="YOUR ACCOUNTS", bg=BG, fg=GOLD,
              font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
@@ -286,7 +381,7 @@ def main():
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
-        favs = [ln.strip() for ln in fav_text.get("1.0", "end").splitlines() if ln.strip()]
+        favs = [fav_list.get(i) for i in range(fav_list.size())]
         try:
             ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
         except Exception:
