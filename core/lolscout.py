@@ -15,7 +15,8 @@ Usage:
   python lolscout.py                 # auto from the running client, print scout
   python lolscout.py --count 10      # last N games (default 10)
 """
-import sys, os, json, time, hashlib, shutil, urllib.request, urllib.error
+import sys, os, json, time, hashlib, shutil, threading, urllib.request, urllib.error
+import concurrent.futures as _futures
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
@@ -39,6 +40,7 @@ ACCOUNTS_FILE = os.path.expanduser("~/.claude/smiteless_accounts.json")   # your
 FAM_FILE = os.path.join(CACHE, "familiarity_lvl.json")                    # pooled mastery LEVEL cache
 KEYOK_TTL = 300        # cache a key's validity ~5 min so each scout doesn't re-ping Riot
 _CALLS = []            # sliding-window call timestamps for rate limiting
+_CALLS_LOCK = threading.Lock()   # scouting runs the 10 players in parallel -> serialize the throttle
 _KEYOK = {}            # key -> (ts, True/False); only definitive results are cached
 
 
@@ -86,15 +88,17 @@ def key_ok(key):
 
 def _throttle():
     # Personal key: match-v5 (the scout's bulk) allows 2000 req / 10 s. Stay under that
-    # with margin; a 429 (handled in _get with Retry-After) is the backstop.
-    now = time.time()
-    while _CALLS and now - _CALLS[0] > 10:
-        _CALLS.pop(0)
-    if len(_CALLS) >= 1500:                     # under 2000 / 10s
-        time.sleep(max(0.0, 10 - (now - _CALLS[0]) + 0.2))
-    elif _CALLS and now - _CALLS[-1] < 0.008:   # ~125/s burst cap
-        time.sleep(0.008)
-    _CALLS.append(time.time())
+    # with margin; a 429 (handled in _get with Retry-After) is the backstop. Locked because
+    # the scout dispatches all 10 players concurrently.
+    with _CALLS_LOCK:
+        now = time.time()
+        while _CALLS and now - _CALLS[0] > 10:
+            _CALLS.pop(0)
+        if len(_CALLS) >= 1500:                 # under 2000 / 10s
+            time.sleep(max(0.0, 10 - (now - _CALLS[0]) + 0.2))
+        elif _CALLS and now - _CALLS[-1] < 0.008:   # ~125/s burst cap
+            time.sleep(0.008)
+        _CALLS.append(time.time())
 
 
 class KeyStale(Exception):
@@ -223,8 +227,11 @@ def match_results(mid, key):
                         int(p.get("kills", 0)), int(p.get("deaths", 0)), int(p.get("assists", 0))]
            for p in d["info"]["participants"]}
     res["_q"] = d["info"].get("queueId", 0)      # queue id, so aggregates can filter SR-only
-    try:
-        json.dump(res, open(fp, "w"))
+    try:                                         # atomic write: two parallel scouts can share a match
+        tmp = f"{fp}.{os.getpid()}.{threading.get_ident()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(res, f)
+        os.replace(tmp, fp)
     except Exception:
         pass
     return res
@@ -637,13 +644,29 @@ def iter_scout_struct(dd, count=10):
         if err:
             yield {"error": err}
             return
-        players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me,riot_id): enemies first, you last
-        for puuid, cid, role, is_ally, is_me, riot_id in players:
+        players.sort(key=lambda x: (not x[3], x[4]))   # allies first, enemies last (x[3]=is_ally)
+
+        def _one(p):
+            puuid, cid, role, is_ally, is_me, riot_id = p
             n, w, cg, cw, form, mids, kda = scout(dd, puuid, cid, key, count)
-            yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
-                   "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
-                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
-                   "mids": mids, "kda": kda}
+            return {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
+                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
+                    "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
+                    "mids": mids, "kda": kda}
+
+        # Scout all 10 AT ONCE. The scout is latency-bound (each player = ~N match fetches), so
+        # running them concurrently fills the board in ~one player's time instead of ten. The
+        # throttle lock keeps us within the rate limit; results stream back as each finishes.
+        with _futures.ThreadPoolExecutor(max_workers=min(10, len(players)) or 1) as ex:
+            futs = [ex.submit(_one, p) for p in players]
+            for fut in _futures.as_completed(futs):
+                try:
+                    yield fut.result()
+                except KeyStale:
+                    yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
+                    return
+                except Exception:
+                    continue                           # one player failed -> skip, keep the rest
     except KeyStale:
         yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
     except Exception as e:

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.75
+- **The scout now loads everyone at once.** All 10 players are scouted in parallel instead of one at a time, so the board fills in roughly as fast as a single player used to take (~10× quicker) instead of trickling in. (Allies are also prioritized first.)
+
 ## v0.2.74
 - **Rune sets now switch instantly.** Clicking one of the 3 rune-set tabs in champ select used to lag up to ~2 seconds before it updated — now it's immediate.
 - **Each rune set carries its own summoners.** Picking a set now also shows (and imports) the summoner spells that go with it, not just the runes.
