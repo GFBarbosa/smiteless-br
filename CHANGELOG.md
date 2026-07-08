@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.67
+- **"Good this game" now only suggests champs you're mastery 5+ on** (mastery 7+ first). It won't recommend a champ you've barely touched — if none of the role-appropriate picks are ones you're M5+ on, it just says so instead of guessing. Pooled across all your accounts, same as before. (If the client can't report your mastery, it falls back to the old meta suggestions rather than showing nothing.)
+
 ## v0.2.66
 - **Mute the drake chime mid-game.** The in-game widget now has a **♪** button in its header — click it to silence the 45/30/15s drake cues for the rest of the game (e.g. when your jungler is never going to contest it). It shows a struck-through red note while muted; click again to turn it back on. Resets each game, and Settings still has the permanent on/off.
 

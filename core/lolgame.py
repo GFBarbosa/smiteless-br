@@ -69,9 +69,9 @@ _MASTERY_CACHE = {"ts": 0.0, "data": {}}
 
 
 def my_mastery(ttl=300):
-    """{championId: masteryPoints} for the LOCAL player, straight from the LCU — no Riot API
+    """{championId: masteryLevel} for the LOCAL player, straight from the LCU — no Riot API
     key, no rate limit, one call. Cached ~5 min (mastery barely moves within a session). {}
-    if the client's closed or the call fails, so callers just skip the familiarity weighting."""
+    if the client's closed or the call fails. Level (not points) so callers can gate on 'M5+'."""
     now = time.time()
     if _MASTERY_CACHE["data"] and now - _MASTERY_CACHE["ts"] < ttl:
         return _MASTERY_CACHE["data"]
@@ -88,7 +88,7 @@ def my_mastery(ttl=300):
     for r in (rows or []):
         cid = r.get("championId")
         if cid:
-            out[cid] = r.get("championPoints", 0) or 0
+            out[cid] = r.get("championLevel", 0) or 0
     if out:
         _MASTERY_CACHE["data"] = out
         _MASTERY_CACHE["ts"] = now

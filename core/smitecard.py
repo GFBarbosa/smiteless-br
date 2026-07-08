@@ -1453,22 +1453,24 @@ def _ally_comp_bonus(dd, cid, ally_ids):
     return b
 
 
-FAM_MIN = 3000          # champ mastery points below this ~ "basically first-timing it" -> deprioritize
+MIN_MASTERY = 5         # only suggest champs you're at LEAST this mastery level on
+PREF_MASTERY = 7        # ...preferring mastery 7+ ("comfort") first
 
 
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
-    """A few role-appropriate champ suggestions for champ select.
-    Scored by enemy counters (op.gg) + ally comp fit (frontline/AP-AD/engage needs). When
-    `fam` (a {championId: masteryPoints} map from the LCU) is given, champs YOU actually play
-    are surfaced first — so it won't tell you to first-time some champ you've never touched;
-    unfamiliar meta only fills in if you have too few known picks for the role."""
+    """A few role-appropriate champ suggestions for champ select, scored by enemy counters
+    (op.gg) + ally comp fit. When `fam` (a {championId: masteryLevel} map) is given, it ONLY
+    suggests champs you're mastery MIN_MASTERY+ on, mastery 7+ first — never a champ you can't
+    play. If mastery is unavailable (client closed / API down) it falls back to the meta ranking
+    so the section isn't just empty."""
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
     if role not in _ROLE_FALLBACK:
         return []
     ally_ids = tuple(sorted(i for i in ally_ids if i))
     enemy_ids = tuple(sorted(i for i in enemy_ids if i))
-    known = frozenset(c for c, pts in (fam or {}).items() if (pts or 0) >= FAM_MIN)
-    ck = (role, ally_ids, enemy_ids, known)
+    have_fam = bool(fam)
+    elig = {c: lvl for c, lvl in (fam or {}).items() if (lvl or 0) >= MIN_MASTERY}   # M5+ only
+    ck = (role, ally_ids, enemy_ids, have_fam, frozenset(elig.items()))
     if ck in _PICK_CACHE:
         return _PICK_CACHE[ck]
     banned = set(ally_ids) | set(enemy_ids)
@@ -1499,25 +1501,26 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
             continue
         sc = scores.setdefault(cid, {"sum": 50.0, "n": 1, "play": 0, "comp": 0.0})
         sc["comp"] = max(sc.get("comp", 0.0), _ally_comp_bonus(dd, cid, ally_ids))
-    picked = []
-    if scores:
-        # champs YOU play (in `known`) sort ahead of unfamiliar ones; within each group it's
-        # the meta score, then mastery, then sample. With no `fam`, every term is constant so
-        # the order is exactly the old counter+comp ranking.
-        def _key(kv):
-            cid, s = kv
-            base = (s["sum"] / max(1, s["n"])) + s.get("comp", 0.0)
-            return (cid in known, base, (fam or {}).get(cid, 0), s["play"])
-        ranked = sorted(scores.items(), key=_key, reverse=True)
+
+    def _key(kv):
+        cid, s = kv
+        base = (s["sum"] / max(1, s["n"])) + s.get("comp", 0.0)
+        lvl = elig.get(cid, 0)                 # M7+ first, then M5/6, then the meta score
+        return (lvl >= PREF_MASTERY, lvl, base, s["play"])
+    ranked = sorted(scores.items(), key=_key, reverse=True)
+    if have_fam:
+        # HARD mastery gate: only champs you're M5+ on. No meta fallback — better to show fewer
+        # than to suggest a champ you don't play.
+        picked = [cid for cid, _ in ranked if cid in elig and cid not in banned][:topn]
+    else:
         picked = [cid for cid, _ in ranked if cid not in banned][:topn]
-    if len(picked) < topn:
-        fb = [dd["name2id"].get(dd["norm"](nm)) for nm in _ROLE_FALLBACK[role]]
-        fb = [c for c in fb if c and c not in banned and c not in picked]
-        fb.sort(key=lambda c: (c in known, (fam or {}).get(c, 0)), reverse=True)   # known/most-played first
-        for cid in fb:
-            picked.append(cid)
-            if len(picked) >= topn:
-                break
+        if len(picked) < topn:                 # mastery unknown -> old meta fill so it's not empty
+            for nm in _ROLE_FALLBACK[role]:
+                cid = dd["name2id"].get(dd["norm"](nm))
+                if cid and cid not in banned and cid not in picked:
+                    picked.append(cid)
+                if len(picked) >= topn:
+                    break
     _PICK_CACHE[ck] = picked
     return picked
 
@@ -1779,7 +1782,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
-        d.text((20, y + 20), "computing…", font=font(10), fill=MUTED)
+        d.text((20, y + 20), "no mastery-5+ picks for this role", font=font(10), fill=MUTED)
     y += 66
     # good bans
     d.text((20, y), "GOOD BANS", font=font(9, 1), fill=GOLD)
