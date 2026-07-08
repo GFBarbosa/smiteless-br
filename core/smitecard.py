@@ -1395,15 +1395,22 @@ def _ally_comp_bonus(dd, cid, ally_ids):
     return b
 
 
-def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
+FAM_MIN = 3000          # champ mastery points below this ~ "basically first-timing it" -> deprioritize
+
+
+def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     """A few role-appropriate champ suggestions for champ select.
-    Scored by enemy counters (op.gg) + ally comp fit (frontline/AP-AD/engage needs)."""
+    Scored by enemy counters (op.gg) + ally comp fit (frontline/AP-AD/engage needs). When
+    `fam` (a {championId: masteryPoints} map from the LCU) is given, champs YOU actually play
+    are surfaced first — so it won't tell you to first-time some champ you've never touched;
+    unfamiliar meta only fills in if you have too few known picks for the role."""
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
     if role not in _ROLE_FALLBACK:
         return []
     ally_ids = tuple(sorted(i for i in ally_ids if i))
     enemy_ids = tuple(sorted(i for i in enemy_ids if i))
-    ck = (role, ally_ids, enemy_ids)
+    known = frozenset(c for c, pts in (fam or {}).items() if (pts or 0) >= FAM_MIN)
+    ck = (role, ally_ids, enemy_ids, known)
     if ck in _PICK_CACHE:
         return _PICK_CACHE[ck]
     banned = set(ally_ids) | set(enemy_ids)
@@ -1436,15 +1443,21 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4):
         sc["comp"] = max(sc.get("comp", 0.0), _ally_comp_bonus(dd, cid, ally_ids))
     picked = []
     if scores:
-        ranked = sorted(scores.items(),
-                        key=lambda kv: ((kv[1]["sum"] / max(1, kv[1]["n"])) + kv[1].get("comp", 0.0), kv[1]["play"]),
-                        reverse=True)
+        # champs YOU play (in `known`) sort ahead of unfamiliar ones; within each group it's
+        # the meta score, then mastery, then sample. With no `fam`, every term is constant so
+        # the order is exactly the old counter+comp ranking.
+        def _key(kv):
+            cid, s = kv
+            base = (s["sum"] / max(1, s["n"])) + s.get("comp", 0.0)
+            return (cid in known, base, (fam or {}).get(cid, 0), s["play"])
+        ranked = sorted(scores.items(), key=_key, reverse=True)
         picked = [cid for cid, _ in ranked if cid not in banned][:topn]
     if len(picked) < topn:
-        for nm in _ROLE_FALLBACK[role]:
-            cid = dd["name2id"].get(dd["norm"](nm))
-            if cid and cid not in banned and cid not in picked:
-                picked.append(cid)
+        fb = [dd["name2id"].get(dd["norm"](nm)) for nm in _ROLE_FALLBACK[role]]
+        fb = [c for c in fb if c and c not in banned and c not in picked]
+        fb.sort(key=lambda c: (c in known, (fam or {}).get(c, 0)), reverse=True)   # known/most-played first
+        for cid in fb:
+            picked.append(cid)
             if len(picked) >= topn:
                 break
     _PICK_CACHE[ck] = picked
@@ -2047,7 +2060,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        bool(settings.get("auto_import", False)), auto_note,
                        get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5)
+                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
+                                          fam=lg.my_mastery())     # surface champs you actually play
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None

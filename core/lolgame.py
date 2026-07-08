@@ -44,6 +44,36 @@ def _lcu():
     return port, hdr
 
 
+_MASTERY_CACHE = {"ts": 0.0, "data": {}}
+
+
+def my_mastery(ttl=300):
+    """{championId: masteryPoints} for the LOCAL player, straight from the LCU — no Riot API
+    key, no rate limit, one call. Cached ~5 min (mastery barely moves within a session). {}
+    if the client's closed or the call fails, so callers just skip the familiarity weighting."""
+    now = time.time()
+    if _MASTERY_CACHE["data"] and now - _MASTERY_CACHE["ts"] < ttl:
+        return _MASTERY_CACHE["data"]
+    lc = _lcu()
+    if not lc:
+        return _MASTERY_CACHE["data"]            # keep last-known through a client blip
+    port, hdr = lc
+    try:
+        rows = lb.http(f"https://127.0.0.1:{port}/lol-champion-mastery/v1/local-player/champion-mastery",
+                       headers=hdr, timeout=4, insecure=True)
+    except Exception:
+        return _MASTERY_CACHE["data"]
+    out = {}
+    for r in (rows or []):
+        cid = r.get("championId")
+        if cid:
+            out[cid] = r.get("championPoints", 0) or 0
+    if out:
+        _MASTERY_CACHE["data"] = out
+        _MASTERY_CACHE["ts"] = now
+    return out
+
+
 def save_role(cid, pos):
     if not (cid and pos):
         return
