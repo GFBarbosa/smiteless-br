@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.76
+- **"Good this game" now populates the moment champ select opens** — you no longer have to hover a champ (or wait for enemies to lock) to see it. It shows your mastery-5+ champs for your assigned role right away, and refines as enemies lock in.
+
 ## v0.2.75
 - **The scout now loads everyone at once.** All 10 players are scouted in parallel instead of one at a time, so the board fills in roughly as fast as a single player used to take (~10× quicker) instead of trickling in. (Allies are also prioritized first.)
 

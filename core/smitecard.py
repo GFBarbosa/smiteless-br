@@ -1444,12 +1444,36 @@ def site_urls(riot_id):
 
 
 _PICK_CACHE = {}
+# A broad per-role champ pool (strongest / most-common first). Doubles as (a) the meta
+# fallback when we can't read your mastery, and (b) the "which champs play this role" filter
+# that lets 'GOOD THIS GAME' surface YOUR mastery-5+ champs for the role BEFORE any enemy has
+# locked (so it's populated the moment champ select opens, not only once you hover). Unknown
+# names resolve to nothing and are skipped, so it's safe to be generous.
 _ROLE_FALLBACK = {
-    "top": ("Garen", "Darius", "Renekton", "Ornn"),
-    "jungle": ("Vi", "JarvanIV", "Sejuani", "Nocturne"),
-    "mid": ("Ahri", "Orianna", "Syndra", "Vex"),
-    "adc": ("Jinx", "Caitlyn", "KaiSa", "Ashe"),
-    "support": ("Leona", "Nautilus", "Lulu", "Rell"),
+    "top": ("Darius", "Garen", "Sett", "Aatrox", "Renekton", "Mordekaiser", "Camille", "Fiora",
+            "Jax", "Malphite", "Ornn", "Shen", "Gwen", "KSante", "Riven", "Irelia", "Nasus",
+            "Sion", "Volibear", "Warwick", "Yorick", "Illaoi", "Teemo", "Gnar", "Kled", "Urgot",
+            "Tryndamere", "Jayce", "Kayle", "Quinn", "Gangplank", "Rumble", "Vladimir", "Wukong",
+            "Yone", "Sylas", "Cho'Gath", "Poppy", "Singed", "Olaf", "Trundle", "Pantheon"),
+    "jungle": ("Khazix", "Graves", "Viego", "LeeSin", "Vi", "JarvanIV", "Kayn", "Hecarim",
+               "Nocturne", "Warwick", "Sejuani", "Kindred", "Elise", "Diana", "Ekko", "Evelynn",
+               "Amumu", "MasterYi", "Nunu", "Rammus", "RekSai", "Rengar", "Shaco", "Skarner",
+               "Belveth", "Lillia", "Fiddlesticks", "Gragas", "Ivern", "Karthus", "Nidalee",
+               "Trundle", "Udyr", "XinZhao", "Zac", "Maokai", "Talon", "Shyvana", "Brand",
+               "Poppy", "Volibear", "Wukong"),
+    "mid": ("Ahri", "Yasuo", "Yone", "Zed", "Katarina", "Akali", "Sylas", "Orianna", "Syndra",
+            "Viktor", "Vex", "LeBlanc", "Fizz", "Kassadin", "Veigar", "Lux", "Malzahar", "Anivia",
+            "Azir", "Cassiopeia", "Galio", "Lissandra", "Naafiri", "Qiyana", "Ryze", "TwistedFate",
+            "Xerath", "Zoe", "Talon", "Ekko", "Diana", "Swain", "Taliyah", "Neeko", "AurelionSol",
+            "Annie", "Akshan", "Corki", "Vladimir"),
+    "adc": ("Jinx", "Caitlyn", "KaiSa", "Ashe", "Ezreal", "Jhin", "Lucian", "MissFortune", "Xayah",
+            "Aphelios", "Zeri", "Vayne", "Samira", "Draven", "Sivir", "Tristana", "Varus", "Twitch",
+            "Kalista", "KogMaw", "Nilah", "Senna", "Smolder", "Ziggs"),
+    "support": ("Leona", "Nautilus", "Thresh", "Lulu", "Rell", "Blitzcrank", "Pyke", "Nami",
+                "Karma", "Morgana", "Milio", "Renata", "Senna", "Soraka", "Janna", "Alistar",
+                "Braum", "Bard", "Rakan", "Seraphine", "Sona", "Taric", "Yuumi", "Zilean", "Zyra",
+                "Brand", "Xerath", "Vel'Koz", "Maokai", "TahmKench", "Swain", "Neeko", "Poppy",
+                "Shen", "Lux"),
 }
 
 
