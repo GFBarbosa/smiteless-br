@@ -32,6 +32,7 @@ tray.Add("Open overlay", (*) => OpenSmiteless(false))
 tray.Add("Profile / home", (*) => OpenProfile())
 tray.Add("Item widget", (*) => OpenWidget())
 tray.Add("Settings", (*) => OpenSettings())
+tray.Add("Patch notes", (*) => OpenNotes())
 tray.Add()
 tray.Add("Auto-open at champ select", ToggleAuto)
 tray.Add()
@@ -63,6 +64,11 @@ OpenProfile() {
 OpenSettings() {
     global PYW, SCRIPTS
     Run('"' PYW '" "' SCRIPTS '\ui\smitesettings.py"', , "Hide")
+}
+
+OpenNotes() {
+    global PYW, SCRIPTS                           ; the patch notes / what's new window
+    Run('"' PYW '" "' SCRIPTS '\ui\smitenotes.py"', , "Hide")
 }
 
 ToggleAuto(ItemName, *) {

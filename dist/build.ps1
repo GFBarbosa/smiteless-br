@@ -52,6 +52,7 @@ Copy-Item (Join-Path $build "pyi\SmitelessApp") (Join-Path $stage "app") -Recurs
 New-Item -ItemType Directory -Force (Join-Path $stage "assets") | Out-Null
 Copy-Item $ico (Join-Path $stage "assets\smiteless.ico")
 Copy-Item (Join-Path $repo "VERSION") (Join-Path $stage "VERSION")
+Copy-Item (Join-Path $repo "CHANGELOG.md") (Join-Path $stage "CHANGELOG.md")   # Patch notes window reads this
 
 Write-Host "==> zip payload" -ForegroundColor Cyan
 $payload = Join-Path $repo "dist\payload.zip"   # next to installer.ahk for FileInstall
