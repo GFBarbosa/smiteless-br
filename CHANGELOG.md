@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.73
+- **Removed the gank-tuning dials.** The "streak influence", "gank decisiveness (threshold)", and "champ kit in gank rating" settings are gone — they caused more confusion than help. The gank ratings now always use the tuned defaults, and any custom values you'd set are reset back to default.
+
 ## v0.2.72
 - **Favourite picks now use a dropdown.** In Settings, pick a champ from a searchable dropdown (type to filter), choose a role (or "any"), and hit **+ Add** — no more typing names by hand. Your list shows below with **Remove** and **↑/↓** to set priority order.
 

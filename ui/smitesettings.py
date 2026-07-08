@@ -91,20 +91,8 @@ def main():
         upd()
         return sc
 
-    def infl_desc(v):
-        if v < 5:
-            return "0 = ignore how they're doing; pure champ-vs-champ matchup"
-        if v > 80:
-            return "win/loss streak & form dominate the gank rating"
-        if 45 <= v <= 55:
-            return "50 = balanced (default): matchup is the base, form nudges it"
-        return "champ matchup weighs more" if v < 50 else "form / streak weighs more"
-
-    infl = scale_row("Win / loss streak influence", infl_desc,
-                     0, 100, 1, s["streak_influence"], lambda v: f"{int(v)}")
-    thr = scale_row("Gank decisiveness (threshold)",
-                    "lower = more lanes tagged GANK / TOUGH; higher = only the clear ones",
-                    3, 12, 0.5, s["gank_threshold"], lambda v: f"{float(v):.1f}")
+    # Gank-tuning dials (streak influence / gank threshold / champ-kit) were removed — they
+    # confused more than they helped; the gank rating now always uses the tuned defaults.
     scout = scale_row("Scout depth (games / player)",
                       "more games = steadier form read, but a slower first scout",
                       5, 20, 1, s["scout_games"], lambda v: f"{int(v)}")
@@ -125,7 +113,6 @@ def main():
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
-    kit = tk.BooleanVar(value=s["gank_kit"])
     duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
@@ -147,7 +134,6 @@ def main():
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
-    _chk(col2, "Your champ's kit in gank rating", kit).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
@@ -386,10 +372,13 @@ def main():
             ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
         except Exception:
             pass
-        cfg.save({"streak_influence": int(infl.get()), "gank_threshold": float(thr.get()),
+        cfg.save({  # gank dials removed from the UI -> always write the tuned defaults
+                  "streak_influence": cfg.DEFAULTS["streak_influence"],
+                  "gank_threshold": cfg.DEFAULTS["gank_threshold"],
+                  "gank_kit": cfg.BOOLS["gank_kit"],
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()),
-                  "matchup_tips": tips.get(), "gank_kit": kit.get(),
+                  "matchup_tips": tips.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -401,12 +390,10 @@ def main():
         status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GREEN)
 
     def reset():
-        infl.set(cfg.DEFAULTS["streak_influence"])
-        thr.set(cfg.DEFAULTS["gank_threshold"])
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
-        for v in (tips, kit, duo, widget, intel, dragon, dodge, dock, autoq, auto, homeonstart):
+        for v in (tips, duo, widget, intel, dragon, dodge, dock, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)
         _upd_flash()
