@@ -1223,12 +1223,13 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         if icon:
             img.paste(icon, (ix, y + 13), icon)
         tx = ix + 46
-        d.text((tx, y + 13), name + ("  YOU" if is_me else ""), font=font(14, 1), fill=GOLD if is_me else TEXT)
+        nm, nf = name + ("  YOU" if is_me else ""), font(14, 1)
+        d.text((tx, y + 13), nm, font=nf, fill=GOLD if is_me else TEXT)
+        if grade:                                     # right after the name -> clearly the player's grade
+            _grade_chip(d, tx + d.textlength(nm, font=nf) + 18, y + 21, grade, gcol)
         _wr_line(d, tx, y + 35, sc, "la", live)
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
-        if grade:
-            _grade_chip(d, x + cw - 20, y + 21, grade, gcol)
     else:
         if box_w == 2:
             _rrect(d, (x - cw - 2, y + 7, x + 2, y + ROWH - 3), 11,
@@ -1239,12 +1240,13 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         if icon:
             img.paste(icon, (ix, y + 13), icon)
         tx = ix - 8
-        d.text((tx, y + 13), name, font=font(14, 1), fill=TEXT, anchor="ra")
+        nf = font(14, 1)
+        d.text((tx, y + 13), name, font=nf, fill=TEXT, anchor="ra")
+        if grade:                                     # left of the (right-anchored) name
+            _grade_chip(d, tx - d.textlength(name, font=nf) - 18, y + 21, grade, gcol)
         _wr_line(d, tx, y + 35, sc, "ra", live)
         if sc and sc.get("form"):
             draw_form(d, x - cw + 6, y + 38, sc["form"])
-        if grade:
-            _grade_chip(d, x - cw + 20, y + 21, grade, gcol)
 
 
 def _wr_line(d, x, y, sc, anchor, live=True):
@@ -1987,7 +1989,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    _legend = "rank · L10 W/L · mastery · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live: deaths + levels shift it)   |   click → u.gg"
+    _legend = "rank · L10 W/L · mastery · S-F = player rating (rank + recent form) · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live)   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))

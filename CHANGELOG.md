@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.63
+- **Player rating is clearer.** The S–F grade now sits right next to each player's name (so it's obvious it's rating the player), the bottom legend spells out what it means, and it no longer collides with the duo/premade dot.
+
 ## v0.2.62
 - **Player ratings on the in-game board.** Every player now gets a grade (S–F) from their rank, recent form, and comfort on their champ. A smurf/sicko lights up with a **gold glowing banner and an S**; someone tanking or way out of their depth goes **dark red with an F** — spot the carry and the griefer at a glance, on both teams.
 - **Fixed the Flash key reverting to D.** Settings are now saved by merging onto the existing file, so changing one setting can never quietly reset another (Flash-on-F now sticks).
