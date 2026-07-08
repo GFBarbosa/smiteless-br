@@ -44,6 +44,27 @@ def _lcu():
     return port, hdr
 
 
+def current_account():
+    """(puuid, 'Name#TAG') for the logged-in account via the LCU, or None. Used to auto-
+    remember every account the user plays on, so familiarity can pool across them."""
+    lc = _lcu()
+    if not lc:
+        return None
+    port, hdr = lc
+    try:
+        d = lb.http(f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
+                    headers=hdr, timeout=4, insecure=True)
+    except Exception:
+        return None
+    if not isinstance(d, dict):
+        return None
+    gn, tl = (d.get("gameName") or "").strip(), (d.get("tagLine") or "").strip()
+    rid = f"{gn}#{tl}" if gn and tl else ""
+    if not rid or "#" not in rid:
+        return None
+    return d.get("puuid"), rid
+
+
 _MASTERY_CACHE = {"ts": 0.0, "data": {}}
 
 

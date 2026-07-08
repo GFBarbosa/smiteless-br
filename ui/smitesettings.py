@@ -166,6 +166,23 @@ def main():
     fav_text.pack(fill="x", padx=8, pady=8)
     fav_text.insert("1.0", "\n".join(s.get("fav_champs") or []))
 
+    tk.Label(body, text="YOUR ACCOUNTS", bg=BG, fg=GOLD,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
+    tk.Label(body, text="One Riot ID per line (Name#TAG). Accounts you log into are remembered "
+             "automatically; add smurfs here too. 'Good this game' pools your champion mastery "
+             "across all of them, so it recommends champs you know on ANY account.",
+             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
+    accfr = tk.Frame(body, bg=PANEL)
+    accfr.pack(fill="x", padx=14, pady=(0, 6))
+    acc_text = tk.Text(accfr, height=4, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
+                       font=("Consolas", 9), wrap="none", highlightthickness=0, bd=0)
+    acc_text.pack(fill="x", padx=8, pady=8)
+    try:
+        acc_text.insert("1.0", "\n".join(a["riot_id"] for a in ls.load_accounts()))
+    except Exception:
+        pass
+
     fkey = tk.Frame(body, bg=PANEL)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
     tk.Label(fkey, text="FLASH KEY", bg=PANEL, fg=TXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
@@ -270,6 +287,10 @@ def main():
 
     def save():
         favs = [ln.strip() for ln in fav_text.get("1.0", "end").splitlines() if ln.strip()]
+        try:
+            ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
+        except Exception:
+            pass
         cfg.save({"streak_influence": int(infl.get()), "gank_threshold": float(thr.get()),
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()),

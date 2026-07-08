@@ -1993,6 +1993,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
     shown = False                         # have we rendered a real session (champ select / game)?
     inactive = 0                          # consecutive reads with the client out of an active phase
+    acct_captured = False                 # auto-remember the logged-in account once per session
     profile_img, profile_tried = None, False   # the home/profile page (manual open, out of game)
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
@@ -2019,6 +2020,17 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             time.sleep(3)
             continue
         shown = True                       # resolve succeeded -> we're in a session
+        if not acct_captured:              # remember this account (main/smurf) for pooled familiarity
+            acct_captured = True
+
+            def _cap():
+                try:
+                    ca = lg.current_account()
+                    if ca:
+                        ls.remember_account(ca[1], source="auto")
+                except Exception:
+                    pass
+            threading.Thread(target=_cap, daemon=True).start()
         my_cid, my_role = info["my"], info["pos"]
         allies, enemies = info["allies"], info["enemies"]
         ally_role = {r: c for c, r in allies if r and c}
@@ -2060,8 +2072,10 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        bool(settings.get("auto_import", False)), auto_note,
                        get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
+                    # champs you actually play, pooled across ALL your accounts (main + smurfs):
+                    # the live current-account mastery merged with the cross-account aggregate.
                     sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
-                                          fam=lg.my_mastery())     # surface champs you actually play
+                                          fam=ls.familiarity(lg.my_mastery()))
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None

@@ -33,6 +33,10 @@ PLATFORM = "na1"           # summoner-v4 + league-v4 (platform routing)
 CACHE = os.path.expanduser("~/.claude/cache/riot")
 IDS_TTL = 600          # re-pull a player's match-id list at most every 10 min
 RANK_TTL = 1800        # re-pull a player's rank at most every 30 min
+MASTERY_ALL_TTL = 12 * 3600     # a whole account's mastery barely moves -> cache half a day
+FAM_TTL = 6 * 3600              # rebuild the cross-account familiarity pool at most every 6h
+ACCOUNTS_FILE = os.path.expanduser("~/.claude/smiteless_accounts.json")   # your main + smurfs
+FAM_FILE = os.path.join(CACHE, "familiarity.json")                        # pooled mastery cache
 KEYOK_TTL = 300        # cache a key's validity ~5 min so each scout doesn't re-ping Riot
 _CALLS = []            # sliding-window call timestamps for rate limiting
 _KEYOK = {}            # key -> (ts, True/False); only definitive results are cached
@@ -271,6 +275,160 @@ def mastery(puuid, champ_id, key):
     except Exception:
         pass
     return m
+
+
+def all_mastery(puuid, key):
+    """{championId: masteryPoints} for a puuid — ALL champs in one champion-mastery-v4 call,
+    cached ~12h (mastery barely moves). {} on failure. Used to aggregate 'how familiar am I
+    with this champ' across every one of the user's accounts."""
+    if not puuid:
+        return {}
+    fp = _cache_path("masteryall", puuid)
+    try:
+        c = json.load(open(fp))
+        if time.time() - c.get("ts", 0) < MASTERY_ALL_TTL:
+            return {int(k): v for k, v in c.get("m", {}).items()}
+    except Exception:
+        pass
+    d = _get(f"https://{PLATFORM}.api.riotgames.com/lol/champion-mastery/v4/"
+             f"champion-masteries/by-puuid/{puuid}", key)
+    out = {}
+    if isinstance(d, list):
+        for r in d:
+            cid = r.get("championId")
+            if cid:
+                out[int(cid)] = r.get("championPoints", 0) or 0
+    try:
+        json.dump({"m": out, "ts": time.time()}, open(fp, "w"))
+    except Exception:
+        pass
+    return out
+
+
+# ---------- the user's accounts (main + smurfs) ----------
+# Auto-remembered as each logs into the client, plus manual adds from Settings. Used to pool
+# champion mastery across accounts so "familiar champ" means familiar on ANY of them.
+def _norm_rid(rid):
+    return (rid or "").strip().lower()
+
+
+def load_accounts():
+    """[{riot_id, source, ts}] — the user's known accounts."""
+    try:
+        d = json.load(open(ACCOUNTS_FILE, encoding="utf-8"))
+        out = []
+        for a in d.get("accounts", []):
+            rid = (a.get("riot_id") or "").strip()
+            if rid and "#" in rid:
+                out.append({"riot_id": rid, "source": a.get("source", "auto"), "ts": a.get("ts", 0)})
+        return out
+    except Exception:
+        return []
+
+
+def _write_accounts(accts):
+    try:
+        os.makedirs(os.path.dirname(ACCOUNTS_FILE), exist_ok=True)
+        tmp = f"{ACCOUNTS_FILE}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"accounts": accts}, f, indent=2)
+        os.replace(tmp, ACCOUNTS_FILE)
+    except Exception:
+        pass
+
+
+def remember_account(riot_id, source="auto"):
+    """Record an account we've seen logged in (or a manual add). Returns True if newly added
+    (in which case the familiarity aggregate is invalidated so it re-pools with this account)."""
+    riot_id = (riot_id or "").strip()
+    if not riot_id or "#" not in riot_id:
+        return False
+    accts = load_accounts()
+    if any(_norm_rid(a["riot_id"]) == _norm_rid(riot_id) for a in accts):
+        return False
+    accts.append({"riot_id": riot_id, "source": source, "ts": int(time.time())})
+    _write_accounts(accts)
+    invalidate_familiarity()
+    return True
+
+
+def save_accounts(riot_ids):
+    """Replace the account list from Settings (dedup, keep order). Preserves the source/ts of
+    accounts already known; new lines are tagged 'manual'. Invalidates the familiarity cache."""
+    prev = {_norm_rid(a["riot_id"]): a for a in load_accounts()}
+    out, seen = [], set()
+    for rid in riot_ids:
+        rid = (rid or "").strip()
+        k = _norm_rid(rid)
+        if not rid or "#" not in rid or k in seen:
+            continue
+        seen.add(k)
+        old = prev.get(k)
+        out.append({"riot_id": rid, "source": (old or {}).get("source", "manual"),
+                    "ts": (old or {}).get("ts", int(time.time()))})
+    _write_accounts(out)
+    invalidate_familiarity()
+    return out
+
+
+# ---------- pooled familiarity (max mastery per champ across all accounts) ----------
+_FAM = {"ts": 0.0, "data": {}, "busy": False}
+
+
+def invalidate_familiarity():
+    _FAM["ts"] = 0.0
+    _FAM["data"] = {}
+    try:
+        os.remove(FAM_FILE)
+    except Exception:
+        pass
+
+
+def _compute_familiarity():
+    try:
+        key = read_key()
+        agg = {}
+        if key:
+            for a in load_accounts():
+                pu = resolve_puuid(a["riot_id"], key)
+                if not pu:
+                    continue
+                for cid, pts in all_mastery(pu, key).items():
+                    if pts > agg.get(cid, 0):
+                        agg[cid] = pts
+        if agg:
+            _FAM["data"] = agg
+            _FAM["ts"] = time.time()
+            try:
+                os.makedirs(CACHE, exist_ok=True)
+                json.dump({"m": agg, "ts": _FAM["ts"]}, open(FAM_FILE, "w"))
+            except Exception:
+                pass
+    finally:
+        _FAM["busy"] = False
+
+
+def familiarity(base=None):
+    """Best-available {championId: masteryPoints} pooled across the user's accounts, merged
+    (max) with `base` (the live current-account mastery from the LCU). NON-BLOCKING: returns
+    the cached aggregate immediately and refreshes it in the background when stale, so it
+    never stalls a champ-select render. Falls back to just `base` before the pool is built."""
+    if not _FAM["data"]:
+        try:
+            c = json.load(open(FAM_FILE))
+            _FAM["data"] = {int(k): v for k, v in c.get("m", {}).items()}
+            _FAM["ts"] = c.get("ts", 0)
+        except Exception:
+            pass
+    if not _FAM["busy"] and time.time() - _FAM["ts"] > FAM_TTL:
+        import threading
+        _FAM["busy"] = True
+        threading.Thread(target=_compute_familiarity, daemon=True).start()
+    merged = dict(_FAM["data"])
+    for cid, pts in (base or {}).items():
+        if pts and pts > merged.get(cid, 0):
+            merged[cid] = pts
+    return merged
 
 
 def scout(dd, puuid, champ_id, key, count):
