@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.2.71
+- **Game plan now shows in champ select too.** As soon as the enemy team locks in (draft), the docked champ-select panel shows the same GAME PLAN box — read their comp and plan your win condition before the game even starts.
+- **Player grades in the queue read.** The in-game winners/losers-queue chip now also shows each team's average letter grade (e.g. "WINNERS QUEUE 80% vs 30% · grades S vs F") — a KDA/form-based second opinion next to the win-rate read.
+
 ## v0.2.70
 - **Post-game review on your latest game.** Your most recent game now gets a short, data-driven review pulled from Riot's match timeline: where you fell behind vs your laner (gold@10/@14), your CS at 10:00 vs benchmark, and your worst death window. It's rule-based — no AI, no tokens, no waiting — and shows up with that game's tips in your profile.
 

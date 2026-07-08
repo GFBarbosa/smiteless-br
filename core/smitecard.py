@@ -1186,6 +1186,20 @@ def player_rating(sc):
     return g, _RATE_COLOR[g]
 
 
+_GRADE_NUM = {"S": 6, "A": 5, "B": 4, "C": 3, "D": 2, "F": 1}
+_NUM_GRADE = {6: "S", 5: "A", 4: "B", 3: "C", 2: "D", 1: "F"}
+
+
+def team_avg_grades(scout_map):
+    """(ally_grade, enemy_grade) — each team's AVERAGE player grade (S..F) from the live scout,
+    or (None, None) if not enough scouted. A KDA/form-based second opinion on the WR queue read."""
+    def avg(team):
+        gs = [_GRADE_NUM[player_rating(sc)[0]] for k, sc in scout_map.items()
+              if k[1] is team and player_rating(sc)[0]]
+        return _NUM_GRADE[max(1, min(6, round(sum(gs) / len(gs))))] if gs else None
+    return avg(True), avg(False)
+
+
 def _grade_chip(d, cx, cy, grade, col):
     """A bold grade letter in a chip, centered on (cx, cy)."""
     w, h = 22, 20
@@ -1713,7 +1727,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
-    H = 1010
+    H = 1130
     img = Image.new("RGB", (VW, H), BG)
     d = ImageDraw.Draw(img)
     hits = []
@@ -1790,6 +1804,18 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     else:
         d.text((20, y + 6), "lock or hover a champ for runes + build", font=font(11), fill=MUTED)
         y += 30
+    # GAME PLAN — comp win-conditions, shown the moment the enemy team locks in (draft).
+    plan = game_plan(dd, [c for c, _ in (allies or []) if c], enemy_picks or [])
+    if plan:
+        wrapped = []
+        for b in plan:
+            wrapped += _wrap("▸ " + b, font(10), VW - 42)[:2]
+        ph_ = 22 + len(wrapped) * 14 + 4
+        _rrect(d, (10, y, VW - 10, y + ph_ - 4), 9, fill=(22, 25, 34), outline=PEDGE, width=1)
+        d.text((22, y + 6), "GAME PLAN", font=font(9, 1), fill=GOLD)
+        for i, ln in enumerate(wrapped):
+            d.text((22, y + 22 + i * 14), ln, font=font(10, text="▸"), fill=(206, 210, 218))
+        y += ph_ + 6
     # YOUR favorites, in your priority order, filtered to what's still open for your role
     # (#5, recommend-only: no hover/lock, purely "pick one of these").
     if favs:
@@ -1941,11 +1967,13 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
     duo_of = duo_all if DUO_ON else {}
     if roles_known and not champ_select:
         qr = queue_prediction(my_cid, scout_map, duo_all)
+        ga, ge = team_avg_grades(scout_map)          # grade-based read alongside the WR read
+        text = qr["text"] + (f"   ·   grades {ga} vs {ge}" if (ga and ge) else "")
         qf = font(10, 1)
-        tw = d.textlength(qr["text"], font=qf)
+        tw = d.textlength(text, font=qf)
         qx0, qx1 = cxc - (tw / 2) - 10, cxc + (tw / 2) + 10
         _rrect(d, (qx0, 69, qx1, 87), 8, fill=qr["bg"], outline=PEDGE, width=1)
-        d.text((cxc, 78), qr["text"], font=qf, fill=qr["fill"], anchor="mm")
+        d.text((cxc, 78), text, font=qf, fill=qr["fill"], anchor="mm")
     if champ_select and dodge:
         txt = "⚠ CONSIDER DODGING — " + dodge["reason"]
         bf = font(12, 1, txt)
