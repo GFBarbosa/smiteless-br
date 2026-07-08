@@ -2015,7 +2015,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             time.sleep(3)
             continue
         inactive = 0
-        info, err = lg.resolve(dd)
+        # allow_unlocked: show the champ-select panel the moment champ select opens, before
+        # you've hovered anything (resolve otherwise treats "no champ hovered yet" as an error).
+        info, err = lg.resolve(dd, allow_unlocked=True)
         if err:                            # in an active phase but nothing resolvable yet (loading)
             time.sleep(3)
             continue
@@ -2042,12 +2044,10 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         src = info.get("source", "")
         if not enemy_role:                 # champ select / loading: enemies + scout not live yet
             if src == "champ select":
-                # CHAMP SELECT: show your team forming + your runes/build; enemies hidden.
-                # Only re-render when a pick actually changes (avoids needless window updates,
-                # which is what made the overlay flicker/grab focus every couple seconds).
-                if wait and not (my_cid or ally_role):
-                    time.sleep(2)
-                    continue
+                # CHAMP SELECT: show your team forming + your runes/build the moment champ
+                # select opens (even before anyone's hovered) — the panel is useful right away
+                # (your role, suggested picks, good bans). We still only RE-render when a pick
+                # actually changes, via the signature below, so it doesn't flicker/grab focus.
                 bans_my = info.get("bans_my") or []
                 bans_their = info.get("bans_their") or []
                 # AUTO-IMPORT: the moment the champ is LOCKED (not hovered), push runes+summs

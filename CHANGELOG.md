@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.61
+- **The champ-select panel now appears as soon as champ select opens** — it used to stay hidden until you hovered a champion. Right away it shows your assigned role, your team's roles, bans, and suggested picks; runes/build fill in once you hover.
+
 ## v0.2.60
 - **"Good this game" now pools familiarity across all your accounts.** It remembers each account you log into and combines your champion mastery across your main and smurfs, so a champ you main on one account counts as familiar on the others. Manage the list in **Settings → Your accounts** (add smurfs you haven't logged into recently by Riot ID).
 

@@ -261,11 +261,13 @@ def _from_gameflow(dd):
                 phase=phase or "Loading", source="loading screen")
 
 
-def resolve(dd):
-    """Return (info, None) or (None, error). Tries each source by phase priority."""
+def resolve(dd, allow_unlocked=False):
+    """Return (info, None) or (None, error). Tries each source by phase priority.
+    allow_unlocked: in champ select, return the board even before you've hovered a champ
+    (my=0) instead of erroring — the overlay uses this so the panel appears immediately."""
     info = _from_champ_select(dd)
     if info:
-        if info.get("err") == "not_locked":
+        if info.get("err") == "not_locked" and not allow_unlocked:
             return None, "In champ select but you haven't locked a champ yet."
         return info, None
     for fn in (_from_live_client, _from_gameflow):
