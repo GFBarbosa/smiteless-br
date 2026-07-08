@@ -206,7 +206,10 @@ def recent_ids(puuid, key, count, queue="ranked"):
 
 
 def match_results(mid, key):
-    """{puuid: [win, championName]} for all 10 participants. Cached forever."""
+    """{puuid: [win, championName, kills, deaths, assists]} for all 10 participants — the KDA
+    lets callers judge how a player has been PERFORMING, not just their W/L. Same match fetch
+    as before (no extra API cost), cached forever. Old cache entries hold just [win, champ] and
+    still read fine (callers take [0]/[1]; KDA readers check the length)."""
     fp = _cache_path("match", mid)
     if os.path.exists(fp):
         try:
@@ -216,7 +219,8 @@ def match_results(mid, key):
     d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/{mid}", key)
     if not d or "info" not in d:
         return None
-    res = {p["puuid"]: [bool(p["win"]), p.get("championName", "")]
+    res = {p["puuid"]: [bool(p["win"]), p.get("championName", ""),
+                        int(p.get("kills", 0)), int(p.get("deaths", 0)), int(p.get("assists", 0))]
            for p in d["info"]["participants"]}
     res["_q"] = d["info"].get("queueId", 0)      # queue id, so aggregates can filter SR-only
     try:
@@ -432,24 +436,29 @@ def familiarity(base=None):
 
 
 def scout(dd, puuid, champ_id, key, count):
-    """Return (games, wins, champ_games, champ_wins, form, match_ids) over the last `count`
-    ranked. `form` is a list of bool (True=win) in recent-first order. match_ids drives
-    duo detection (two players sharing many recent matches are likely premade)."""
+    """Return (games, wins, champ_games, champ_wins, form, match_ids, kda) over the last
+    `count` ranked. `form` is a list of bool (True=win) in recent-first order. `kda` pools this
+    player's recent kills/deaths/assists ({g, k, d, a}) so callers can rate how they've been
+    PERFORMING regardless of rank. match_ids drives duo detection."""
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
     form = []
+    tk = td = ta = kg = 0                          # KDA totals + games that carried KDA data
     for mid in ids:
         res = match_results(mid, key)
         if not res or puuid not in res:
             continue
-        win, cname = res[puuid]
+        rec = res[puuid]
+        win, cname = rec[0], rec[1]
         n += 1
         w += 1 if win else 0
         form.append(bool(win))
+        if len(rec) >= 5:                          # new-format cache carries KDA
+            tk += rec[2]; td += rec[3]; ta += rec[4]; kg += 1
         if dd["name2id"].get(dd["norm"](cname)) == champ_id:
             cg += 1
             cw += 1 if win else 0
-    return n, w, cg, cw, form, ids
+    return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}
 
 
 def _safe(s):
@@ -595,10 +604,11 @@ def iter_scout_struct(dd, count=10):
             return
         players.sort(key=lambda x: (x[3], x[4]))  # (puuid,cid,role,is_ally,is_me,riot_id): enemies first, you last
         for puuid, cid, role, is_ally, is_me, riot_id in players:
-            n, w, cg, cw, form, mids = scout(dd, puuid, cid, key, count)
+            n, w, cg, cw, form, mids, kda = scout(dd, puuid, cid, key, count)
             yield {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                    "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
-                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key), "mids": mids}
+                   "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
+                   "mids": mids, "kda": kda}
     except KeyStale:
         yield {"error": "Riot key rejected - open the overlay key bar (Get key) to update it."}
     except Exception as e:

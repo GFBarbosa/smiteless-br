@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.64
+- **Player rating is now about how you're *playing*, not your rank.** The S–F grade is driven by your recent win rate, KDA (are you carrying or inting), and hot/cold streak — rank is ignored entirely. A Silver stomping 20/0 game after game shows up as a gold **S** God-Mode player; a Diamond who's been feeding is a black-hole **F**.
+
 ## v0.2.63
 - **Player rating is clearer.** The S–F grade now sits right next to each player's name (so it's obvious it's rating the player), the bottom legend spells out what it means, and it no longer collides with the duo/premade dot.
 

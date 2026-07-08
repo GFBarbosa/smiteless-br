@@ -548,7 +548,8 @@ def season_champs(dd, puuid, key, cap=60):
         q = res.get("_q")
         if q is not None and q not in _SR_QUEUES:   # skip ARAM/arena (old caches lack _q -> keep)
             continue
-        win, cname = res[puuid]
+        rec = res[puuid]
+        win, cname = rec[0], rec[1]
         c = agg.setdefault(cname, {"g": 0, "w": 0})
         c["g"] += 1
         c["w"] += 1 if win else 0

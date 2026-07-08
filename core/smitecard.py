@@ -1154,42 +1154,35 @@ def draw_form(d, x, y, form):
         d.rectangle([cx, y, cx + sq, y + sq], fill=WSQ if win else LSQ)
 
 
-# How good is this player, this game — a grade from their scout (rank = skill, recent form,
-# comfort on the champ). S = smurf/sicko (gold glow); F = griefing / way out of depth (avoid).
-_RANK_BASE = {"IRON": 16, "BRONZE": 26, "SILVER": 36, "GOLD": 46, "PLATINUM": 56,
-              "EMERALD": 66, "DIAMOND": 78, "MASTER": 90, "GRANDMASTER": 95, "CHALLENGER": 100}
-_DIV_NUDGE = {"I": 6, "II": 4, "III": 2, "IV": 0}
+# How good has this player been IN THEIR GAMES — regardless of rank. A Silver stomping 20/0
+# every game is God Mode (S, gold glow); a feeder is a black hole (F, avoid). Driven by recent
+# win rate + KDA (are they carrying or inting) + hot/cold streak. Rank is deliberately ignored.
 _RATE_COLOR = {"S": (236, 206, 128), "A": (95, 200, 126), "B": (120, 166, 232),
                "C": (150, 148, 138), "D": (206, 130, 86), "F": (210, 66, 74)}
 
 
 def player_rating(sc):
-    """(grade, color) for a scouted player, or (None, None) when there's nothing to judge
-    (unranked with no recent games). Absolute-ish so a smurf in the lobby lights up gold and
-    someone tanking/way-out-of-depth goes dark."""
+    """(grade, color) from how the player has been PERFORMING lately, or (None, None) with too
+    few recent games to judge. Rank is not a factor — it's win rate + KDA + streak."""
     if not sc:
         return None, None
-    r = sc.get("rank") or {}
-    tier = (r.get("tier") or "").upper()
     n, w = sc.get("n", 0) or 0, sc.get("w", 0) or 0
-    have_rank = tier in _RANK_BASE
-    if not have_rank and n < 3:
+    kda = sc.get("kda") or {}
+    kg = kda.get("g", 0) or 0
+    if n < 3 and kg < 3:
         return None, None
-    score = _RANK_BASE[tier] + _DIV_NUDGE.get(r.get("div", ""), 0) if have_rank else 50.0
-    if n >= 3:                                        # recent L10 winrate, weighted by sample
-        score += (w / n * 100.0 - 50.0) * (0.30 if n >= 6 else 0.18)
-    stv = _streak(sc.get("form") or [])               # hot/cold streak
+    score = 50.0
+    if n >= 3:                                        # winning your games = the core signal
+        score += (w / n * 100.0 - 50.0) * 0.55
+    if kg >= 2:                                       # KDA = carrying vs inting (when we have it)
+        avg = (kda.get("k", 0) + kda.get("a", 0)) / max(1, kda.get("d", 0))
+        score += max(-24.0, min(34.0, (avg - 2.6) * 8.0))   # ~2.6 KDA is average; cap the stomps
+    stv = _streak(sc.get("form") or [])               # hot/cold hands
     if abs(stv) >= 3:
-        score += 4 if stv > 0 else -4
-    m = sc.get("mastery") or {}
-    cg = sc.get("cg", 0) or 0
-    if cg == 0 and not m.get("points"):
-        score -= 6                                    # first-timing this champ
-    elif (m.get("points", 0) or 0) >= 50000 or cg >= 4:
-        score += 3                                    # comfort pick
+        score += 6 if stv > 0 else -6
     score = max(0.0, min(100.0, score))
-    g = ("S" if score >= 88 else "A" if score >= 76 else "B" if score >= 63
-         else "C" if score >= 49 else "D" if score >= 37 else "F")
+    g = ("S" if score >= 84 else "A" if score >= 71 else "B" if score >= 58
+         else "C" if score >= 45 else "D" if score >= 33 else "F")
     return g, _RATE_COLOR[g]
 
 
@@ -1989,7 +1982,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
                         tip_lines, panel_h)
         ly += panel_h + 14
-    _legend = "rank · L10 W/L · mastery · S-F = player rating (rank + recent form) · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live)   |   click → u.gg"
+    _legend = "rank · L10 W/L · mastery · S-F = how they've been playing (recent W/L + KDA, not rank) · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live)   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
