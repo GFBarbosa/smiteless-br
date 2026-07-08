@@ -180,7 +180,7 @@ def main():
         return                                           # one widget already up
     import tkinter as tk
     dd = lb.ddragon()
-    st = {"alive": True}
+    st = {"alive": True, "muted": False}     # muted = temp-silence the drake chime for this game
 
     root = tk.Tk()
     root.overrideredirect(True)
@@ -196,6 +196,18 @@ def main():
     tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=GOLD, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
     close = tk.Label(hdr, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
     close.pack(side="right")
+    # Drake chime mute — click to silence the 45/30/15 drake cues for THIS game (resets next
+    # game). Struck-through red note = muted; gold note = alerts on. (Settings has a permanent off.)
+    mute = tk.Label(hdr, text="♪", font=("Segoe UI", 10, "bold"), fg=GOLD, bg=PANEL, cursor="hand2")
+    mute.pack(side="right", padx=(0, 2))
+
+    def _toggle_mute(*_):
+        st["muted"] = not st.get("muted", False)
+        if st["muted"]:
+            mute.config(fg=RED, font=("Segoe UI", 10, "bold", "overstrike"))
+        else:
+            mute.config(fg=GOLD, font=("Segoe UI", 10, "bold"))
+    mute.bind("<Button-1>", _toggle_mute)
 
     champrow = tk.Frame(outer, bg=BG)
     champrow.pack(fill="x", padx=10, pady=(6, 0))
@@ -353,16 +365,18 @@ def main():
             if secs is None:
                 dragon["prev"], dragon["fired"], dragon["last_up_ping"] = None, set(), 0.0
                 return
-            thr = _dragon_due(dragon["prev"], secs, dragon["fired"])
+            thr = _dragon_due(dragon["prev"], secs, dragon["fired"])   # advance state even if muted
             dragon["prev"] = secs
-            if thr is not None:
+            muted = st.get("muted", False)                # temp mute for this game (header ♪ button)
+            if thr is not None and not muted:
                 threading.Thread(target=_beep, args=(thr, dvol), daemon=True).start()
             # Once drake is up, keep replaying the final cue every ~5s until it dies.
             if secs <= 0:
                 t = time.monotonic()
                 if (t - float(dragon.get("last_up_ping") or 0.0)) >= 4.8:
                     dragon["last_up_ping"] = t
-                    threading.Thread(target=_beep, args=(15, dvol), daemon=True).start()
+                    if not muted:
+                        threading.Thread(target=_beep, args=(15, dvol), daemon=True).start()
             else:
                 dragon["last_up_ping"] = 0.0
 
