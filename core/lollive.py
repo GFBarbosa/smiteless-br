@@ -20,6 +20,7 @@ DRAGON_FIRST, DRAGON_RESPAWN = 300, 300            # 5:00, then 5:00 after each 
 GRUBS_FIRST, GRUBS_DESPAWN = 480, 885              # patch 25.09: 8:00, ONE spawn, gone ~14:45
 HERALD_SPAWN, HERALD_GONE = 900, 1185              # 15:00 (where grubs were), leaves ~19:45
 BARON_FIRST, BARON_RESPAWN, BARON_OPEN = 1200, 360, 1140    # 20:00, +6:00; only show from 19:00
+SCUTTLE_FIRST, SCUTTLE_SHOW_UNTIL = 175, 210        # 2:55 first scuttle (wiki: cut from 3:30), respawn 2:30
 ALERT_LEAD = 45                                    # within this many seconds = "soon" (urgent)
 SETUP_LEAD = 75                                    # inside this = start SETTING UP (shove + ward)
 
@@ -68,6 +69,12 @@ def objectives(data):
         out.append({"label": label, "secs": secs, "up": secs <= 0,
                     "urgent": 0 < secs <= ALERT_LEAD,
                     "setup": ALERT_LEAD < secs <= SETUP_LEAD})
+
+    # First river scuttle — the early jungle tempo anchor (first clears end into it). Clock-based
+    # only: the Live Client feed has no crab-kill event, so we can't track respawns; shown as a
+    # countdown to 2:55 then briefly "up" through the contest window.
+    if gt < SCUTTLE_SHOW_UNTIL:
+        add("Scuttle", SCUTTLE_FIRST)
 
     # Dragon: first at 5:00, then 5:00 after each kill. Once a team has soul (4 elemental
     # kills) or Elder has spawned, there are no more elemental drakes -> drop the timer.
