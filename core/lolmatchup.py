@@ -35,14 +35,34 @@ def _file(my_key, opp_key, role, patch):
     return os.path.join(CACHE, f"{_safe(my_key)}_vs_{_safe(opp_key)}_{_safe(role)}_{_safe(patch)}.txt")
 
 
+# Signatures that mean the "tip" is actually an error the CLI printed (auth/limit/etc). None of
+# these appear in a real lane tip, so we can safely reject + never cache/show them.
+_BAD_SIGNS = ("api error", "invalid authentication", "authentication credentials",
+              "failed to authenticate", "authentication_error", "usage limit", "session limit",
+              "rate limit", "invalid x-api-key", "credit balance", "claude auth")
+
+
+def _looks_bad(text):
+    tl = (text or "").lower()
+    return any(s in tl for s in _BAD_SIGNS)
+
+
 def get_tip(my_key, opp_key, role, patch):
-    """Cached tip text for this patch, or None if not generated yet."""
+    """Cached tip text for this patch, or None if not generated yet. Self-heals: a cache file
+    that's actually an error message (from before this fix, or a transient auth blip) is dropped
+    so the tip regenerates instead of showing the error forever."""
     fp = _file(my_key, opp_key, role, patch)
     if os.path.exists(fp):
         try:
-            return open(fp, encoding="utf-8").read().strip() or None
+            t = open(fp, encoding="utf-8").read().strip()
         except Exception:
             return None
+        if t and not _looks_bad(t):
+            return t
+        try:
+            os.remove(fp)                      # poisoned/empty -> drop it, regenerate next time
+        except Exception:
+            pass
     return None
 
 
@@ -60,8 +80,8 @@ def generate_tip(my_name, my_key, opp_name, opp_key, role, patch):
         f"knowledge. Plain text only - no preamble, no markdown, no bullet points, no headers."
     )
     text, err = cc.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=170)
-    if not text:
-        return None, err
+    if not text or _looks_bad(text):          # never cache/return an error string as a tip
+        return None, (err or "tip unavailable")
     text = " ".join(text.split())          # collapse to one block
     try:
         open(_file(my_key, opp_key, role, patch), "w", encoding="utf-8").write(text)

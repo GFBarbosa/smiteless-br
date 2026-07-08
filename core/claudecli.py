@@ -57,6 +57,14 @@ def call_claude(prompt, allow_tools=None, timeout=None, model=None):
     blob = (out + "\n" + err).lower()
     if "session limit" in blob or "usage limit" in blob:
         return None, "Claude usage/session limit reached"
+    # The CLI sometimes prints auth / credit / rate errors to STDOUT with a zero-ish exit code,
+    # which would otherwise be returned as the "answer" (and then cached + shown as a tip). Catch
+    # those explicitly so an error string never masquerades as output.
+    for sign in ("invalid authentication", "authentication_error", "failed to authenticate",
+                 "api error: 401", "api error: 403", "could not authenticate",
+                 "invalid x-api-key", "credit balance is too low", "overloaded_error"):
+        if sign in blob:
+            return None, "claude auth/API error"
     if p.returncode != 0 and not out:
         return None, (err[:200] or f"claude exited {p.returncode}")
     if not out:
