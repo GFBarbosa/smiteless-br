@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.2.69
+- **Auto game-plan card.** The in-game board now shows a "GAME PLAN" box: 2-3 blunt win conditions read from both comps — the enemy's damage split (rush armor/MR), whether they lack a frontline (dive their carries), and how much engage each side has (respect all-ins vs play for picks).
+- **First scuttle timer.** The in-game widget's objective timers now include the first Rift Scuttler (2:55) — the early jungle tempo anchor, with the usual soon/urgent cues.
+
 ## v0.2.68
 - **Recall / power-spike coach.** The in-game widget now reads your live gold + items and tells you when to back for your next spike: **"BACK now → finish Trinity (spike)"** when you can afford it, **"wait ~200g → …"** when you're close, or how far off you are otherwise. It subtracts components you already hold, so it's the real cost to *finish* the item — no more backing for a longsword when 8 seconds of farm gets you a whole item.
 
