@@ -230,6 +230,41 @@ def match_results(mid, key):
     return res
 
 
+def match_timeline(mid, key):
+    """Match-v5 TIMELINE distilled to a compact, cache-friendly shape (per-minute gold/cs/xp
+    for all 10 + every champion kill), cached forever. {pids, mins, deaths} or None. pids is the
+    puuid list in participantId order (index 0 = pid 1); mins[i][pid] = {g, cs, xp}."""
+    fp = _cache_path("timeline", mid)
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp))
+        except Exception:
+            pass
+    d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline", key)
+    if not d or "info" not in d:
+        return None
+    mins, deaths = [], []
+    for fr in d["info"].get("frames", []):
+        pf = fr.get("participantFrames") or {}
+        row = {}
+        for pid in range(1, 11):
+            p = pf.get(str(pid)) or {}
+            row[str(pid)] = {"g": p.get("totalGold", 0) or 0,
+                             "cs": (p.get("minionsKilled", 0) or 0) + (p.get("jungleMinionsKilled", 0) or 0),
+                             "xp": p.get("xp", 0) or 0}
+        mins.append(row)
+        for e in (fr.get("events") or []):
+            if e.get("type") == "CHAMPION_KILL":
+                deaths.append({"v": e.get("victimId"), "k": e.get("killerId"),
+                               "t": int((e.get("timestamp") or 0) / 1000)})
+    out = {"pids": (d.get("metadata") or {}).get("participants", []), "mins": mins, "deaths": deaths}
+    try:
+        json.dump(out, open(fp, "w"))
+    except Exception:
+        pass
+    return out
+
+
 def rank(puuid, key):
     """Solo-queue rank (league-v4 by-puuid), cached ~30 min since it drifts. Returns
     {tier, div, lp, w, l} or None (unranked / lookup failed)."""

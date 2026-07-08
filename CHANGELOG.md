@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.70
+- **Post-game review on your latest game.** Your most recent game now gets a short, data-driven review pulled from Riot's match timeline: where you fell behind vs your laner (gold@10/@14), your CS at 10:00 vs benchmark, and your worst death window. It's rule-based — no AI, no tokens, no waiting — and shows up with that game's tips in your profile.
+
 ## v0.2.69
 - **Auto game-plan card.** The in-game board now shows a "GAME PLAN" box: 2-3 blunt win conditions read from both comps — the enemy's damage split (rush armor/MR), whether they lack a frontline (dive their carries), and how much engage each side has (respect all-ins vs play for picks).
 - **First scuttle timer.** The in-game widget's objective timers now include the first Rift Scuttler (2:55) — the early jungle tempo anchor, with the usual soon/urgent cues.

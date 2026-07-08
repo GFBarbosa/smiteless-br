@@ -431,6 +431,53 @@ def review_for_player(parts, my_puuid, dur, dd=None):
     return {"kind": ("positive" if positive else "improve"), "tips": out}
 
 
+def timeline_review(dd, mid, my_puuid, key, parts):
+    """Rule-based post-game review off the match TIMELINE (no LLM): where you fell behind vs
+    your laner, your CS at 10, and your worst death window. Returns up to 3 short bullets or []."""
+    try:
+        tl = ls.match_timeline(mid, key)
+    except Exception:
+        tl = None
+    if not tl or not tl.get("mins"):
+        return []
+    pids = tl.get("pids") or []
+    if my_puuid not in pids:
+        return []
+    my_pid = str(pids.index(my_puuid) + 1)
+    mine = next((p for p in parts if p.get("puuid") == my_puuid), None)
+    if not mine:
+        return []
+    pos, team = mine.get("pos"), mine.get("team")
+    opp = next((p for p in parts if p.get("pos") == pos and p.get("team") != team and p.get("puuid") in pids), None)
+    opp_pid = str(pids.index(opp["puuid"]) + 1) if opp else None
+    mins = tl["mins"]
+    out = []
+
+    def gold_diff(minute):
+        if opp_pid and minute < len(mins):
+            return int(mins[minute][my_pid]["g"]) - int(mins[minute][opp_pid]["g"])
+        return None
+    g10, g14 = gold_diff(10), gold_diff(14)
+    if g10 is not None:
+        if g10 <= -800:
+            out.append(f"Down {abs(g10)}g on your laner by 10 min — the early game is where this slipped.")
+        elif g10 >= 800:
+            out.append(f"+{g10}g on your laner at 10 min — strong early; this was yours to close.")
+        elif g14 is not None and g14 <= -900:
+            out.append(f"Even at 10 but {abs(g14)}g down by 14 — lost the mid-game (recall timing / roams).")
+    if pos not in ("UTILITY", "SUPPORT") and 10 < len(mins):
+        cs10 = int(mins[10][my_pid]["cs"])
+        if cs10 < 60:
+            out.append(f"{cs10} CS at 10:00 (aim ~70+) — tighten farm between plays.")
+    my_deaths = sorted(d["t"] for d in tl.get("deaths", []) if d.get("v") and str(d["v"]) == my_pid)
+    if len(my_deaths) >= 3:
+        from collections import Counter
+        window, cnt = Counter(t // 300 for t in my_deaths).most_common(1)[0]
+        if cnt >= 2:
+            out.append(f"{cnt} deaths in the {window * 5}-{window * 5 + 5} min window — that stretch snowballed against you.")
+    return out[:3]
+
+
 def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False):
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,
@@ -462,6 +509,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
                 "error": "your Riot API key expired — paste a new one in Settings"}
     games, champ = [], {}
     wins = 0
+    tl_done = False                                # timeline review only on the newest game (1 fetch)
     for mid in ids:
         d = match_detail(mid, key)
         if not d or d.get("skip"):
@@ -473,6 +521,15 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
             rid = mine["name"]                     # clicked-through by puuid: recover the name
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
         review = review_for_player(d["parts"], puuid, d.get("dur", 0), dd=dd)
+        tips = review.get("tips", [])
+        if not tl_done:                            # newest game -> prepend a timeline post-game review
+            tl_done = True
+            try:
+                tl_bullets = timeline_review(dd, mid, puuid, key, d["parts"])
+            except Exception:
+                tl_bullets = []
+            if tl_bullets:
+                tips = tl_bullets + list(tips)
         team = int(mine.get("team") or 0)
         team_k = sum(int(p.get("k") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
         team_dmg = sum(float(p.get("dmg") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
@@ -480,7 +537,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
                       "pos": mine["pos"], "mid": mid,
-                      "dur": d.get("dur", 0), "review": review.get("tips", []),
+                      "dur": d.get("dur", 0), "review": tips,
                       "review_kind": review.get("kind", "improve"),
                       "cs": mine.get("cs", 0), "csm": round(mine.get("cs", 0) / mins, 1),
                       "dmg": mine.get("dmg", 0), "vision": mine.get("vision", 0),
