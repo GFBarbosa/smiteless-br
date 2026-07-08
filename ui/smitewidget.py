@@ -294,7 +294,7 @@ def main():
             tk.Label(intel, text=f"⚠ {sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}",
                      font=("Segoe UI", 9), fg=RED, bg=BG, anchor="w").pack(fill="x")
 
-    def render(rec, pulse=None):
+    def render(rec, pulse=None, recall=None):
         for w in body.winfo_children():
             w.destroy()
         if not rec:
@@ -303,6 +303,11 @@ def main():
             render_intel(None)
             return
         champ.config(text=rec["champ"], fg=TXT)
+        if recall:                                        # power-spike / back-timing hint
+            g = recall.get("gap", 0)
+            rc = GOLD if g == 0 else (TEAL if g <= 350 else MUTED)
+            tk.Label(body, text="⌂ " + recall["text"], font=("Segoe UI Semibold", 9),
+                     fg=rc, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x", pady=(0, 2))
         if not rec["lines"]:
             tk.Label(body, text="standard build — nothing to adjust",
                      font=("Segoe UI", 9), fg=MUTED, bg=BG, anchor="w").pack(fill="x")
@@ -390,6 +395,12 @@ def main():
                 rec = li.recommend(dd, data=raw)
             except Exception:
                 rec = None
+            recall = None                                # power-spike / back-timing hint
+            if raw is not None:
+                try:
+                    recall = li.recall_advice(dd, data=raw)
+                except Exception:
+                    recall = None
             ph = phasecheck.phase()
             pulse = None
             if (intel_on or audio_on) and raw is not None:
@@ -403,7 +414,7 @@ def main():
                 dragon_audio(drake["secs"] if drake else None)
             if raw is not None:                          # fresh game data -> paint + reset counters
                 seen, ended, stale = True, 0, 0
-                q.put({"rec": rec, "pulse": pulse if intel_on else None})
+                q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -459,7 +470,7 @@ def main():
                     return
                 try:                                     # a render bug must never kill the pump
                     if isinstance(msg, dict) and "rec" in msg:
-                        render(msg["rec"], msg.get("pulse"))
+                        render(msg["rec"], msg.get("pulse"), msg.get("recall"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:

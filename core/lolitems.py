@@ -296,6 +296,59 @@ def _antiheal_component(dd, pool, my_cid):
     return "Executioner's Calling"
 
 
+def _idata(dd, iid):
+    return dd.get("item_data", {}).get(int(iid), {}) or {}
+
+
+def _recipe_owned_value(dd, iid, owned, _depth=0):
+    """Gold you've ALREADY sunk toward `iid`: the total cost of its recipe components you own
+    (recursively), so 'cost to finish' subtracts what you're already holding."""
+    if _depth > 6:
+        return 0
+    val = 0
+    for comp in _idata(dd, iid).get("from", []):
+        c = int(comp)
+        if c in owned:
+            val += _idata(dd, c).get("gold", {}).get("total", 0)
+        else:
+            val += _recipe_owned_value(dd, c, owned, _depth + 1)
+    return val
+
+
+def recall_advice(dd, data=_UNSET):
+    """Power-spike / back timing: your next core item, what it costs to FINISH given the
+    components you already hold, and whether to back now or wait a touch for the spike. Returns
+    {item, name, net, gold, gap, text} or None (dead, no pool, or core already done)."""
+    try:
+        st = live_state(dd, data)
+    except Exception:
+        return None
+    if not st or not st.get("my_cid"):
+        return None
+    pool = champ_pool(dd, st["my_cid"], st.get("my_role") or "")
+    if not pool:
+        return None
+    owned = set(st.get("my_items") or [])
+    gold = int(st.get("my_gold") or 0)
+    nxt = next((i for i in pool.get("core", []) if i not in owned), None) \
+        or next((i for i in pool.get("seq", []) if i not in owned), None)
+    if not nxt:
+        return None
+    total = _idata(dd, nxt).get("gold", {}).get("total", 0) or 0
+    if total <= 0:
+        return None
+    net = max(0, total - _recipe_owned_value(dd, nxt, owned))
+    name = _short(dd, nxt)
+    gap = net - gold
+    if gap <= 0:
+        text = f"BACK now → finish {name} (spike)"
+    elif gap <= 350:
+        text = f"wait ~{gap}g → {name} (spike)"
+    else:
+        text = f"{gap}g to your {name} spike"
+    return {"item": nxt, "name": name, "net": net, "gold": gold, "gap": max(0, gap), "text": text}
+
+
 def recommend(dd, st=None, data=_UNSET):
     """Widget guidance, rebuilt around the CORE BUILD as the spine: show the op.gg core
     progression (owned items ticked, next highlighted), and interrupt it with AT MOST ONE

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.68
+- **Recall / power-spike coach.** The in-game widget now reads your live gold + items and tells you when to back for your next spike: **"BACK now → finish Trinity (spike)"** when you can afford it, **"wait ~200g → …"** when you're close, or how far off you are otherwise. It subtracts components you already hold, so it's the real cost to *finish* the item — no more backing for a longsword when 8 seconds of farm gets you a whole item.
+
 ## v0.2.67
 - **"Good this game" now only suggests champs you're mastery 5+ on** (mastery 7+ first). It won't recommend a champ you've barely touched — if none of the role-appropriate picks are ones you're M5+ on, it just says so instead of guessing. Pooled across all your accounts, same as before. (If the client can't report your mastery, it falls back to the old meta suggestions rather than showing nothing.)
 
