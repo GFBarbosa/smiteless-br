@@ -1159,32 +1159,45 @@ _RATE_COLOR = {"S": (236, 206, 128), "A": (95, 200, 126), "B": (120, 166, 232),
 
 
 def player_rating(sc):
-    """(grade, color) for a player's SKILL from real stats — driven by win rate, with KDA + form
-    as supporting reads. Rank tier is not a factor (a smurf's 65% on a Gold account = high). Uses
-    the big SEASON ranked W/L sample when available, else the recent scouted games."""
+    """(grade, color) for a player's SKILL, read from HOW THEY ACTUALLY PLAY — their per-game
+    performance vs their role's benchmarks (CS, kill participation, damage share, deaths, vision),
+    averaged over recent games (sc['perf'], from the same engine as the post-game review). This
+    is real in-game skill, NOT win/loss and NOT rank — so a strong player grinding off-champs on
+    a low account still grades well even mid-losing-streak. Win rate is only a light tie-breaker.
+    Falls back to a win-rate + KDA read until detailed games have been cached."""
     if not sc:
         return None, None
-    r = sc.get("rank") or {}
-    sw, sl = int(r.get("w") or 0), int(r.get("l") or 0)   # this season's ranked W/L (large sample)
-    sg = sw + sl
-    n, w = int(sc.get("n") or 0), int(sc.get("w") or 0)   # recent scouted games
+    perf = sc.get("perf")
+    n, w = int(sc.get("n") or 0), int(sc.get("w") or 0)
     kda = sc.get("kda") or {}
     kg = int(kda.get("g") or 0)
+
+    if perf is not None:
+        # perf ~85 = met role targets (A-caliber game); 100+ = carrying; <55 = off — averaged.
+        score = float(perf)
+        if n >= 4:                                    # a tiny win-rate tie-breaker, never the driver
+            score += max(-6.0, min(6.0, (w / n * 100.0 - 50.0) * 0.12))
+        g = ("S" if score >= 98 else "A" if score >= 86 else "B" if score >= 74
+             else "C" if score >= 62 else "D" if score >= 50 else "F")
+        return g, _RATE_COLOR[g]
+
+    # --- fallback (no detailed games cached yet): win rate + KDA on a 0-100 scale ---
+    r = sc.get("rank") or {}
+    sw, sl = int(r.get("w") or 0), int(r.get("l") or 0)   # this season's ranked W/L
+    sg = sw + sl
     if sg < 15 and n < 3:
         return None, None                             # nothing real to judge yet
     score = 50.0
-    # WIN RATE is the signal. Big season sample dominates; recent WR when unranked/thin.
     if sg >= 15:
-        score += (sw / sg * 100.0 - 50.0) * 2.5
-        if n >= 5:                                    # small nudge for current hot/cold form
+        score += (sw / sg * 100.0 - 50.0) * 2.0
+        if n >= 5:
             score += (w / n * 100.0 - 50.0) * 0.35
     elif n >= 3:
         score += (w / n * 100.0 - 50.0) * 2.0
-    # how they PLAY: KDA (carrying vs inting) — a supporting factor, not the driver.
     if kg >= 3:
         avg = (kda.get("k", 0) + kda.get("a", 0)) / max(1, kda.get("d", 0))
         score += max(-16.0, min(20.0, (avg - 2.6) * 6.0))
-    stv = _streak(sc.get("form") or [])               # hot/cold hands
+    stv = _streak(sc.get("form") or [])
     if abs(stv) >= 3:
         score += 5 if stv > 0 else -5
     score = max(0.0, min(100.0, score))
@@ -2146,7 +2159,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         for i, b in enumerate(plan):
             d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
         ly += plan_h
-    _legend = "rank · L10 W/L · mastery · S-F / GOOD PLAYER = player skill (win rate, not rank) · ● duo = premade   |   ★ gank = champ-vs-champ matchup edge (live shifts it)   |   click → u.gg"
+    _legend = "rank · L10 W/L · mastery · S-F / GOOD PLAYER = player skill (how they PLAY — CS/KP/dmg/deaths, not W/L or rank) · ● duo = premade   |   ★ gank = champ-vs-champ matchup edge (live shifts it)   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))

@@ -210,10 +210,11 @@ def recent_ids(puuid, key, count, queue="ranked"):
 
 
 def match_results(mid, key):
-    """{puuid: [win, championName, kills, deaths, assists]} for all 10 participants — the KDA
-    lets callers judge how a player has been PERFORMING, not just their W/L. Same match fetch
-    as before (no extra API cost), cached forever. Old cache entries hold just [win, champ] and
-    still read fine (callers take [0]/[1]; KDA readers check the length)."""
+    """{puuid: [win, champ, k, d, a, cs, dmg, vision, obj, team, pos]} for all 10 participants —
+    the full per-player stat line lets callers judge SKILL from how someone actually plays (CS,
+    kill participation, damage share, deaths, vision), not just their W/L. Same match fetch as
+    before (no extra API cost), cached forever. Old cache entries hold a shorter list ([win,
+    champ] or through KDA) and still read fine — every reader checks the length before indexing."""
     fp = _cache_path("match", mid)
     if os.path.exists(fp):
         try:
@@ -223,10 +224,20 @@ def match_results(mid, key):
     d = _get(f"https://{REGIONAL}.api.riotgames.com/lol/match/v5/matches/{mid}", key)
     if not d or "info" not in d:
         return None
-    res = {p["puuid"]: [bool(p["win"]), p.get("championName", ""),
-                        int(p.get("kills", 0)), int(p.get("deaths", 0)), int(p.get("assists", 0))]
-           for p in d["info"]["participants"]}
+    res = {p["puuid"]: [
+        bool(p["win"]), p.get("championName", ""),
+        int(p.get("kills", 0)), int(p.get("deaths", 0)), int(p.get("assists", 0)),
+        int(p.get("totalMinionsKilled", 0)) + int(p.get("neutralMinionsKilled", 0)),   # cs
+        int(p.get("totalDamageDealtToChampions", 0)),                                  # dmg to champs
+        int(p.get("visionScore", 0)),                                                  # vision
+        (int(p.get("turretTakedowns", 0)) + int(p.get("dragonKills", 0))              # objective takedowns
+         + int(p.get("baronKills", 0)) + int(p.get("riftHeraldTakedowns", 0))
+         + int(p.get("inhibitorTakedowns", 0))),
+        int(p.get("teamId", 0)),                                                       # team
+        p.get("teamPosition", "") or p.get("individualPosition", ""),                  # role that game
+    ] for p in d["info"]["participants"]}
     res["_q"] = d["info"].get("queueId", 0)      # queue id, so aggregates can filter SR-only
+    res["_dur"] = int(d["info"].get("gameDuration", 0))   # seconds, for per-minute stats
     try:                                         # atomic write: two parallel scouts can share a match
         tmp = f"{fp}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w") as f:
@@ -477,15 +488,26 @@ def familiarity(base=None):
     return merged
 
 
+def _part(rec):
+    """A rich match_results row (list) -> the participant dict that _grade_game reads."""
+    return {"win": rec[0], "k": rec[2], "d": rec[3], "a": rec[4], "cs": rec[5],
+            "dmg": rec[6], "vision": rec[7], "obj": rec[8], "team": rec[9], "pos": rec[10]}
+
+
 def scout(dd, puuid, champ_id, key, count):
-    """Return (games, wins, champ_games, champ_wins, form, match_ids, kda) over the last
+    """Return (games, wins, champ_games, champ_wins, form, match_ids, kda, perf) over the last
     `count` ranked. `form` is a list of bool (True=win) in recent-first order. `kda` pools this
-    player's recent kills/deaths/assists ({g, k, d, a}) so callers can rate how they've been
-    PERFORMING regardless of rank. match_ids drives duo detection."""
+    player's recent kills/deaths/assists ({g, k, d, a}). `perf` is the average per-game
+    PERFORMANCE score (how well they actually played vs their role's benchmarks — CS, kill
+    participation, damage share, deaths, vision), or None if no detailed matches were cached
+    yet. perf is the skill read that survives a bad-luck losing streak on off-champs — it grades
+    how you play, not whether you won. match_ids drives duo detection."""
+    import lolprofile as lp                        # lazy: lolprofile imports us (avoid a cycle)
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
     form = []
     tk = td = ta = kg = 0                          # KDA totals + games that carried KDA data
+    perfs = []
     for mid in ids:
         res = match_results(mid, key)
         if not res or puuid not in res:
@@ -497,10 +519,18 @@ def scout(dd, puuid, champ_id, key, count):
         form.append(bool(win))
         if len(rec) >= 5:                          # new-format cache carries KDA
             tk += rec[2]; td += rec[3]; ta += rec[4]; kg += 1
+        if len(rec) >= 11:                         # full stat line -> grade how they PLAYED
+            parts = [_part(v) for v in res.values() if isinstance(v, list) and len(v) >= 11]
+            try:
+                s, _lt, _lb = lp._grade_game(parts, _part(rec), res.get("_dur", 0))
+                perfs.append(s)
+            except Exception:
+                pass
         if dd["name2id"].get(dd["norm"](cname)) == champ_id:
             cg += 1
             cw += 1 if win else 0
-    return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}
+    perf = round(sum(perfs) / len(perfs), 1) if perfs else None
+    return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}, perf
 
 
 def _safe(s):
@@ -648,11 +678,11 @@ def iter_scout_struct(dd, count=10):
 
         def _one(p):
             puuid, cid, role, is_ally, is_me, riot_id = p
-            n, w, cg, cw, form, mids, kda = scout(dd, puuid, cid, key, count)
+            n, w, cg, cw, form, mids, kda, perf = scout(dd, puuid, cid, key, count)
             return {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                     "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
                     "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
-                    "mids": mids, "kda": kda}
+                    "mids": mids, "kda": kda, "perf": perf}
 
         # Scout all 10 AT ONCE. The scout is latency-bound (each player = ~N match fetches), so
         # running them concurrently fills the board in ~one player's time instead of ten. The

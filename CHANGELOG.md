@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.2.79
+- **The player grade now reads how you actually PLAY, not your win/loss.** It scores each of your recent games against your role's benchmarks — CS/min, kill participation, damage share, deaths, vision (the same engine as your post-game review) — and averages them. Win rate is only a light tie-breaker now.
+- **Why this matters:** if you're a strong player grinding on a low/off-role account, or just lost a few playing off-champs, your fundamentals still show through — you'll grade a solid **B**, not a bogus **F**, even mid-losing-streak. It figures out your skill from your gameplay, not from your account. Meanwhile someone who's genuinely inting (bad CS, no participation, feeding) still grades low even if they got carried to a win.
+- (No account-peeking — the grade is read purely from the games in front of it. Detailed per-game stats build up as your recent matches get scanned; until then it falls back to the old win-rate + KDA read.)
+
 ## v0.2.78
 - **Ban ideas (before you pick) are now live op.gg data**, not a hardcoded list — the highest win-rate champs in YOUR role this patch. No more banning off-meta champs.
 - **Player grade is now a real-stats skill read.** It's driven by win rate (your season ranked W/L when available — a big sample), with KDA and current form as supporting factors. Rank tier is ignored, so a Silver on a 65% climb grades higher than a Diamond who's feeding.
