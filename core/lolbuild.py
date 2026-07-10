@@ -147,6 +147,37 @@ def opgg(cid, role, tier=None):
     return data
 
 
+def opgg_all_ranked():
+    """op.gg's whole champion pool with per-position stats (win_rate / play / pick_rate), for
+    'strongest champs in role X' reads (e.g. ban ideas). One list, disk-cached ~6h. [] on any
+    failure (serves stale if present). Each entry: {id, average_stats{...}, positions:[{name,
+    stats{win_rate,play,...}}]}."""
+    fp = os.path.join(OPGG_CACHE, "_ranked_all.json")
+    try:
+        c = json.load(open(fp, encoding="utf-8"))
+        if time.time() - c.get("ts", 0) < OPGG_TTL:
+            return c.get("data", [])
+    except Exception:
+        pass
+    try:
+        raw = http("https://lol-api-champion.op.gg/api/na/champions/ranked",
+                   headers={"User-Agent": UA, "Accept": "application/json"}, timeout=10)
+        data = raw.get("data", raw) if isinstance(raw, dict) else raw
+    except Exception:
+        try:
+            return json.load(open(fp, encoding="utf-8")).get("data", [])
+        except Exception:
+            return []
+    if isinstance(data, list) and data:
+        try:
+            os.makedirs(OPGG_CACHE, exist_ok=True)
+            _atomic_json(fp, {"data": data, "ts": time.time()})
+        except Exception:
+            pass
+        return data
+    return []
+
+
 # ---------- op.gg matchup win rates ----------
 def gather_matchups(dd, my_cid, role, enemy_ids):
     """op.gg same-role matchup win rates for the enemy champs in the table.

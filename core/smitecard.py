@@ -557,24 +557,14 @@ def _streak(form):
     return k if first else -k
 
 
-def gank_score(ally_wr, e_n, e_w, e_cg, e_cw, e_form=None, self_kit=0.0):
+def gank_score(ally_wr, e_n=0, e_w=0, e_cg=0, e_cw=0, e_form=None, self_kit=0.0):
+    """PURE champ-vs-champ gank read: the lane matchup edge (op.gg WR vs 50) plus YOUR champ's
+    gank/roam kit. Player form / streak / smurf reads are deliberately NOT mixed in here — that
+    lives on the per-player grade + GOOD PLAYER tag instead, so 'gank' stays about the champs.
+    (Extra args kept for signature compatibility; unused.)"""
     s = float(self_kit)                                   # YOUR champ's CC/engage (gank/roam kit)
     if ally_wr is not None:
-        s += GANK_W_LANE * (ally_wr - 50.0)               # BASE: champ vs champ
-    if e_n:  # enemy scout loaded
-        f = e_w / e_n * 100.0                              # enemy recent winrate %
-        k = _streak(e_form or [])                          # signed streak (compounding)
-        comp = 1.0 + GANK_STREAK_COMP * max(0, abs(k) - 2)
-        s += GANK_W_FORM * (50.0 - f) * comp               # losing/loss-streak -> easier gank
-        if e_n >= 8:                                        # extreme OVERRIDES the matchup
-            if f <= 15.0 or k <= -7:
-                s += GANK_EXTREME                           # tilted/inting -> amazing no matter what
-            elif f >= 85.0 or k >= 7:
-                s -= GANK_EXTREME                           # smurfing/heater -> avoid no matter what
-        if e_cg >= 3:
-            s += GANK_W_CHAMP * (50.0 - e_cw / e_cg * 100.0)
-        elif e_cg == 0:
-            s += GANK_OFFCHAMP
+        s += GANK_W_LANE * (ally_wr - 50.0)               # champ vs champ matchup edge
     return s
 
 
@@ -1169,27 +1159,37 @@ _RATE_COLOR = {"S": (236, 206, 128), "A": (95, 200, 126), "B": (120, 166, 232),
 
 
 def player_rating(sc):
-    """(grade, color) from how the player has been PERFORMING lately, or (None, None) with too
-    few recent games to judge. Rank is not a factor — it's win rate + KDA + streak."""
+    """(grade, color) for a player's SKILL from real stats — driven by win rate, with KDA + form
+    as supporting reads. Rank tier is not a factor (a smurf's 65% on a Gold account = high). Uses
+    the big SEASON ranked W/L sample when available, else the recent scouted games."""
     if not sc:
         return None, None
-    n, w = sc.get("n", 0) or 0, sc.get("w", 0) or 0
+    r = sc.get("rank") or {}
+    sw, sl = int(r.get("w") or 0), int(r.get("l") or 0)   # this season's ranked W/L (large sample)
+    sg = sw + sl
+    n, w = int(sc.get("n") or 0), int(sc.get("w") or 0)   # recent scouted games
     kda = sc.get("kda") or {}
-    kg = kda.get("g", 0) or 0
-    if n < 3 and kg < 3:
-        return None, None
+    kg = int(kda.get("g") or 0)
+    if sg < 15 and n < 3:
+        return None, None                             # nothing real to judge yet
     score = 50.0
-    if n >= 3:                                        # winning your games = the core signal
-        score += (w / n * 100.0 - 50.0) * 0.55
-    if kg >= 2:                                       # KDA = carrying vs inting (when we have it)
+    # WIN RATE is the signal. Big season sample dominates; recent WR when unranked/thin.
+    if sg >= 15:
+        score += (sw / sg * 100.0 - 50.0) * 2.5
+        if n >= 5:                                    # small nudge for current hot/cold form
+            score += (w / n * 100.0 - 50.0) * 0.35
+    elif n >= 3:
+        score += (w / n * 100.0 - 50.0) * 2.0
+    # how they PLAY: KDA (carrying vs inting) — a supporting factor, not the driver.
+    if kg >= 3:
         avg = (kda.get("k", 0) + kda.get("a", 0)) / max(1, kda.get("d", 0))
-        score += max(-24.0, min(34.0, (avg - 2.6) * 8.0))   # ~2.6 KDA is average; cap the stomps
+        score += max(-16.0, min(20.0, (avg - 2.6) * 6.0))
     stv = _streak(sc.get("form") or [])               # hot/cold hands
     if abs(stv) >= 3:
-        score += 6 if stv > 0 else -6
+        score += 5 if stv > 0 else -5
     score = max(0.0, min(100.0, score))
-    g = ("S" if score >= 84 else "A" if score >= 71 else "B" if score >= 58
-         else "C" if score >= 45 else "D" if score >= 33 else "F")
+    g = ("S" if score >= 80 else "A" if score >= 68 else "B" if score >= 56
+         else "C" if score >= 44 else "D" if score >= 32 else "F")
     return g, _RATE_COLOR[g]
 
 
@@ -1240,7 +1240,10 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         nm, nf = name + ("  YOU" if is_me else ""), font(14, 1)
         d.text((tx, y + 13), nm, font=nf, fill=GOLD if is_me else TEXT)
         if grade:                                     # right after the name -> clearly the player's grade
-            _grade_chip(d, tx + d.textlength(nm, font=nf) + 18, y + 21, grade, gcol)
+            gx = tx + d.textlength(nm, font=nf) + 18
+            _grade_chip(d, gx, y + 21, grade, gcol)
+            if grade in ("S", "A"):                   # standout skill -> a CARRY flag
+                d.text((gx + 15, y + 15), "GOOD PLAYER", font=font(8, 1), fill=gcol)
         _wr_line(d, tx, y + 35, sc, "la", live)
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
@@ -1257,7 +1260,10 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         nf = font(14, 1)
         d.text((tx, y + 13), name, font=nf, fill=TEXT, anchor="ra")
         if grade:                                     # left of the (right-anchored) name
-            _grade_chip(d, tx - d.textlength(name, font=nf) - 18, y + 21, grade, gcol)
+            gx = tx - d.textlength(name, font=nf) - 18
+            _grade_chip(d, gx, y + 21, grade, gcol)
+            if grade in ("S", "A"):
+                d.text((gx - 15, y + 15), "GOOD PLAYER", font=font(8, 1), fill=gcol, anchor="ra")
         _wr_line(d, tx, y + 35, sc, "ra", live)
         if sc and sc.get("form"):
             draw_form(d, x - cw + 6, y + 38, sc["form"])
@@ -1733,18 +1739,48 @@ _BAN_PRIORITY = ("Yasuo", "Yone", "Zed", "Katarina", "Fizz", "MasterYi", "Akali"
                  "Riven", "Irelia", "Kled", "Fiora", "Camille", "Nilah", "Smolder")
 
 
-def general_bans(dd, taken=(), topn=3):
-    """Fallback ban ideas that don't need your champ (for the ban phase): high-priority solo-q
-    bans, skipping anything already banned/picked. [(cid, None), ...] — None = 'priority', not a
-    personal win-rate."""
+_OPGG_POS = {"top": "TOP", "jungle": "JUNGLE", "mid": "MID", "adc": "ADC", "support": "SUPPORT"}
+BAN_MIN_PLAY = 3000     # min games for a champ's role stats to count as a "real" ban target
+
+
+def general_bans(dd, role, taken=(), topn=3):
+    """Ban ideas for the ban phase (before you've picked a champ): the highest WIN-RATE champs
+    in YOUR role right now, straight from op.gg — so it tracks the live patch instead of a stale
+    list. [(cid, wr%), ...]; falls back to a tiny hardcoded backstop only if op.gg is down."""
+    role = lb.ROLE.get((role or "").lower(), (role or "").lower())
+    pos = _OPGG_POS.get(role)
     taken = set(taken or [])
-    out = []
-    for nm in _BAN_PRIORITY:
-        cid = dd["name2id"].get(dd["norm"](nm))
-        if cid and cid not in taken:
-            out.append((cid, None))
-        if len(out) >= topn:
-            break
+    rows = []
+    if pos:
+        try:
+            champs = lb.opgg_all_ranked()
+        except Exception:
+            champs = []
+        for ch in (champs or []):
+            cid = ch.get("id")
+            if not cid or cid in taken:
+                continue
+            p = next((pp for pp in (ch.get("positions") or []) if pp.get("name") == pos), None)
+            if not p:
+                continue                         # this champ isn't played in your role
+            st = p.get("stats") or {}
+            wr, play = st.get("win_rate"), st.get("play", 0) or 0
+            if wr is None:                       # per-position stat missing -> overall
+                avg = ch.get("average_stats") or {}
+                wr, play = avg.get("win_rate"), avg.get("play", 0) or 0
+            if wr:
+                rows.append((cid, wr, play))
+        # meaningful-sample champs first (so a niche 55% one-trick doesn't outrank the meta),
+        # then by win rate.
+        rows.sort(key=lambda x: (x[2] >= BAN_MIN_PLAY, x[1]), reverse=True)
+    out = [(cid, wr * 100.0) for cid, wr, _ in rows[:topn]]
+    if not out:                                  # op.gg unavailable -> minimal safe backstop
+        for nm in _BAN_PRIORITY:
+            cid = dd["name2id"].get(dd["norm"](nm))
+            if cid and cid not in taken:
+                out.append((cid, None))
+            if len(out) >= topn:
+                break
     return out
 
 
@@ -2110,7 +2146,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         for i, b in enumerate(plan):
             d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
         ly += plan_h
-    _legend = "rank · L10 W/L · mastery · S-F = how they've been playing (recent W/L + KDA, not rank) · ● duo = premade   |   ★ gank = strong side, avoid = weak side (live)   |   click → u.gg"
+    _legend = "rank · L10 W/L · mastery · S-F / GOOD PLAYER = player skill (win rate, not rank) · ● duo = premade   |   ★ gank = champ-vs-champ matchup edge (live shifts it)   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
@@ -2255,7 +2291,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 # Ban ideas: your champ's counters once you've hovered, else high-priority solo-q
                 # bans (bans happen before you pick, so we always have a target to show/auto-ban).
                 ideas = (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
-                    or general_bans(dd, taken)
+                    or general_bans(dd, my_role, taken)
                 if settings.get("auto_ban", False):     # your ban turn? -> lock the top safe ban
                     try:
                         import lolimport as limp

@@ -1,5 +1,11 @@
 # Smiteless — Patch Notes
 
+## v0.2.78
+- **Ban ideas (before you pick) are now live op.gg data**, not a hardcoded list — the highest win-rate champs in YOUR role this patch. No more banning off-meta champs.
+- **Player grade is now a real-stats skill read.** It's driven by win rate (your season ranked W/L when available — a big sample), with KDA and current form as supporting factors. Rank tier is ignored, so a Silver on a 65% climb grades higher than a Diamond who's feeding.
+- **New GOOD PLAYER tag** on any player graded S or A — spot the carries (and carry threats) at a glance.
+- **Gank ratings are now purely champ-vs-champ matchup** (plus your kit and live game state). Player form/skill no longer muddies the lane read — that's what the grade + GOOD PLAYER tag are for now.
+
 ## v0.2.77
 - **Auto-ban.** New **AUTO** toggle next to GOOD BANS in champ select (also in Settings). When on, it locks the top recommended ban on your ban turn — and never bans an already-banned champ or one a teammate is hovering.
 - **Ban ideas now show during the ban phase.** Since you ban before you pick, GOOD BANS now shows high-priority solo-queue bans when you don't have a champ yet (instead of "hover your champ for ban ideas"); once you hover, it switches to your champ's hardest counters.
