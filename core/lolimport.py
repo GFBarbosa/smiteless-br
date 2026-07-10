@@ -63,6 +63,52 @@ def hover_champ(cid):
     return "hovered"
 
 
+def auto_ban(dd, targets, extra_avoid=()):
+    """If it's YOUR ban turn right now, LOCK the first champ in `targets` that's safe to ban:
+    not already banned/picked and not a teammate's hovered pick (never ban an ally's champ).
+    Returns the banned championId, or None (not your ban turn / nothing safe / no client).
+    Never raises — auto-ban must never disrupt champ select."""
+    if not targets:
+        return None
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+    except Exception:
+        return None
+    if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
+        return None
+    cell = sess.get("localPlayerCellId")
+    action_id = None
+    for group in (sess.get("actions") or []):
+        for a in group:
+            if (a.get("actorCellId") == cell and a.get("type") == "ban"
+                    and a.get("isInProgress") and not a.get("completed")):
+                action_id = a.get("id")
+    if action_id is None:
+        return None                              # not your ban turn
+    avoid = set(int(c) for c in extra_avoid if c)
+    b = sess.get("bans") or {}
+    for c in (b.get("myTeamBans") or []) + (b.get("theirTeamBans") or []):
+        if c:
+            avoid.add(int(c))
+    for m in (sess.get("myTeam") or []):         # don't ban a teammate's hovered / locked champ
+        pi = m.get("championPickIntent") or m.get("championId") or 0
+        if pi:
+            avoid.add(int(pi))
+    for group in (sess.get("actions") or []):    # or anything already locked
+        for a in group:
+            if a.get("completed") and a.get("championId"):
+                avoid.add(int(a["championId"]))
+    pick = next((int(c) for c in targets if c and int(c) not in avoid), None)
+    if not pick:
+        return None
+    try:
+        _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+                  {"championId": pick, "completed": True})
+        return pick
+    except Exception:
+        return None
+
+
 def import_build(dd, cid, role, build):
     """Push `build`'s runes + summoners for cid/role into the client. Returns a status
     string; raises RuntimeError with a friendly message on anything expected."""

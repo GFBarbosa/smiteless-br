@@ -61,8 +61,17 @@ def main():
     canvas.bind("<Configure>", _sync_scroll)
     root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
-    tk.Label(body, text="SMITELESS  SETTINGS", bg=BG, fg=GOLD,
-             font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=18, pady=(16, 1))
+    try:
+        import smiteupdate as _su
+        _ver = _su.local_version()
+    except Exception:
+        _ver = ""
+    _hdr = tk.Frame(body, bg=BG)
+    _hdr.pack(fill="x", padx=18, pady=(16, 1))
+    tk.Label(_hdr, text="SMITELESS  SETTINGS", bg=BG, fg=GOLD,
+             font=("Segoe UI", 13, "bold")).pack(side="left")
+    if _ver:
+        tk.Label(_hdr, text=f"v{_ver}", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(8, 0), pady=(6, 0))
     tk.Label(body, text="Changes apply live - the overlay's gank tags update within a few seconds.",
              bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=18, pady=(0, 8))
 
@@ -121,6 +130,7 @@ def main():
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
+    autoban = tk.BooleanVar(value=s.get("auto_ban", False))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
@@ -134,6 +144,7 @@ def main():
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
+    _chk(col1, "Auto-ban top recommended (champ select)", autoban).pack(anchor="w")
     _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
@@ -382,7 +393,7 @@ def main():
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
-                  "auto_import": autoimp.get(), "fav_champs": favs,
+                  "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())

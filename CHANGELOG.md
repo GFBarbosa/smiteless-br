@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.2.77
+- **Auto-ban.** New **AUTO** toggle next to GOOD BANS in champ select (also in Settings). When on, it locks the top recommended ban on your ban turn — and never bans an already-banned champ or one a teammate is hovering.
+- **Ban ideas now show during the ban phase.** Since you ban before you pick, GOOD BANS now shows high-priority solo-queue bans when you don't have a champ yet (instead of "hover your champ for ban ideas"); once you hover, it switches to your champ's hardest counters.
+- **QoL:** the current version number now shows in the Settings header.
+
 ## v0.2.76
 - **"Good this game" now populates the moment champ select opens** — you no longer have to hover a champ (or wait for enemies to lock) to see it. It shows your mastery-5+ champs for your assigned role right away, and refines as enemies lock in.
 

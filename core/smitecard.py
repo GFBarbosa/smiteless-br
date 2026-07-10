@@ -1724,17 +1724,41 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
 VW = 384                 # width of the vertical (docked) champ-select panel
 
 
-def _auto_chip(d, x, y, on, hits):
-    """The AUTO toggle drawn beside the import button; clicking flips cfg.auto_import."""
-    label = "AUTO ✓" if on else "AUTO"
-    f = font(9, 1, label)
-    w = int(d.textlength(label, font=f)) + 18
+# High-priority solo-queue bans — the "ban to not suffer" champs, used when you don't have a
+# pick yet (bans happen before you hover in draft) so auto-ban / GOOD BANS still have a target.
+# Popularity-ordered, evergreen-ish; unknown names resolve to nothing and are skipped.
+_BAN_PRIORITY = ("Yasuo", "Yone", "Zed", "Katarina", "Fizz", "MasterYi", "Akali", "LeBlanc",
+                 "Vayne", "Draven", "Kassadin", "Darius", "Teemo", "Tryndamere", "Nasus",
+                 "Singed", "Shaco", "Evelynn", "Kayn", "Briar", "Ambessa", "Naafiri", "Aatrox",
+                 "Riven", "Irelia", "Kled", "Fiora", "Camille", "Nilah", "Smolder")
+
+
+def general_bans(dd, taken=(), topn=3):
+    """Fallback ban ideas that don't need your champ (for the ban phase): high-priority solo-q
+    bans, skipping anything already banned/picked. [(cid, None), ...] — None = 'priority', not a
+    personal win-rate."""
+    taken = set(taken or [])
+    out = []
+    for nm in _BAN_PRIORITY:
+        cid = dd["name2id"].get(dd["norm"](nm))
+        if cid and cid not in taken:
+            out.append((cid, None))
+        if len(out) >= topn:
+            break
+    return out
+
+
+def _auto_chip(d, x, y, on, hits, action="action:toggle_auto_import", label="AUTO"):
+    """A small AUTO toggle chip; clicking flips the given config action (import or ban)."""
+    txt = f"{label} ✓" if on else label
+    f = font(9, 1, txt)
+    w = int(d.textlength(txt, font=f)) + 18
     fill = (34, 64, 46) if on else (30, 34, 46)
     edge = (95, 200, 126) if on else PEDGE
     _rrect(d, (x, y, x + w, y + 22), 7, fill=fill, outline=edge, width=1)
-    d.text((x + 9, y + 5), label, font=f, fill=(150, 220, 170) if on else MUTED)
+    d.text((x + 9, y + 5), txt, font=f, fill=(150, 220, 170) if on else MUTED)
     if hits is not None:
-        hits.append((x, y, x + w, y + 22, "action:toggle_auto_import"))
+        hits.append((x, y, x + w, y + 22, action))
     return w
 
 
@@ -1754,7 +1778,7 @@ def _rune_chip(d, x, y, idx, wr, sel, hits):
 
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
                        enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
-                       note=None, favs=None):
+                       note=None, favs=None, auto_ban=False):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
@@ -1876,18 +1900,18 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     y += 66
     # good bans
     d.text((20, y), "GOOD BANS", font=font(9, 1), fill=GOLD)
+    _auto_chip(d, VW - 78, y - 3, auto_ban, hits, action="action:toggle_auto_ban", label="AUTO")
     if ban_ideas:
         xx = 20
         for cid, my_wr in ban_ideas[:3]:
             bic = get_icon(dd, cid, 34)
             if bic:
                 img.paste(bic, (xx, y + 16), bic)
-            d.text((xx + 17, y + 54), f"{my_wr:.0f}%", font=font(9), fill=REDWR, anchor="ma")
+            lbl = f"{my_wr:.0f}%" if my_wr is not None else "ban"     # None = general priority ban
+            d.text((xx + 17, y + 54), lbl, font=font(9), fill=REDWR, anchor="ma")
             xx += 58
-    elif ban_ideas is not None:
-        d.text((20, y + 20), "no hard counters — ban comfort/meta", font=font(10), fill=MUTED)
     else:
-        d.text((20, y + 20), "hover your champ for ban ideas", font=font(10), fill=MUTED)
+        d.text((20, y + 20), "ban ideas load in a moment…", font=font(10), fill=MUTED)
     y += 74
     # lobby bans
     bm, bt = (bans or ((), ()))[0] or [], (bans or ((), ()))[1] or []
@@ -2228,11 +2252,21 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 enemy_ids = [c for c, _ in enemies if c]
                 taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
                 favs = recommend_favs(dd, my_role, taken, settings.get("fav_champs"))
+                # Ban ideas: your champ's counters once you've hovered, else high-priority solo-q
+                # bans (bans happen before you pick, so we always have a target to show/auto-ban).
+                ideas = (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
+                    or general_bans(dd, taken)
+                if settings.get("auto_ban", False):     # your ban turn? -> lock the top safe ban
+                    try:
+                        import lolimport as limp
+                        limp.auto_ban(dd, [c for c, _ in ideas], extra_avoid=ally_ids)
+                    except Exception:
+                        pass
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),
-                       bool(settings.get("auto_import", False)), auto_note,
-                       get_rune_idx(), tuple(favs))
+                       bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
+                       auto_note, get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
                     # champs you actually play, pooled across ALL your accounts (main + smurfs):
                     # the live current-account mastery merged with the cross-account aggregate.
@@ -2240,7 +2274,6 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                                           fam=ls.familiarity(lg.my_mastery()))
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
-                    ideas = suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else None
                     if settings.get("dock_champ_select", True):
                         # tall panel that docks LEFT of the client (the overlay parks it there
                         # and nudges the client right if there's no room)
@@ -2248,7 +2281,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              suggestions=sugg, bans=(bans_my, bans_their),
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
-                             note=auto_note, favs=favs))
+                             note=auto_note, favs=favs, auto_ban=bool(settings.get("auto_ban", False))))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",
