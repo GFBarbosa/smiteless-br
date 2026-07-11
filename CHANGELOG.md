@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.2.87
+- **Fixed the in-game widget randomly disappearing mid-game.** The "is the game over?" check counted poll ticks but was tuned as if ticks were 5s when they're ~1s — so a **4-second** client hiccup (a teamfight lagging the client and the live-data port at once) could close the widget mid-game. It's now wall-clock based: ~25s of confirmed non-game (or 3 min of unreachable client) before it even considers closing, and it always asks the live game directly first — if the game answers, the widget stays.
+- **Fixed the voice callouts being completely silent in the installed app.** The speech renderer worked in development but died instantly in the shipped (windowed) build due to a Windows process-handle quirk — so no WAVs were ever created. Now fixed and verified under the same condition.
+- **"Tempo online."** — the widget now says a short hello when it first picks up your game, so you know immediately that audio is working instead of discovering silence at first drake.
+
 ## v0.2.86
 - **The Tempo engine now talks.** Short spoken callouts fire exactly when a window opens: **"Base now."**, **"Rotate to dragon."** (per-objective), **"Take it — you win this fight."**, **"Give it — trade elsewhere."**, **"Fifty fifty — only with vision."**, **"Force now — numbers advantage."** Voiced by Windows' built-in speech engine — free, offline, rendered once to WAV and cached, played at your existing widget volume. It only speaks on a *phase change* (never repeats, 6s global cooldown, anti-flap guard), the in-game ♪ mute button silences it along with the drake chime, and there's a separate "Tempo voice callouts" toggle in Settings.
 

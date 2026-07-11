@@ -148,9 +148,12 @@ def _tts_path(name, text, vol=30):
               "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
               f"$s.Volume = {vol}; $s.Rate = 2; "
               f"$s.SetOutputToWaveFile('{p}'); $s.Speak('{text}'); $s.Dispose()")
+        # stdin MUST be redirected: in the frozen (windowed, no-console) app the child
+        # inherits an invalid stdin handle and dies with WinError 6 before PowerShell even
+        # runs - which made the voice silently never render in the shipped build.
         subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                        creationflags=0x08000000,          # CREATE_NO_WINDOW: never flash a console
-                       capture_output=True, timeout=25)
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=25)
         if os.path.exists(p) and os.path.getsize(p) > 1000:
             return p
     except Exception:
@@ -458,7 +461,7 @@ def main():
     q = queue.Queue()
 
     def worker():
-        seen, ended, stale = False, 0, 0
+        seen, last_ok = False, time.monotonic()
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
         tempo_on = _cfg.get("tempo_coach", True)
@@ -472,7 +475,8 @@ def main():
         if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (SAPI, one-time)
             threading.Thread(target=lambda: [_tts_path(nm, tx, dvol) for nm, tx in
                                              list(_TEMPO_SPEECH.values()) + list(_TEMPO_ROTATE.values())
-                                             + [("rotate", "Rotate now.")]], daemon=True).start()
+                                             + [("rotate", "Rotate now."), ("hello", "Tempo online.")]],
+                             daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -533,8 +537,14 @@ def main():
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None
                 dragon_audio(drake["secs"] if drake else None)
-            if raw is not None:                          # fresh game data -> paint + reset counters
-                seen, ended, stale = True, 0, 0
+            now = time.monotonic()
+            if raw is not None:                          # fresh game data -> paint + reset the clock
+                if not seen and voice_on and dvol > 0 and not st.get("muted", False):
+                    # first live data of the game: a short hello — confirms the whole audio
+                    # pipeline (render + playback) is working instead of failing silently.
+                    threading.Thread(target=_say, args=("hello", "Tempo online.", dvol),
+                                     daemon=True).start()
+                seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
@@ -542,35 +552,25 @@ def main():
                 # "only work sometimes": every blip wiped the panel back to 'waiting...'.
                 if not seen:
                     q.put({"rec": None, "pulse": None})   # never had data yet -> show waiting
-                seen, ended, stale = True, 0, 0
-            elif ph == "":
-                # Client UNREACHABLE: during a teamfight/lag spike both :2999 and the LCU can
-                # time out for a while even though the game is still going. Do NOT disappear -
-                # hold the last frame. Only a very long dead stretch (client really gone) closes.
-                stale += 1
+                seen, last_ok = True, now
+            else:
+                # No game data AND the phase says unreachable ("") or non-game (Lobby/None/...).
+                # Both happen TRANSIENTLY mid-game (client restart, teamfight lag hitting the
+                # LCU and :2999 at once), so closing is WALL-CLOCK based - a strike counter at
+                # ~1s ticks closed after a few seconds of blip, which was the "widget randomly
+                # disappears mid-game" bug. Before giving up, one direct live-client check with
+                # a generous timeout gets the final word - if the game answers, we were fooled.
                 if not seen:
                     q.put({"rec": rec, "pulse": None})   # never saw a game -> show "waiting"
-                if stale >= (36 if seen else 4):         # seen: ~3 min tolerance; not seen: ~20s
-                    q.put("__quit__")
-                    return
-            else:
-                # a DEFINITE non-game phase (Lobby / WaitingForStats / EndOfGame / None ...).
-                # BUT: LeagueClientUx restarting mid-game reports None/Lobby for a while, and a
-                # :2999 hiccup at the same moment used to close the widget "randomly" mid-game.
-                # So: more strikes, plus a FINAL direct live-client check with a generous
-                # timeout - if the game answers, we were fooled; keep living.
-                ended += 1
-                if not seen:
-                    q.put({"rec": rec, "pulse": None})
-                if ended >= (4 if seen else 3):          # ~20s of confirmed non-game (seen)
-                    if seen:
-                        try:
-                            lb.http("https://127.0.0.1:2999/liveclientdata/gamestats",
-                                    timeout=6, insecure=True)
-                            ended = 0                     # game's still alive -> false alarm
-                            continue
-                        except Exception:
-                            pass
+                grace = ((180.0 if ph == "" else 25.0) if seen else 15.0)
+                if now - last_ok >= grace:
+                    try:
+                        lb.http("https://127.0.0.1:2999/liveclientdata/gamestats",
+                                timeout=6, insecure=True)
+                        seen, last_ok = True, now         # game's still alive -> false alarm
+                        continue
+                    except Exception:
+                        pass
                     q.put("__quit__")
                     return
             for _ in range(POLL * 2):
