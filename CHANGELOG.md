@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.83
+- **"Play more / ease off" champ advice now uses real statistics.** It no longer crowns a 3-0 champ your best pick. Champs are ranked by a **Wilson score** — a confidence-adjusted win rate that discounts small samples so a wide 3-0 can't beat a tight 40-25 — blended with **how well you actually play the champ** (your average game score on it), and a champ needs a real sample (5+ games) before it can drive advice. So a proven main beats a lucky streak; "ease off" only fires when it's statistically confident a non-main is a loser (never off a 4-game fluke); and a champ you *main* on a rough patch is still flagged as a slump, not a pick problem. Each suggestion now shows the games it rests on (e.g. "play more Graves 61% (40g)"). The season-wide version also factors in your performance now, not just W/L.
+
 ## v0.2.82
 - **Pick-order swap now has a simple "Accept any" mode.** In **Settings → Auto pick-order swap**, pick **Accept any** to just auto-accept every incoming pick-order swap request — no direction, no asking. (First pick / Last pick are still there if you want Smiteless to actively work toward an end of the order.)
 

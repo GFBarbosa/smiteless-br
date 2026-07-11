@@ -7,6 +7,7 @@ import os
 import time
 import json
 import ssl
+import math
 import base64
 import urllib.request
 
@@ -94,27 +95,70 @@ def _session(hist, games):
     return out
 
 
+def _wilson(w, n, z=1.96, upper=False):
+    """Wilson score-interval bound for a win proportion — the sample-aware way to rank rates.
+    A 3-0 champ has a WIDE interval (its floor sits low, ~0.44); a 40-25 main a tight one (floor
+    ~0.49), so ranking by the floor puts the proven main above the tiny-sample fluke instead of
+    letting 100%-of-3-games win. Returns the lower bound by default, the upper bound if asked."""
+    if n <= 0:
+        return 0.0
+    p = w / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = p + z2 / (2 * n)
+    margin = z * math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)
+    return max(0.0, min(1.0, (center + margin if upper else center - margin) / denom))
+
+
+_PERF_PRIOR_N = 5          # pseudo-games that pull a thin performance sample toward par
+_PERF_PAR = 70.0           # a neutral per-game score to regress a small perf sample toward
+_COACH_MIN_G = 5           # a champ needs a real sample before it can drive pool advice
+
+
+def _champ_rating(g, w, avg=None):
+    """A single 0..1 'how good is this pick FOR YOU' number: the sample-aware win-rate floor
+    (Wilson) blended with your average performance on the champ (itself regressed toward par for
+    small samples). Small samples can't top the list, and a champ you PLAY well survives an
+    unlucky win/loss stretch. avg=None (no per-game scores) falls back to the win-rate floor."""
+    if not g:
+        return 0.0
+    wr_low = _wilson(w, g, z=1.96)
+    if avg is None:
+        return wr_low
+    perf_adj = (float(avg) * g + _PERF_PAR * _PERF_PRIOR_N) / (g + _PERF_PRIOR_N)
+    perf_norm = max(0.0, min(1.2, (perf_adj - 55.0) / 35.0))
+    return 0.6 * wr_low + 0.4 * perf_norm
+
+
 def _coach(champs):
-    """{more, less, slump} pool advice from per-champ win rates. Sample-gated (3+ games each
-    way) so one lucky game never drives a suggestion. Crucially: your DOMINANT MAIN never
-    gets "ease off" - a one-trick on a bad run is a slump, not a pick problem - it gets a
-    'slump' note instead ("rough patch on X - likely variance, not the pick")."""
-    pool = [c for c in champs if c.get("g", 0) >= 3]
+    """{more, less, slump} pool advice chosen with SAMPLE-AWARE math, not raw win rate — a 3-0
+    flash-in-the-pan never outranks a proven 40-25 main. 'more' is the best confidence-adjusted
+    pick (Wilson win-rate floor + your performance on it) that clears a real sample AND is a
+    champ we're statistically confident is a WINNER for you; 'less' is one we're confident is a
+    LOSER you're not maining; a maining champ on a bad run is flagged as a slump (variance),
+    never 'ease off'. Each pick carries its games (g) so the advice shows the sample it rests on."""
+    pool = [c for c in champs if c.get("g", 0) >= _COACH_MIN_G]
     if not pool:
         return None
     total = sum(c.get("g", 0) for c in champs)
     second = sorted((c.get("g", 0) for c in champs), reverse=True)[1] if len(champs) > 1 else 0
     def is_main(c):
-        return c.get("g", 0) >= max(3, int(total * 0.4)) or (second and c.get("g", 0) >= 2 * second)
-    best = max(pool, key=lambda c: (c["wr"], c["g"]))
-    worst = min(pool, key=lambda c: (c["wr"], -c["g"]))
+        return c.get("g", 0) >= max(_COACH_MIN_G, int(total * 0.4)) or (second and c.get("g", 0) >= 2 * second)
+    def rating(c):
+        return _champ_rating(c["g"], c["w"], c.get("avg"))
     out = {}
-    if best["wr"] >= 55:
+    # play MORE: the best-rated champ we're ~80% sure is a real winner for you (WR floor > 50%).
+    best = max(pool, key=rating)
+    if _wilson(best["w"], best["g"], z=1.28) >= 0.50:
         out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
-    if worst["wr"] <= 45 and worst["champ"] != (out.get("more") or {}).get("champ"):
-        if is_main(worst):
+    # worst-rated pick. A MAIN on a bad run gets a supportive SLUMP note (lenient — it's not "drop
+    # it", so raw low WR is enough). A non-main only gets EASE OFF when we're ~80% sure it's a real
+    # loser (strict — never tell someone to abandon a champ on thin data).
+    worst = min(pool, key=rating)
+    if worst["champ"] != (out.get("more") or {}).get("champ"):
+        if is_main(worst) and worst["wr"] <= 45:
             out["slump"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
-        else:
+        elif not is_main(worst) and _wilson(worst["w"], worst["g"], z=1.28, upper=True) <= 0.48:
             out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
     return out or None
 
@@ -607,11 +651,20 @@ def season_champs(dd, puuid, key, cap=60):
             continue
         rec = res[puuid]
         win, cname = rec[0], rec[1]
-        c = agg.setdefault(cname, {"g": 0, "w": 0})
+        c = agg.setdefault(cname, {"g": 0, "w": 0, "score": 0.0, "sg": 0})
         c["g"] += 1
         c["w"] += 1 if win else 0
+        if len(rec) >= 11:                          # full stat line -> grade how they PLAYED it
+            try:
+                parts = [ls._part(v) for v in res.values() if isinstance(v, list) and len(v) >= 11]
+                s, _lt, _lb = _grade_game(parts, ls._part(rec), res.get("_dur", 0))
+                c["score"] += s
+                c["sg"] += 1
+            except Exception:
+                pass
     out = sorted(({"champ": c, "g": v["g"], "w": v["w"],
-                   "wr": round(v["w"] / v["g"] * 100)} for c, v in agg.items()),
+                   "wr": round(v["w"] / v["g"] * 100),
+                   "avg": (round(v["score"] / v["sg"]) if v["sg"] else None)} for c, v in agg.items()),
                  key=lambda x: (-x["g"], -x["wr"]))
     return out
 

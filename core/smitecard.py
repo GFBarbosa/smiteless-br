@@ -776,9 +776,9 @@ def _draw_session_coach(d, p, y):
         for k in order:                                   # right-anchored, first = rightmost
             c = coach[k]
             if k == "more":
-                txt, col = f"▸ play more {c['champ']} {c['wr']}%", GREEN
+                txt, col = f"▸ play more {c['champ']} {c['wr']}% ({c.get('g','?')}g)", GREEN
             elif k == "less":
-                txt, col = f"▸ ease off {c['champ']} {c['wr']}%", REDWR
+                txt, col = f"▸ ease off {c['champ']} {c['wr']}% ({c.get('g','?')}g)", REDWR
             else:                                         # a slumping MAIN: variance, not the pick
                 txt, col = f"▸ rough patch on {c['champ']} — variance, not the pick", TAN
             cf = font(11, 1, txt)                          # ▸ needs Segoe UI Symbol
