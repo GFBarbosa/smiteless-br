@@ -21,6 +21,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import lolbuild as lb
 import lolitems as li
 import lollive as ll
+import loltempo as lt
 import phasecheck
 import smiteconfig as cfg
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
@@ -244,6 +245,16 @@ def main():
                           fg=(GREEN if wp["ahead"] else RED), bg=PANEL)
         else:
             wpchip.config(text="", bg=BG)
+        tempo = pulse.get("tempo")
+        if tempo:                                         # TEMPO directive: the one thing to do NOW
+            tcol = {"TAKE": GREEN, "FORCE": GREEN, "GIVE": RED, "EVEN": GOLD,
+                    "BASE": GOLD, "MOVE": TEAL, "FARM": MUTED}.get(tempo["phase"], TXT)
+            tk.Label(intel, text="◆ " + tempo["line"],
+                     font=("Segoe UI Semibold", 9 if tempo["phase"] == "FARM" else 10),
+                     fg=tcol, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
+            if tempo.get("sub"):
+                tk.Label(intel, text="   " + tempo["sub"], font=("Segoe UI", 8),
+                         fg=MUTED, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
         objs = pulse.get("objectives") or []
         if objs:
             row = tk.Frame(intel, bg=BG)
@@ -360,6 +371,7 @@ def main():
         seen, ended, stale = False, 0, 0
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
+        tempo_on = _cfg.get("tempo_coach", True)
         audio_on = _cfg.get("dragon_audio", True)
         dvol = int(_cfg.get("dragon_volume", 30))        # Settings volume slider (0-100)
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
@@ -408,6 +420,11 @@ def main():
                     pulse = ll.pulse(dd, data=raw)
                 except Exception:
                     pulse = None
+                if pulse is not None and tempo_on:       # TEMPO directive rides the same fetch
+                    try:
+                        pulse["tempo"] = lt.tempo_read(dd, raw)
+                    except Exception:
+                        pulse["tempo"] = None
             if audio_on and raw is not None:             # dragon spawn reminder (45/30/15s)
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None

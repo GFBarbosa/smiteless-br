@@ -17,6 +17,7 @@ import lolgame as lg
 # ---- objective spawn model (seconds of game time). Respawns are event-driven (kill + delta);
 #      first-spawn constants are the only patch-sensitive values, kept here for easy tuning. ----
 DRAGON_FIRST, DRAGON_RESPAWN = 300, 300            # 5:00, then 5:00 after each kill
+ELDER_RESPAWN = 360                                # elder: 6:00 after the 4th elemental / each elder
 GRUBS_FIRST, GRUBS_DESPAWN = 480, 885              # patch 25.09: 8:00, ONE spawn, gone ~14:45
 HERALD_SPAWN, HERALD_GONE = 900, 1185              # 15:00 (where grubs were), leaves ~19:45
 BARON_FIRST, BARON_RESPAWN, BARON_OPEN = 1200, 360, 1140    # 20:00, +6:00; only show from 19:00
@@ -76,13 +77,20 @@ def objectives(data):
     if gt < SCUTTLE_SHOW_UNTIL:
         add("Scuttle", SCUTTLE_FIRST)
 
-    # Dragon: first at 5:00, then 5:00 after each kill. Once a team has soul (4 elemental
-    # kills) or Elder has spawned, there are no more elemental drakes -> drop the timer.
+    # Dragon: first at 5:00, then 5:00 after each kill. After a team's 4th elemental kill
+    # (soul), elementals stop and ELDER spawns 6:00 later; each slain elder respawns in
+    # 6:00 (wiki "Dragon", verified 2026-07).
     drags = [e for e in ev if e.get("EventName") == "DragonKill"]
-    elder = any(str(e.get("DragonType") or "").lower() == "elder" for e in drags)
+    elder_kills = [e.get("EventTime") for e in drags
+                   if str(e.get("DragonType") or "").lower() == "elder"
+                   and e.get("EventTime") is not None]
     elem = [e.get("EventTime") for e in drags
             if str(e.get("DragonType") or "").lower() != "elder" and e.get("EventTime") is not None]
-    if not (elder or len(elem) >= 4):
+    if elder_kills:
+        add("Elder", max(elder_kills) + ELDER_RESPAWN)
+    elif len(elem) >= 4:
+        add("Elder", max(elem) + ELDER_RESPAWN)
+    else:
         add("Drake", (max(elem) + DRAGON_RESPAWN) if elem else DRAGON_FIRST)
 
     # Void grubs: ONE spawn at 8:00 (patch 25.09 removed the respawn), gone by ~14:45.

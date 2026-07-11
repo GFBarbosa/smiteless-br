@@ -1,5 +1,16 @@
 # Smiteless — Patch Notes
 
+## v0.2.84
+- **THE TEMPO ENGINE.** The in-game widget now runs a live objective-setup director — the single highest-leverage macro system in the game, built on real research (8M-game Diamond+ study: 1 drake at even gold = +8% win rate, 2 = +16.9%, full grubs = +11%, and the dragon-soul team wins ~85–90% of games). Games are decided in the ~90 seconds *before* each objective, and now that window is scheduled for you:
+  - **FARM window** — how long you can safely farm, with your exact recall-by and arrive-by deadlines counted down, walked back from the next spawn using your **live movement speed**, recall time and homeguard.
+  - **BASE window** — the last moment to recall so you arrive 30s early with items.
+  - **ROTATE** — when to start walking, and what setup to do (pit ward + river control).
+  - **TAKE / GIVE / 50-50 verdict at the spawn** — computed from **death timers** (the real per-level respawn formula, including whether a dead enemy respawns *and walks back* in time to fight), **item gold** and **XP-as-gold** for all ten players. If you win the fight, it says take; if you don't, it names the trade to make instead. It never lets you coinflip blind.
+  - **FORCE windows** — the moment an enemy dies with a long respawn, it tells you the numbers (5v4 for 23s) and to cash the advantage.
+  - **SOUL POINT escalation** — at 3 drakes either side, the next drake is flagged as the ~85–90% game-decider it is.
+  - **Elder tracking** — the objective timers now roll over to Elder after the 4th elemental (6:00 spawn/respawn), which they previously just dropped.
+  - Toggle in Settings ("Tempo coach"). Every game constant verified against the wiki this week: baron 20:00, grubs 8:00 one-spawn, herald 15:00–19:45, drake 5:00/5:00, elder 6:00, the full death-timer table, recall 8.5s, homeguard 80%→150%.
+
 ## v0.2.83
 - **"Play more / ease off" champ advice now uses real statistics.** It no longer crowns a 3-0 champ your best pick. Champs are ranked by a **Wilson score** — a confidence-adjusted win rate that discounts small samples so a wide 3-0 can't beat a tight 40-25 — blended with **how well you actually play the champ** (your average game score on it), and a champ needs a real sample (5+ games) before it can drive advice. So a proven main beats a lucky streak; "ease off" only fires when it's statistically confident a non-main is a loser (never off a 4-game fluke); and a champ you *main* on a rough patch is still flagged as a slump, not a pick problem. Each suggestion now shows the games it rests on (e.g. "play more Graves 61% (40g)"). The season-wide version also factors in your performance now, not just W/L.
 
