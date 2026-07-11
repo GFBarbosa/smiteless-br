@@ -470,7 +470,9 @@ def main():
             tk.Label(intel, text="◆ " + tempo["line"],
                      font=("Segoe UI Semibold", 9 if tempo["phase"] == "FARM" else 10),
                      fg=tcol, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
-            if tempo.get("sub"):
+            # the WHY line only when there's a decision to justify — routine phases
+            # (farm/base/move) are self-explanatory and were just noise
+            if tempo.get("sub") and tempo["phase"] in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
                 tk.Label(intel, text="   " + tempo["sub"], font=("Segoe UI", 8),
                          fg=MUTED, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
         objs = pulse.get("objectives") or []
@@ -528,6 +530,7 @@ def main():
             w.destroy()
         if not rec:
             champ.config(text="waiting for a live game…", fg=MUTED)
+            summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
             summ.config(text="open in-game or a replay to see suggestions")
             render_intel(None)
             return
@@ -540,7 +543,9 @@ def main():
         if not rec["lines"]:
             tk.Label(body, text="standard build — nothing to adjust",
                      font=("Segoe UI", 9), fg=MUTED, bg=BG, anchor="w").pack(fill="x")
-        for kind, txt in rec["lines"]:
+        # mid-game (intel up): item advice trims to the 2 most important lines — game-winning
+        # info stays, the book doesn't. Out of game it's reference mode: show everything.
+        for kind, txt in (rec["lines"][:2] if pulse else rec["lines"]):
             tag = KIND_TAG.get(kind, "▸")
             label = f"{tag}  {txt}" if tag else txt
             # item advice is reference material now - it sits BELOW the live macro block and
@@ -552,7 +557,11 @@ def main():
             tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
                      fg=MUTED, bg=BG, anchor="w").pack(fill="x")
         render_intel(pulse)
-        summ.config(text=rec["summary"])
+        if pulse:                                         # in-game: the footer is noise — drop it
+            summ.pack_forget()
+        else:
+            summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
+            summ.config(text=rec["summary"])
 
     # --- drag anywhere on the chrome; persist where you drop it ---
     drag = {"x": 0, "y": 0}

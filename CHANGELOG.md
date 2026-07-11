@@ -1,5 +1,11 @@
 # Smiteless — Patch Notes
 
+## v0.2.93
+- **Fixed a wrong Elder call.** The timers said "Elder" once 4 drakes had died *in total* — but Elder only comes after **one team's** fourth (soul). A 3–2 drake split now correctly shows the next **Drake** (your soul point!), not a phantom Elder.
+- **First baron is no longer an alarm.** Nobody rushes baron on spawn — the tempo engine now treats the first spawn as a posture objective: no recall countdowns, no urgency, just "posture, don't force / punish them for starting it." It also prefers a drake/elder within the next ~4 minutes over first baron (your soul-point drake beats a baron nobody's taking). Once a baron has actually died, respawns get the full scheduling again — that's when it decides games.
+- **Widget slimmed to game-winning info.** The tempo "why" line now only appears when there's a decision to justify (take/give/50-50/force/too-far) — routine farm/base/rotate lines stand alone; item advice trims to the 2 most important lines during a game (full list outside games); and the bottom threat/source footer is hidden in-game. Roughly a third fewer lines on screen, nothing decision-relevant removed.
+- Fixed players already-arrived at a live objective being told they're "too far" (reachability now allows the real ~25s contest window once something is up).
+
 ## v0.2.92
 - **Volume slider on the in-game widget.** A small slider in the widget's header now controls the voice callouts + drake chime live: drag it and the new level applies instantly, plays a short preview so you can set it by ear, and saves back to Settings. 0 = silent; the ♪ button still mutes everything for the game.
 

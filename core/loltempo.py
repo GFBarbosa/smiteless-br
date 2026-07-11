@@ -216,7 +216,19 @@ def tempo_read(dd, data):
         objs = ll.objectives(data)
     except Exception:
         objs = []
-    nxt = next((o for o in objs if o.get("label") in _MAJOR), None)
+    majors = [o for o in objs if o.get("label") in _MAJOR]
+    nxt = majors[0] if majors else None
+    # FIRST-spawn baron is a posture objective, not an alarm — almost nobody rushes it on
+    # spawn. Until a baron has died: prefer a drake/elder even if it's a few minutes later,
+    # and when baron IS the only thing coming, schedule it gently (no recall pressure).
+    first_baron = False
+    if (nxt is not None and nxt["label"] == "Baron" and nxt["secs"] > 0
+            and ll._last_time(ll._events(data), "BaronKill") is None):
+        alt = next((o for o in majors[1:] if o["label"] in ("Drake", "Elder")), None)
+        if alt is not None and alt["secs"] <= nxt["secs"] + 240:
+            nxt = alt
+        else:
+            first_baron = True
 
     act = data.get("activePlayer") or {}
     ms = ((act.get("championStats") or {}).get("moveSpeed"))
@@ -256,7 +268,9 @@ def tempo_read(dd, data):
     role = _my_role(dd, _me)
     laner = role in ("top", "mid", "adc", "support")
     lane_tv = _lane_travel(role, label, ms)
-    reachable = lane_tv <= T + FIGHT_GRACE       # leaving right now, do you make the fight?
+    # leaving right now, do you make the fight? Pre-spawn: beat spawn + grace. Already UP:
+    # a pit fight lasts ~25s+, so anyone within that window is still a contester.
+    reachable = lane_tv <= (T + FIGHT_GRACE if T > 0 else 25.0)
 
     # ---- at / near spawn: the TAKE / EVEN / GIVE verdict (if you can even get there) ----
     if T <= SETUP_LEAD:
@@ -293,6 +307,16 @@ def tempo_read(dd, data):
     move_by = T - lane_tv - SETUP_LEAD
     mmss = f"{int(T) // 60}:{int(T) % 60:02d}"
     star = "★ " if soul_point else ""
+    if first_baron:
+        # gentle handling: no recall countdown, no urgency — just keep it on the radar
+        # and suggest posture once it's close. The verdict still runs when it's UP.
+        if T <= 60:
+            return {"phase": "MOVE", "obj": "Baron", "secs": int(T), "urgent": False,
+                    "line": f"first baron {mmss} — posture, don't force",
+                    "sub": "ward the pit + river; punish them for starting it, don't start it"}
+        return {"phase": "FARM", "obj": "Baron", "secs": int(T), "urgent": False,
+                "line": f"farm — first baron {mmss} (posture play, no rush)",
+                "sub": "keep waves pushed and vision alive topside; nobody rushes spawn baron"}
     if base_by <= 0 < move_by:
         if laner:
             return {"phase": "MOVE", "obj": label, "secs": int(T), "urgent": move_by <= 10,
@@ -307,5 +331,5 @@ def tempo_read(dd, data):
                 "sub": f"buy fast, you'll reach {label.lower()} {int(SETUP_LEAD)}s early ({mmss})"}
     tail = ("crash your wave before you leave" if laner else f"path toward {label.lower()}")
     return {"phase": "FARM", "obj": label, "secs": int(T), "urgent": False,
-            "line": f"{star}farm window {int(base_by)}s — {label.lower()} {mmss}",
+            "line": f"{star}farm window {int(base_by)}s → {label.lower()}",
             "sub": f"recall by -{int(T - base_by)}s · leave by -{int(SETUP_LEAD + lane_tv)}s · {tail}"}

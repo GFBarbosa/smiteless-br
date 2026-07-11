@@ -77,21 +77,26 @@ def objectives(data):
     if gt < SCUTTLE_SHOW_UNTIL:
         add("Scuttle", SCUTTLE_FIRST)
 
-    # Dragon: first at 5:00, then 5:00 after each kill. After a team's 4th elemental kill
-    # (soul), elementals stop and ELDER spawns 6:00 later; each slain elder respawns in
-    # 6:00 (wiki "Dragon", verified 2026-07).
+    # Dragon: first at 5:00, then 5:00 after each kill. Elder spawns 6:00 after ONE TEAM's
+    # 4th elemental kill (soul) — NOT after 4 total across both teams (3-2 is just another
+    # drake: soul point). Each slain elder respawns in 6:00 (wiki "Dragon", verified 2026-07).
     drags = [e for e in ev if e.get("EventName") == "DragonKill"]
     elder_kills = [e.get("EventTime") for e in drags
                    if str(e.get("DragonType") or "").lower() == "elder"
                    and e.get("EventTime") is not None]
-    elem = [e.get("EventTime") for e in drags
+    elem = [e for e in drags
             if str(e.get("DragonType") or "").lower() != "elder" and e.get("EventTime") is not None]
+    ally_names = {lg._gname(p.get("riotId") or p.get("summonerName") or "")
+                  for p in (data.get("allPlayers") or [])
+                  if p.get("team") == "ORDER"}             # either side works: we need A-vs-B, not us-vs-them
+    a_kills = sum(1 for e in elem if lg._gname(e.get("KillerName") or "") in ally_names)
+    soul_taken = max(a_kills, len(elem) - a_kills) >= 4    # one SIDE at 4 = soul -> elder next
     if elder_kills:
         add("Elder", max(elder_kills) + ELDER_RESPAWN)
-    elif len(elem) >= 4:
-        add("Elder", max(elem) + ELDER_RESPAWN)
+    elif soul_taken:
+        add("Elder", max(e.get("EventTime") for e in elem) + ELDER_RESPAWN)
     else:
-        add("Drake", (max(elem) + DRAGON_RESPAWN) if elem else DRAGON_FIRST)
+        add("Drake", (max(e.get("EventTime") for e in elem) + DRAGON_RESPAWN) if elem else DRAGON_FIRST)
 
     # Void grubs: ONE spawn at 8:00 (patch 25.09 removed the respawn), gone by ~14:45.
     if gt < GRUBS_DESPAWN and _last_time(ev, "HordeKill") is None:
