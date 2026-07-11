@@ -8,6 +8,7 @@ hit) and PATCHes the summoner picks, honoring the Flash-on-D/F preference.
 """
 import json
 import ssl
+import time
 import urllib.request
 
 import lolgame as lg
@@ -147,6 +148,80 @@ def auto_accept_swap(want_roles):
                 return their
             except Exception:
                 return None
+    return None
+
+
+_PICK_SWAP_LAST = {"sid": None, "ts": 0.0}    # anti-spam for our outgoing pick-order requests
+
+
+def _post_pick_swap(sid, action):
+    """POST a pick-order-swap action. The LCU has shipped TWO spellings for this path across
+    patches (/session/swaps/ and /session/pick-order-swaps/), so try both — the wrong one just
+    404s harmlessly. Returns True on success."""
+    for base in ("swaps", "pick-order-swaps"):
+        try:
+            _lcu_json("POST", f"/lol-champ-select/v1/session/{base}/{int(sid)}/{action}")
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def auto_pick_order_swap(target):
+    """Work the champ-select PICK ORDER toward `target` — 'last' (pick last so you can counter-
+    pick) or 'first' (pick early to secure a champ); '' / anything else = off. Each call it will
+    ACCEPT an incoming swap that moves you the right way, else REQUEST one toward the best slot in
+    that direction (one live ask, rate-limited). Returns a short status string or None. Never
+    raises — must not disrupt champ select. (LCU: pickOrderSwaps in the session.)"""
+    if target not in ("first", "last"):
+        return None
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+    except Exception:
+        return None
+    if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
+        return None
+    local = sess.get("localPlayerCellId")
+    team_cells = {m.get("cellId") for m in (sess.get("myTeam") or [])}
+    # Pick slots 1..N for our team, from the ORDER of pick actions in the session.
+    order, done = [], False
+    for grp in (sess.get("actions") or []):
+        for a in grp:
+            if a.get("type") == "pick" and a.get("actorCellId") in team_cells:
+                c = a.get("actorCellId")
+                if c not in order:
+                    order.append(c)
+                if c == local and a.get("completed"):
+                    done = True                  # you've already locked -> swapping is moot
+    pos = {c: i + 1 for i, c in enumerate(order)}
+    my_pos = pos.get(local)
+    if done or not my_pos or len(order) < 2:
+        return None
+    best_slot = len(order) if target == "last" else 1
+    if my_pos == best_slot:
+        return None                              # already where you want to be
+    better = (lambda p: p > my_pos) if target == "last" else (lambda p: p < my_pos)
+    swaps = sess.get("pickOrderSwaps") or []
+
+    # 1) Accept an incoming offer that moves you the right way (their slot is better than yours).
+    for s in swaps:
+        if s.get("state") != "RECEIVED":
+            continue
+        tp = pos.get(s.get("cellId"))
+        if tp and better(tp):
+            return f"pick {tp}" if _post_pick_swap(s.get("id"), "accept") else None
+
+    # 2) Otherwise request a swap toward the best available slot in the target direction.
+    cands = sorted((s for s in swaps if s.get("state") == "AVAILABLE"
+                    and pos.get(s.get("cellId")) and better(pos[s.get("cellId")])),
+                   key=lambda s: pos[s.get("cellId")], reverse=(target == "last"))
+    if cands:
+        s = cands[0]
+        sid, now = s.get("id"), time.time()
+        if _PICK_SWAP_LAST["sid"] == sid and now - _PICK_SWAP_LAST["ts"] < 12:
+            return None                          # don't hammer the same holder
+        _PICK_SWAP_LAST.update(sid=sid, ts=now)
+        return f"asked pick {pos[s.get('cellId')]}" if _post_pick_swap(sid, "request") else None
     return None
 
 

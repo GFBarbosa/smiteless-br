@@ -2317,6 +2317,12 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         limp.auto_accept_swap(settings.get("auto_swap_roles"))
                     except Exception:
                         pass
+                if settings.get("auto_pick_swap"):        # work pick order toward first/last pick
+                    try:
+                        import lolimport as limp
+                        limp.auto_pick_order_swap(settings.get("auto_pick_swap"))
+                    except Exception:
+                        pass
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.81
+- **Auto pick-order swap (counter-pick automation).** New in **Settings → Auto pick-order swap**: choose **Last pick** and Smiteless works your spot in the pick order as late as possible so you can counter-pick — it accepts a teammate's swap offer that moves you later, and requests one otherwise. **First pick** does the opposite (swap early to lock a contested champ). Off by default. (This is the pick-order swap; the v0.2.80 role swap is a separate setting.)
+
 ## v0.2.80
 - **Auto-accept role swaps.** New in **Settings → Auto-accept role swap**: check the role(s) you're happy to play. When a teammate offers a role (position) swap in champ select that would put you on one of them, Smiteless accepts it for you. It **only ever moves you ONTO a checked role, never off one** — so a jungle main who got autofilled support auto-takes the jungle swap, but never gets swapped off jungle. None checked = off. (This is the assigned-lane swap, not a champion trade.)
 

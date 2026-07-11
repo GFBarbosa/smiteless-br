@@ -42,6 +42,7 @@ def load():
     s.update(BOOLS)
     s["fav_champs"] = []          # ordered favourite picks: ["Kha'Zix", "Ahri, mid", ...]
     s["auto_swap_roles"] = []     # champ select: role (position) swaps to auto-accept INTO
+    s["auto_pick_swap"] = ""      # champ select pick order: "" off / "first" / "last" (counter-pick)
     try:
         raw = json.load(open(PATH, encoding="utf-8"))
         for k in DEFAULTS:
@@ -57,6 +58,8 @@ def load():
         if isinstance(raw.get("auto_swap_roles"), list):
             s["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in raw["auto_swap_roles"])
                                     if r in SWAP_ROLES]
+        pk = str(raw.get("auto_pick_swap", "")).strip().lower()
+        s["auto_pick_swap"] = pk if pk in ("first", "last") else ""
     except Exception:
         pass
     return s
@@ -98,6 +101,11 @@ def save(s):
                                     if r in SWAP_ROLES]
     elif "auto_swap_roles" not in clean:
         clean["auto_swap_roles"] = []
+    if "auto_pick_swap" in s:
+        pk = str(s.get("auto_pick_swap", "")).strip().lower()
+        clean["auto_pick_swap"] = pk if pk in ("first", "last") else ""
+    elif "auto_pick_swap" not in clean:
+        clean["auto_pick_swap"] = ""
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"
