@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.85
+- **Ban suggestions now consider the whole team's hovers, not just yours.** GOOD BANS aggregates the counters of every champ your team is hovering or has locked (including you) and ranks enemy champs by total threat to the draft — a champ that beats two of your lanes now outranks one that only edges yours, so the ban adapts as teammates hover instead of always showing your champ's #1 counter. The shown % is the most-countered teammate's win rate into that champ. Falls back to your champ's counters, then to the meta ban list, if there's nothing to aggregate. (Auto-ban uses the same improved list.)
+
 ## v0.2.84
 - **THE TEMPO ENGINE.** The in-game widget now runs a live objective-setup director — the single highest-leverage macro system in the game, built on real research (8M-game Diamond+ study: 1 drake at even gold = +8% win rate, 2 = +16.9%, full grubs = +11%, and the dragon-soul team wins ~85–90% of games). Games are decided in the ~90 seconds *before* each objective, and now that window is scheduled for you:
   - **FARM window** — how long you can safely farm, with your exact recall-by and arrive-by deadlines counted down, walked back from the next spawn using your **live movement speed**, recall time and homeguard.

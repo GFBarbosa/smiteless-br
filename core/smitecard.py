@@ -1672,6 +1672,75 @@ def suggest_bans(dd, my_cid, role, taken=(), topn=3):
     return out[:topn]
 
 
+_TEAM_BAN_CACHE = {}
+
+
+def _champ_threats(dd, cid, role):
+    """[(enemy_cid, our_wr, play)] — the matchups this champ statistically LOSES (op.gg,
+    min sample), i.e. the champs that threaten whoever hovers it. Cached per (champ, role)."""
+    role = lb.ROLE.get((role or "").lower(), (role or "").lower())
+    if not role:
+        try:
+            import lolitems as _li
+            role = _li.primary_role(dd, cid)
+        except Exception:
+            role = "mid"
+    key = ("thr", cid, role)
+    if key in _TEAM_BAN_CACHE:
+        return _TEAM_BAN_CACHE[key]
+    out = []
+    try:
+        d = lb.opgg(cid, role)
+        for c in d.get("counters", []):
+            play = c.get("play", 0) or 0
+            if not c.get("champion_id") or play < 60:
+                continue
+            wr = (c.get("win", 0) / play) * 100.0
+            if wr < 49.0:                          # a matchup we actually lose
+                out.append((c["champion_id"], wr, play))
+    except Exception:
+        out = []
+    if len(_TEAM_BAN_CACHE) > 64:
+        _TEAM_BAN_CACHE.clear()
+    _TEAM_BAN_CACHE[key] = out
+    return out
+
+
+def team_bans(dd, hovers, taken=(), topn=3):
+    """Good bans for the WHOLE TEAM's draft: aggregate every ally's hovered/locked champ
+    (yours included) and rank enemy champs by total threat across the team — how hard they
+    counter each hover, SUMMED, so a champ that beats two of you outranks one that edges
+    a single lane. Finalists get the same 'they're OP this patch anyway' boost as the
+    single-champ path. hovers = [(cid, role), ...]; returns [(cid, worst_ally_wr), ...]."""
+    hovs = [(c, r) for c, r in (hovers or []) if c]
+    if not hovs:
+        return []
+    threat, worst = {}, {}
+    for cid, role in hovs:
+        for e_cid, wr, _play in _champ_threats(dd, cid, role):
+            threat[e_cid] = threat.get(e_cid, 0.0) + (49.0 - wr) * 2.0
+            if wr < worst.get(e_cid, 100.0):
+                worst[e_cid] = wr                  # the most-countered ally's WR (display)
+    if not threat:
+        return []
+    taken = set(taken)
+    cands = sorted(((e, s) for e, s in threat.items() if e not in taken),
+                   key=lambda x: -x[1])[:6]
+    role0 = hovs[0][1] or "mid"                    # OP-boost the finalists (cached fetches)
+    out = []
+    for e_cid, s in cands:
+        op = 0.0
+        try:
+            av = (lb.opgg(e_cid, lb.ROLE.get((role0 or "").lower(), "mid")).get("summary")
+                  or {}).get("average_stats") or {}
+            op = max(0.0, (float(av.get("win_rate") or 0.5) * 100.0) - 50.0)
+        except Exception:
+            pass
+        out.append((e_cid, s + op * 1.5))
+    out.sort(key=lambda x: -x[1])
+    return [(e, worst.get(e, 0.0)) for e, _s in out[:topn]]
+
+
 def _ban_icon(img, dd, cid, x, y, size, slash=True):
     """A grayed champ icon with a red slash - the universal 'banned' visual."""
     ic = get_icon(dd, cid, size)
@@ -2301,9 +2370,12 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 enemy_ids = [c for c, _ in enemies if c]
                 taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
                 favs = recommend_favs(dd, my_role, taken, settings.get("fav_champs"))
-                # Ban ideas: your champ's counters once you've hovered, else high-priority solo-q
-                # bans (bans happen before you pick, so we always have a target to show/auto-ban).
-                ideas = (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
+                # Ban ideas: the champ that threatens the TEAM'S hovers most (every ally's
+                # pick intent + yours, counters aggregated), falling back to your champ's
+                # counters, then to high-priority solo-q bans (bans happen before picks, so
+                # there's always a target to show/auto-ban).
+                ideas = team_bans(dd, allies, taken=taken) \
+                    or (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
                     or general_bans(dd, my_role, taken)
                 if settings.get("auto_ban", False):     # your ban turn? -> lock the top safe ban
                     try:
