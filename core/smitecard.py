@@ -1282,6 +1282,18 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
             draw_form(d, x - cw + 6, y + 38, sc["form"])
 
 
+def _mastery_color(pts):
+    """Champ-COMFORT color, by mastery points (levels inflate forever; points tell the truth):
+    gold = their MAIN (respect it), green = comfortable, plain = knows it, dim = barely played."""
+    if pts >= 100_000:
+        return GOLD
+    if pts >= 30_000:
+        return GREEN
+    if pts >= 8_000:
+        return TEXT
+    return MUTED
+
+
 def _wr_line(d, x, y, sc, anchor, live=True):
     if sc is None:
         if live:
@@ -1295,20 +1307,26 @@ def _wr_line(d, x, y, sc, anchor, live=True):
         col = _wr_color(wr)
     else:
         t, col = "no recent", MUTED
-    m = sc.get("mastery")                        # champ comfort: lifetime mastery > recent record
+    # champ comfort gets its OWN color (it used to inherit the win-rate color, which made
+    # a 209k-point main look "worse" than a 23k dabble whenever their recent W/L differed)
+    m = sc.get("mastery")
     if m and m.get("points"):
-        t += f"  ·  M{m['level']} {_abbr_pts(m['points'])}"
+        t2, col2 = f"·  M{m['level']} {_abbr_pts(m['points'])}", _mastery_color(m["points"])
     elif cg == 0:
-        t += "  ·  off-champ"                     # no mastery + none recent = first-timing it
+        t2, col2 = "·  off-champ", REDWR          # no mastery + none recent = first-timing it
     else:
-        t += f"  ·  {cw}/{cg} on"
-    rf, ff = font(11, 1), font(11)               # rank (bold, tier-colored) then form (by WR)
-    if anchor == "ra":                           # right rows: form ... rank, mirrored
-        d.text((x, y), t, font=ff, fill=col, anchor="ra")
-        d.text((x - d.textlength(t, font=ff) - 10, y), rtext, font=rf, fill=rcol, anchor="ra")
+        t2, col2 = f"·  {cw}/{cg} on", TEXT
+    rf, ff = font(11, 1), font(11)               # rank (bold, tier-colored), form (by WR), comfort
+    if anchor == "ra":                           # right rows: comfort ... form ... rank, mirrored
+        d.text((x, y), t2, font=ff, fill=col2, anchor="ra")
+        x2 = x - d.textlength(t2, font=ff) - 8
+        d.text((x2, y), t, font=ff, fill=col, anchor="ra")
+        d.text((x2 - d.textlength(t, font=ff) - 10, y), rtext, font=rf, fill=rcol, anchor="ra")
     else:
         d.text((x, y), rtext, font=rf, fill=rcol, anchor="la")
-        d.text((x + d.textlength(rtext, font=rf) + 10, y), t, font=ff, fill=col, anchor="la")
+        x2 = x + d.textlength(rtext, font=rf) + 10
+        d.text((x2, y), t, font=ff, fill=col, anchor="la")
+        d.text((x2 + d.textlength(t, font=ff) + 8, y), t2, font=ff, fill=col2, anchor="la")
 
 
 def draw_badge(d, cx, y, rating):
@@ -2254,7 +2272,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         for i, b in enumerate(plan):
             d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
         ly += plan_h
-    _legend = "rank · L10 W/L · mastery · S-F / GOOD PLAYER = player skill (how they PLAY — CS/KP/dmg/deaths, not W/L or rank) · ● duo = premade   |   ★ gank = champ-vs-champ matchup edge (live shifts it)   |   click → u.gg"
+    _legend = "rank · L10 W/L · mastery (gold=main 100k+, green=comfort 30k+, red=first-timing) · S-F / GOOD PLAYER = skill (how they PLAY) · ● duo   |   ★ gank = champ matchup edge   |   click → u.gg"
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
     if note:
         d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))

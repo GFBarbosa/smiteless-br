@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.89
+- **Mastery now has its own color scale (it used to lie).** The mastery text was inheriting the color of the player's *recent win rate* — so a 209k-point main could show "worse" (brown) than someone's 23k dabble (green) purely because of their last 10 games. Mastery is now colored by champ comfort itself: **gold = their MAIN (100k+ pts), green = comfortable (30k+), plain = knows it (8k+), dim = barely played**, and **red "off-champ" = first-timing it**. The recent W/L keeps its old green/tan/red coloring, and the legend spells out the scale.
+
 ## v0.2.88
 - **THE disappearing-widget bug, actually found.** Right-click anywhere on the widget was bound to *close it* — in a game where right-click is the move command. Any move-click that drifted onto the widget silently killed it, which is why it "randomly" vanished for months no matter how the game-over detection was tuned. Right-click (and Escape) no longer close the widget — only the ✕ button does.
 - **Three more layers so it can never come back:** (1) while the actual game process (League of Legends.exe) is running the widget is **immortal** — it ignores client-API blips entirely; (2) it re-asserts its always-on-top status every few seconds so the game window can't bury it; (3) every close now writes its reason to a log (`~/.claude/cache/smiteless_widget.log`) — if it ever disappears again, we'll know exactly why instead of guessing.
