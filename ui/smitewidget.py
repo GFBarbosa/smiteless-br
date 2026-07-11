@@ -369,6 +369,7 @@ def main():
     import tkinter as tk
     dd = lb.ddragon()
     st = {"alive": True, "muted": False}     # muted = temp-silence the drake chime for this game
+    st["vol"] = int(cfg.load().get("dragon_volume", 30))   # live audio volume (slider + Settings)
 
     root = tk.Tk()
     root.overrideredirect(True)
@@ -396,6 +397,28 @@ def main():
         else:
             mute.config(fg=GOLD, font=("Segoe UI", 10, "bold"))
     mute.bind("<Button-1>", _toggle_mute)
+
+    # Volume slider — live control for the voice callouts + drake chime (0 = silent).
+    # Applies instantly, persists to Settings on release, and plays a short preview so
+    # you can set it by ear mid-game.
+    def _on_vol(v):
+        st["vol"] = int(float(v))
+
+    vol = tk.Scale(hdr, from_=0, to=100, orient="horizontal", showvalue=0, length=62,
+                   width=7, sliderlength=12, bd=0, highlightthickness=0, bg=PANEL,
+                   troughcolor=SEP, activebackground=GOLD, cursor="hand2", command=_on_vol)
+    vol.set(st["vol"])
+    vol.pack(side="right", padx=(0, 7), pady=3)
+
+    def _vol_done(_e):
+        try:
+            cfg.save({"dragon_volume": int(st["vol"])})
+        except Exception:
+            pass
+        if st["vol"] > 0 and not st.get("muted", False):   # hear the new level immediately
+            threading.Thread(target=_say, args=("hello", "Tempo online.", st["vol"]),
+                             daemon=True).start()
+    vol.bind("<ButtonRelease-1>", _vol_done)
 
     champrow = tk.Frame(outer, bg=BG)
     champrow.pack(fill="x", padx=9, pady=(4, 0))
@@ -573,7 +596,7 @@ def main():
         tempo_on = _cfg.get("tempo_coach", True)
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
-        dvol = int(_cfg.get("dragon_volume", 30))        # Settings volume slider (0-100)
+        dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
@@ -592,14 +615,14 @@ def main():
             dragon["prev"] = secs
             muted = st.get("muted", False)                # temp mute for this game (header ♪ button)
             if thr is not None and not muted:
-                threading.Thread(target=_beep, args=(thr, dvol), daemon=True).start()
+                threading.Thread(target=_beep, args=(thr, st["vol"]), daemon=True).start()
             # Once drake is up, keep replaying the final cue every ~5s until it dies.
             if secs <= 0:
                 t = time.monotonic()
                 if (t - float(dragon.get("last_up_ping") or 0.0)) >= 4.8:
                     dragon["last_up_ping"] = t
                     if not muted:
-                        threading.Thread(target=_beep, args=(15, dvol), daemon=True).start()
+                        threading.Thread(target=_beep, args=(15, st["vol"]), daemon=True).start()
             else:
                 dragon["last_up_ping"] = 0.0
 
@@ -631,11 +654,11 @@ def main():
                         pulse["tempo"] = lt.tempo_read(dd, raw)
                     except Exception:
                         pulse["tempo"] = None
-                    if voice_on and dvol > 0:            # spoken callout on phase transitions
+                    if voice_on and st["vol"] > 0:       # spoken callout on phase transitions
                         try:
                             cue = tvoice.cue(pulse.get("tempo"), time.monotonic())
                             if cue and not st.get("muted", False):   # ♪ button mutes voice too
-                                threading.Thread(target=_say, args=(cue[0], cue[1], dvol),
+                                threading.Thread(target=_say, args=(cue[0], cue[1], st["vol"]),
                                                  daemon=True).start()
                         except Exception:
                             pass
@@ -645,10 +668,10 @@ def main():
                 dragon_audio(drake["secs"] if drake else None)
             now = time.monotonic()
             if raw is not None:                          # fresh game data -> paint + reset the clock
-                if not seen and voice_on and dvol > 0 and not st.get("muted", False):
+                if not seen and voice_on and st["vol"] > 0 and not st.get("muted", False):
                     # first live data of the game: a short hello — confirms the whole audio
                     # pipeline (render + playback) is working instead of failing silently.
-                    threading.Thread(target=_say, args=("hello", "Tempo online.", dvol),
+                    threading.Thread(target=_say, args=("hello", "Tempo online.", st["vol"]),
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall})

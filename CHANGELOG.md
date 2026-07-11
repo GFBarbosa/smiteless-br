@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.92
+- **Volume slider on the in-game widget.** A small slider in the widget's header now controls the voice callouts + drake chime live: drag it and the new level applies instantly, plays a short preview so you can set it by ear, and saves back to Settings. 0 = silent; the ♪ button still mutes everything for the game.
+
 ## v0.2.91
 - **New voice: Salli.** The tempo callouts are now spoken by the much nicer Salli voice (AWS Polly, via ttsmp3.com's free service) instead of the robotic Windows one. Each phrase is fetched once and cached as a local MP3, played through Windows' built-in decoder — no extra installs. If you're offline it falls back to the old local voice, so callouts never go silent.
 - **The in-game widget got a glow-down.** Same information, less in your face:
