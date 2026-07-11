@@ -22,7 +22,8 @@ _TIER_ORDER = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMO
 _DIV_VAL = {"IV": 0, "III": 1, "II": 2, "I": 3, "": 3}
 LP_HISTORY = os.path.expanduser("~/.claude/cache/lol_lp_history.json")
 SESSION_GAP = 3 * 3600       # a >3h break starts a new "session"
-TILT_STREAK = 3              # this many losses in a row trips the take-a-break nudge
+TILT_STREAK = 2              # stop-rule threshold: research (100k Gold games, loltheory) shows
+                             # breaking 30min after 2 straight losses wins ~3% more next game
 
 
 def _rank_value(rk):
@@ -616,13 +617,32 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         pos = (g.get("pos") or "").upper()
         if pos:
             roles[pos] = roles.get(pos, 0) + 1
+    # ---- CLIMB read: the research-backed fast-climb factors, computed from YOUR data ----
+    # pool concentration (one-tricking climbs fastest) + sub-12k-mastery picks (a 1M-game
+    # study: <12k points ~44% wr, 12k+ crosses 50%). Self-profile only (needs the client).
+    climb = None
+    if not other and n:
+        top_share = round(champs[0]["g"] / n * 100) if champs else 0
+        sub12k = []
+        try:
+            import lolgame as lg
+            pts = lg.my_mastery_points()
+            if pts:
+                for c in champs[:3]:
+                    cid = dd["name2id"].get(dd["norm"](c["champ"]), 0)
+                    pv = pts.get(cid)
+                    if pv is not None and pv < 12000 and c.get("g", 0) >= 3:
+                        sub12k.append(c["champ"])
+        except Exception:
+            pass
+        climb = {"pool_n": len(champs), "top_share": top_share, "sub12k": sub12k}
     return {"riot_id": rid or "?", "puuid": puuid, "rank": rk, "n": n, "wins": wins,
             "losses": n - wins, "other": other,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
             "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
             "session": (None if other else _session(hist, games)),
-            "coach": _coach(champs), "lp_trend": trend}
+            "coach": _coach(champs), "lp_trend": trend, "climb": climb}
 
 
 SEASON_START = 1767225600   # 2026-01-01 UTC - season 16; update at the next season rollover

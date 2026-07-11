@@ -65,7 +65,7 @@ def current_account():
     return d.get("puuid"), rid
 
 
-_MASTERY_CACHE = {"ts": 0.0, "data": {}}
+_MASTERY_CACHE = {"ts": 0.0, "data": {}, "pts": {}}
 
 
 def my_mastery(ttl=300):
@@ -84,15 +84,25 @@ def my_mastery(ttl=300):
                        headers=hdr, timeout=4, insecure=True)
     except Exception:
         return _MASTERY_CACHE["data"]
-    out = {}
+    out, pts = {}, {}
     for r in (rows or []):
         cid = r.get("championId")
         if cid:
             out[cid] = r.get("championLevel", 0) or 0
+            pts[cid] = r.get("championPoints", 0) or 0
     if out:
         _MASTERY_CACHE["data"] = out
+        _MASTERY_CACHE["pts"] = pts
         _MASTERY_CACHE["ts"] = now
     return out
+
+
+def my_mastery_points(ttl=300):
+    """{championId: masteryPoints} for the LOCAL player — same LCU call/cache as my_mastery.
+    Points matter for the climb math: a 1M-game study puts sub-12k-point picks at ~44% win
+    rate vs 51%+ beyond it, the single largest self-inflicted WR leak."""
+    my_mastery(ttl)
+    return dict(_MASTERY_CACHE.get("pts") or {})
 
 
 def save_role(cid, pos):

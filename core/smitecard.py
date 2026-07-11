@@ -787,7 +787,20 @@ def _draw_session_coach(d, p, y):
 
 
 def _profile_headline(p):
-    """One friendly line about how you've been doing."""
+    """One line about how you've been doing — CLIMB discipline first (the research-backed
+    fast-climb rules outrank pleasantries): the 2-loss stop rule, sub-12k-mastery leaks,
+    then pool concentration; the friendly form line only when none of those fire."""
+    s = p.get("session") or {}
+    if (s.get("streak") or 0) <= -2:
+        return ("STOP RULE: 2 straight losses — break 30 min. Players who break win ~3% more "
+                "next game; tilted sessions bleed 10-15% (597k-game study). The climb resumes after.")
+    cl = p.get("climb") or {}
+    if cl.get("sub12k"):
+        return (f"CLIMB LEAK: {', '.join(cl['sub12k'][:2])} under 12k mastery — sub-12k picks win "
+                f"~44% vs 51%+ past ~20 games (1M-game study). Feed your mains instead.")
+    if cl and cl.get("pool_n", 0) >= 6 and cl.get("top_share", 100) < 40 and p.get("n", 0) >= 15:
+        return (f"CLIMB: your last {p['n']} span {cl['pool_n']} champs — concentration is the fastest "
+                f"climb (+5% wr from champ mastery halves games-per-rank). Commit to 2-3.")
     best = p["champs"][0] if p["champs"] else None
     if p["n"] < 3:
         return "Play a few ranked games and your form, scores and best champs show up here."
@@ -2453,11 +2466,23 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         limp.auto_pick_order_swap(settings.get("auto_pick_swap"))
                     except Exception:
                         pass
+                # CLIMB check on the hovered pick: sub-12k mastery points is the single
+                # biggest self-inflicted WR leak (~44% vs 51%+, 1M-game study) — warn early,
+                # while there's still time to hover something you actually play.
+                climb_note = ""
+                if my_cid and not auto_note:
+                    try:
+                        _pts = lg.my_mastery_points().get(my_cid)
+                        if _pts is not None and _pts < 12000:
+                            climb_note = (f"⚠ {_pts // 1000}k mastery pick — sub-12k wins ~44% "
+                                          f"(1M-game study); your mains climb faster")
+                    except Exception:
+                        climb_note = ""
                 sig = (my_cid, my_role, tuple(sorted(ally_role.items())),
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
-                       auto_note, get_rune_idx(), tuple(favs))
+                       auto_note, climb_note, get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
                     # champs you actually play, pooled across ALL your accounts (main + smurfs):
                     # the live current-account mastery merged with the cross-account aggregate.
@@ -2472,7 +2497,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              suggestions=sugg, bans=(bans_my, bans_their),
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
-                             note=auto_note, favs=favs, auto_ban=bool(settings.get("auto_ban", False))))
+                             note=(auto_note or climb_note), favs=favs,
+                             auto_ban=bool(settings.get("auto_ban", False))))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",
@@ -2498,7 +2524,9 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         lanes = {r: wr for a, r, e, wr, g in lb.gather_lane_matchups(dd, allies, enemies)}
         scout_map = {}
         patch = lm.patch_of(dd["ver"])
-        opp_cid = enemy_role.get(my_role) if my_role != "jungle" else None
+        # jungle included now: the tips are real written guide advice (counterstats), and
+        # jungler-vs-jungler write-ups are some of the best content on there.
+        opp_cid = enemy_role.get(my_role)
         tips_on = settings.get("matchup_tips", True)
         tip_box = {"tip": (lm.get_tip(dd["id2key"].get(my_cid, ""), dd["id2key"].get(opp_cid, ""),
                                       my_role, patch) if (tips_on and opp_cid) else None)}

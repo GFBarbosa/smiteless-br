@@ -1,5 +1,12 @@
 # Smiteless — Patch Notes
 
+## v0.2.94
+- **Matchup tips are now REAL written guides, not AI.** Lane tips are scraped from counterstats.net — actual prose counter-advice written by MOBAFire guide authors for the exact enemy champion, preferring tips written by players of YOUR champion (the true matchup POV), with vote-ranked general tips as backup. Loads in ~1 second (the old AI generator took 60-120s and sometimes failed), cached per patch, deterministic. The AI path survives only as an offline fallback. **Junglers get matchup tips now too** (they were excluded entirely).
+- **THE CLIMB SYSTEM — research-backed fast-climb discipline, built in.** Deep-dive into what actually makes people climb fast (sources: iTero's 1M-game mastery study, Deng et al. ACM CHI PLAY 2024 on 597k matches, loltheory's 100k-game break analysis):
+  - **The 12k-mastery rule.** Picks under ~12,000 mastery points win ~44%; past ~20 games they cross 50%+ (and the effect is BIGGEST in jungle). Champ select now warns you live when you hover a sub-12k pick, and your profile flags sub-12k champs you've been spamming.
+  - **The 2-loss stop rule.** Players who break ~30 minutes after 2 straight losses win ~3% more; tilted sessions bleed 10-15%. After 2 consecutive losses your profile now leads with STOP RULE instead of a pleasantry, and the tilt flag trips at 2 losses (was 3).
+  - **Pool concentration.** A +5% champ-mastery win rate literally halves games-per-rank (160→80). If your recent games are spread across 6+ champs, the profile tells you to commit to 2-3 — with the EV-ranked coach picks right next to it.
+
 ## v0.2.93
 - **Fixed a wrong Elder call.** The timers said "Elder" once 4 drakes had died *in total* — but Elder only comes after **one team's** fourth (soul). A 3–2 drake split now correctly shows the next **Drake** (your soul point!), not a phantom Elder.
 - **First baron is no longer an alarm.** Nobody rushes baron on spawn — the tempo engine now treats the first spawn as a posture objective: no recall countdowns, no urgency, just "posture, don't force / punish them for starting it." It also prefers a drake/elder within the next ~4 minutes over first baron (your soul-point drake beats a baron nobody's taking). Once a baron has actually died, respawns get the full scheduling again — that's when it decides games.
