@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.2.88
+- **THE disappearing-widget bug, actually found.** Right-click anywhere on the widget was bound to *close it* — in a game where right-click is the move command. Any move-click that drifted onto the widget silently killed it, which is why it "randomly" vanished for months no matter how the game-over detection was tuned. Right-click (and Escape) no longer close the widget — only the ✕ button does.
+- **Three more layers so it can never come back:** (1) while the actual game process (League of Legends.exe) is running the widget is **immortal** — it ignores client-API blips entirely; (2) it re-asserts its always-on-top status every few seconds so the game window can't bury it; (3) every close now writes its reason to a log (`~/.claude/cache/smiteless_widget.log`) — if it ever disappears again, we'll know exactly why instead of guessing.
+- **Bans are now ranked by expected value, ending the "always ban Zac" loop.** A ban's worth = how hard the champ counters your team **×** how likely you are to actually face them (their live pick rate in that role). A brutal-but-niche 4%-pick counter now ranks below a popular counter you'll meet every third game. Multi-lane threats still stack, and everything else (fallbacks, auto-ban) rides the same list.
+
 ## v0.2.87
 - **Fixed the in-game widget randomly disappearing mid-game.** The "is the game over?" check counted poll ticks but was tuned as if ticks were 5s when they're ~1s — so a **4-second** client hiccup (a teamfight lagging the client and the live-data port at once) could close the widget mid-game. It's now wall-clock based: ~25s of confirmed non-game (or 3 min of unreachable client) before it even considers closing, and it always asks the live game directly first — if the game answers, the widget stays.
 - **Fixed the voice callouts being completely silent in the installed app.** The speech renderer worked in development but died instantly in the shipped (windowed) build due to a Windows process-handle quirk — so no WAVs were ever created. Now fixed and verified under the same condition.

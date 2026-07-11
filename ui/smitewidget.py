@@ -223,6 +223,47 @@ class _TempoVoice:
         return _tempo_phrase(*key)
 
 
+_QLOG = os.path.expanduser("~/.claude/cache/smiteless_widget.log")
+
+
+def _qlog(reason):
+    """Append a quit decision to a small forensics log — every close now has a paper trail,
+    so 'it randomly disappeared' is answerable with facts instead of another guess."""
+    try:
+        os.makedirs(os.path.dirname(_QLOG), exist_ok=True)
+        with open(_QLOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} quit: {reason}\n")
+        if os.path.getsize(_QLOG) > 200_000:      # keep it small
+            os.replace(_QLOG, _QLOG + ".old")
+    except Exception:
+        pass
+
+
+_GAME_PROC = {"ts": 0.0, "alive": False}
+
+
+def _game_running():
+    """GROUND TRUTH for 'a game is happening': is the actual game client process
+    (League of Legends.exe) running? The LCU phase API and :2999 both flake under load —
+    this doesn't. Checked via tasklist (hidden, stdin redirected), cached 5s; on any
+    error errs toward True (never kill the widget on a failed check)."""
+    now = time.monotonic()
+    if now - _GAME_PROC["ts"] < 5.0:
+        return _GAME_PROC["alive"]
+    alive = True
+    try:
+        import subprocess
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq League of Legends.exe",
+                            "/FO", "CSV", "/NH"],
+                           creationflags=0x08000000, stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=8, text=True)
+        alive = "League of Legends.exe" in (r.stdout or "")
+    except Exception:
+        alive = True
+    _GAME_PROC["ts"], _GAME_PROC["alive"] = now, alive
+    return alive
+
+
 def _dragon_due(prev, secs, fired):
     """Which step (45/30/15) to beep right now as the dragon countdown CROSSES it, or None.
     Mutates `fired`. Crossing-based so a 5s poll or joining mid-window never double-beeps; a
@@ -445,17 +486,19 @@ def main():
         w.bind("<B1-Motion>", move)
         w.bind("<ButtonRelease-1>", drop)
 
-    def quit_():
+    def quit_(why="game over"):
         st["alive"] = False
+        _qlog(why)
         _save_pos(root.winfo_x(), root.winfo_y())
         try:
             root.destroy()
         except Exception:
             pass
 
-    close.bind("<Button-1>", lambda e: quit_())
-    root.bind("<Escape>", lambda e: quit_())
-    root.bind("<Button-3>", lambda e: quit_())
+    # ONLY the ✕ button closes the widget. Escape and right-click used to be bound to
+    # close too - in a game where right-click IS the move command, a click that drifted
+    # onto the widget silently killed it. That was the original "it randomly disappears".
+    close.bind("<Button-1>", lambda e: quit_("user closed (x button)"))
 
     # --- live polling off the UI thread ---
     q = queue.Queue()
@@ -556,23 +599,30 @@ def main():
             else:
                 # No game data AND the phase says unreachable ("") or non-game (Lobby/None/...).
                 # Both happen TRANSIENTLY mid-game (client restart, teamfight lag hitting the
-                # LCU and :2999 at once), so closing is WALL-CLOCK based - a strike counter at
-                # ~1s ticks closed after a few seconds of blip, which was the "widget randomly
-                # disappears mid-game" bug. Before giving up, one direct live-client check with
-                # a generous timeout gets the final word - if the game answers, we were fooled.
+                # LCU and :2999 at once) - which is why phase/:2999-based closing kept killing
+                # the widget "randomly" no matter how the thresholds were tuned. The GROUND
+                # TRUTH is the game process itself: while League of Legends.exe is RUNNING,
+                # this widget is IMMORTAL. Only when the process is actually gone does a
+                # wall-clock grace + one last direct live-client check allow a close - and
+                # every close writes its reason to the forensics log.
                 if not seen:
                     q.put({"rec": rec, "pulse": None})   # never saw a game -> show "waiting"
-                grace = ((180.0 if ph == "" else 25.0) if seen else 15.0)
-                if now - last_ok >= grace:
-                    try:
-                        lb.http("https://127.0.0.1:2999/liveclientdata/gamestats",
-                                timeout=6, insecure=True)
-                        seen, last_ok = True, now         # game's still alive -> false alarm
-                        continue
-                    except Exception:
-                        pass
-                    q.put("__quit__")
-                    return
+                if seen and _game_running():
+                    last_ok = now                        # game process alive -> hold, forever
+                else:
+                    grace = 20.0 if seen else 15.0
+                    if now - last_ok >= grace:
+                        try:
+                            lb.http("https://127.0.0.1:2999/liveclientdata/gamestats",
+                                    timeout=6, insecure=True)
+                            seen, last_ok = True, now     # game answered -> false alarm
+                            continue
+                        except Exception:
+                            pass
+                        _qlog(f"seen={seen} ph={ph!r} game_proc={_GAME_PROC['alive']} "
+                              f"quiet={now - last_ok:.0f}s gamestats=dead")
+                        q.put("__quit__")
+                        return
             for _ in range(POLL * 2):
                 if not st["alive"]:
                     return
@@ -599,6 +649,14 @@ def main():
         except queue.Empty:
             pass
         make_no_activate(toplevel_hwnd(root.winfo_id()))
+        # Re-assert TOPMOST every ~4s: the game (or another overlay) claiming topmost can
+        # push the widget behind it - alive but invisible, the OTHER "it disappeared".
+        st["zorder"] = st.get("zorder", 0) + 1
+        if st["zorder"] % 10 == 0:
+            try:
+                show_no_activate(toplevel_hwnd(root.winfo_id()))
+            except Exception:
+                pass
         root.after(400, pump)
 
     # place: remembered spot, else upper-left of the monitor you play on (primary)
