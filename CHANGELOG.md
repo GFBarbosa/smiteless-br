@@ -1,5 +1,12 @@
 # Smiteless — Patch Notes
 
+## v0.2.91
+- **New voice: Salli.** The tempo callouts are now spoken by the much nicer Salli voice (AWS Polly, via ttsmp3.com's free service) instead of the robotic Windows one. Each phrase is fetched once and cached as a local MP3, played through Windows' built-in decoder — no extra installs. If you're offline it falls back to the old local voice, so callouts never go silent.
+- **The in-game widget got a glow-down.** Same information, less in your face:
+  - **Adaptive transparency** — it ghosts to ~84% opacity while nothing needs you, solidifies on its own when a call-to-action is up (take/give/force, gank window, spike alert), and goes fully opaque under your cursor.
+  - **Macro first** — the tempo directive and objective timers now sit at the top; item advice moved below the line as smaller reference text (it no longer out-shouts the "rotate now" call).
+  - Tighter paddings and type all around — same content, meaningfully smaller footprint.
+
 ## v0.2.90
 - **Auto-ban now waits until the last ~12 seconds of the ban phase** before locking. Every extra second lets more teammates hover their picks, and the team-wide ban math recomputes on every poll — so the ban that finally locks is based on the most complete picture of your draft. (Fires immediately if the phase clock can't be read — it will never miss the ban.)
 - **The Tempo engine now knows what lane you're in.** It detects your role live and reshapes the whole schedule around your position on the map:

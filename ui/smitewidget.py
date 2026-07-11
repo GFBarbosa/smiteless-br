@@ -130,10 +130,53 @@ def _beep(thr, vol=30):
         pass
 
 
-# ---- TEMPO voice callouts: short spoken cues ("Base now", "Rotate to dragon", "Take it")
-# rendered ONCE to WAV with Windows' built-in SAPI voice (System.Speech - free, offline,
-# ships with every Windows 10/11) and played through the same winsound path as the chime.
+# ---- TEMPO voice callouts: short spoken cues ("Base now", "Rotate to dragon", "Take it").
+# PRIMARY voice: AWS Polly "Salli" (US English) via ttsmp3.com's free endpoint — rendered
+# ONCE per phrase to a cached MP3 and played through Windows MCI (winmm, built-in, decodes
+# mp3, async, volume control). FALLBACK when offline: the built-in SAPI voice -> WAV ->
+# winsound, same as before. Either way it's a one-time render per phrase, then local files.
+import ctypes as _ct
+
 _VOICE_VER = "v1"
+_SALLI_VER = "v1"
+_TTS_HDRS = {"User-Agent": "Mozilla/5.0", "Referer": "https://ttsmp3.com/"}
+
+
+def _tts_salli(name, text):
+    """Render `text` with the Salli voice (ttsmp3.com) to a cached MP3. None on any failure
+    (offline / rate-limited) — callers fall back to the local Windows voice."""
+    p = os.path.join(tempfile.gettempdir(), f"smiteless_salli_{_SALLI_VER}_{name}.mp3")
+    try:
+        if os.path.exists(p) and os.path.getsize(p) > 800:
+            return p
+        import urllib.request
+        import urllib.parse
+        import json as _json
+        data = urllib.parse.urlencode({"msg": text, "lang": "Salli", "source": "ttsmp3"}).encode()
+        req = urllib.request.Request("https://ttsmp3.com/makemp3_new.php", data=data, headers=_TTS_HDRS)
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = _json.load(r)
+        url = d.get("URL")
+        if url and not d.get("Error"):
+            req2 = urllib.request.Request(url, headers=_TTS_HDRS)
+            with urllib.request.urlopen(req2, timeout=15) as r:
+                blob = r.read()
+            if len(blob) > 800:
+                with open(p, "wb") as f:
+                    f.write(blob)
+                return p
+    except Exception:
+        pass
+    return None
+
+
+def _mci(cmd):
+    """winmm mciSendString — 0 = success. Playback is process-global (survives the thread)."""
+    try:
+        buf = _ct.create_unicode_buffer(255)
+        return _ct.windll.winmm.mciSendStringW(cmd, buf, 254, 0)
+    except Exception:
+        return -1
 
 
 def _tts_path(name, text, vol=30):
@@ -162,9 +205,18 @@ def _tts_path(name, text, vol=30):
 
 
 def _say(name, text, vol=30):
-    """Speak a pre-rendered cue (renders on first use). Async; replaces any playing cue."""
+    """Speak a cue: Salli MP3 through MCI (preferred), else the local Windows voice through
+    winsound. Renders + caches on first use; async; a new cue replaces the playing one."""
     if vol <= 0:
         return
+    mp3 = _tts_salli(name, text)
+    if mp3:
+        _mci("close smitevoice")
+        if _mci(f'open "{mp3}" type mpegvideo alias smitevoice') == 0:
+            _mci(f"setaudio smitevoice volume to {max(0, min(1000, int(vol) * 10))}")
+            if _mci("play smitevoice") == 0:
+                return
+            _mci("close smitevoice")
     try:
         import winsound
         p = _tts_path(name, text, vol)
@@ -346,20 +398,22 @@ def main():
     mute.bind("<Button-1>", _toggle_mute)
 
     champrow = tk.Frame(outer, bg=BG)
-    champrow.pack(fill="x", padx=10, pady=(6, 0))
-    champ = tk.Label(champrow, text="waiting for a live game…", font=("Segoe UI Semibold", 12),
+    champrow.pack(fill="x", padx=9, pady=(4, 0))
+    champ = tk.Label(champrow, text="waiting for a live game…", font=("Segoe UI Semibold", 11),
                      fg=MUTED, bg=BG, anchor="w")
     champ.pack(side="left")
     wpchip = tk.Label(champrow, text="", font=("Segoe UI Semibold", 9), bg=BG, fg=MUTED, padx=7)
     wpchip.pack(side="right")
 
+    # order on screen: header · champ · INTEL (tempo + timers — the live macro value) ·
+    # separator · body (item advice — reference) · source line. Macro on top, items below.
     body = tk.Frame(outer, bg=BG)
-    body.pack(fill="x", padx=10, pady=(3, 4))
+    body.pack(fill="x", padx=9, pady=(2, 3))
     sep = tk.Frame(outer, bg=SEP, height=1)
-    intel = tk.Frame(outer, bg=BG)                        # objectives / jungle map / gank / spike
+    intel = tk.Frame(outer, bg=BG)                        # tempo / objectives / jungle / gank / spike
     summ = tk.Label(outer, text="open in-game or a replay to see suggestions",
-                    font=("Segoe UI", 8), fg=MUTED, bg=BG, anchor="w", justify="left")
-    summ.pack(side="bottom", fill="x", padx=10, pady=(2, 7))
+                    font=("Segoe UI", 7), fg=MUTED, bg=BG, anchor="w", justify="left")
+    summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
 
     def _fmt(secs):
         return "UP" if secs <= 0 else f"{secs // 60}:{secs % 60:02d}"
@@ -371,9 +425,15 @@ def main():
             sep.pack_forget()
             intel.pack_forget()
             wpchip.config(text="", bg=BG)
+            st["hot"] = False
             return
-        sep.pack(fill="x", padx=10, pady=(1, 0), before=summ)
-        intel.pack(fill="x", padx=10, pady=(4, 1), before=summ)
+        intel.pack(fill="x", padx=9, pady=(3, 1), before=body)   # macro block ABOVE the items
+        sep.pack(fill="x", padx=9, pady=(2, 0), before=body)
+        # "hot" = something on screen needs your eyes -> the window solidifies on its own
+        tempo = pulse.get("tempo")
+        st["hot"] = bool((tempo and (tempo.get("urgent") or tempo.get("phase")
+                                     in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
+                         or pulse.get("gank") or pulse.get("spike"))
         wp = pulse.get("winprob")
         if wp:
             wpchip.config(text=f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%",
@@ -460,9 +520,11 @@ def main():
         for kind, txt in rec["lines"]:
             tag = KIND_TAG.get(kind, "▸")
             label = f"{tag}  {txt}" if tag else txt
-            fnt = ("Segoe UI Semibold", 10) if kind == "core" else ("Segoe UI", 9)
+            # item advice is reference material now - it sits BELOW the live macro block and
+            # must not out-shout it (the tempo directive owns the biggest font in the widget)
+            fnt = ("Segoe UI Semibold", 9) if kind == "core" else ("Segoe UI", 8)
             tk.Label(body, text=label, font=fnt, fg=KIND_COLOR.get(kind, TXT), bg=BG,
-                     anchor="w", justify="left", wraplength=300).pack(fill="x", pady=1)
+                     anchor="w", justify="left", wraplength=300).pack(fill="x", pady=0)
         if rec.get("no_pool"):
             tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
                      fg=MUTED, bg=BG, anchor="w").pack(fill="x")
@@ -516,8 +578,8 @@ def main():
         tvoice = _TempoVoice()                            # tempo callout announce state
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
-        if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (SAPI, one-time)
-            threading.Thread(target=lambda: [_tts_path(nm, tx, dvol) for nm, tx in
+        if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (one-time)
+            threading.Thread(target=lambda: [_tts_salli(nm, tx) for nm, tx in
                                              list(_TEMPO_SPEECH.values()) + list(_TEMPO_ROTATE.values())
                                              + [("rotate", "Rotate now."), ("hello", "Tempo online.")]],
                              daemon=True).start()
@@ -658,6 +720,19 @@ def main():
                 show_no_activate(toplevel_hwnd(root.winfo_id()))
             except Exception:
                 pass
+        # Adaptive transparency: ghost-quiet while nothing needs you (0.84), solid when a
+        # call-to-action is up (0.97), fully opaque under your cursor. Keeps the info on
+        # screen without sitting ON the game.
+        try:
+            px, py = root.winfo_pointerxy()
+            rx, ry = root.winfo_rootx(), root.winfo_rooty()
+            inside = rx <= px <= rx + root.winfo_width() and ry <= py <= ry + root.winfo_height()
+            a = 1.0 if inside else (0.97 if st.get("hot") else 0.84)
+            if a != st.get("alpha"):
+                st["alpha"] = a
+                root.attributes("-alpha", a)
+        except Exception:
+            pass
         root.after(400, pump)
 
     # place: remembered spot, else upper-left of the monitor you play on (primary)
