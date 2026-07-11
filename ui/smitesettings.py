@@ -170,15 +170,15 @@ def main():
     pickswap = tk.StringVar(value=(_pk if _pk in ("first", "last") else "off"))
     tk.Label(body, text="AUTO PICK-ORDER SWAP", bg=BG, fg=GOLD,
              font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    tk.Label(body, text="Trade your spot in the pick order automatically. \"Last pick\" swaps you as "
-             "late as possible so you can counter-pick; \"First pick\" swaps you early to lock a "
-             "contested champ. It accepts a teammate's offer that moves you the right way, and asks "
-             "for one otherwise.",
+    tk.Label(body, text="Auto-handle pick-order swaps. \"Accept any\" just accepts every incoming "
+             "swap request. \"Last pick\" works you as late as possible so you can counter-pick; "
+             "\"First pick\" swaps you early to lock a contested champ (these accept an offer that "
+             "moves you the right way, and ask for one otherwise).",
              bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     pkrow = tk.Frame(body, bg=BG)
     pkrow.pack(anchor="w", padx=16, pady=(0, 2))
-    for _lbl, _val in (("Off", "off"), ("First pick", "first"), ("Last pick", "last")):
+    for _lbl, _val in (("Off", "off"), ("Accept any", "any"), ("First pick", "first"), ("Last pick", "last")):
         tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=BG, fg=TXT,
                        selectcolor=TROUGH, activebackground=BG, activeforeground=TXT,
                        font=("Segoe UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(0, 10))

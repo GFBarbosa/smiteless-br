@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.82
+- **Pick-order swap now has a simple "Accept any" mode.** In **Settings → Auto pick-order swap**, pick **Accept any** to just auto-accept every incoming pick-order swap request — no direction, no asking. (First pick / Last pick are still there if you want Smiteless to actively work toward an end of the order.)
+
 ## v0.2.81
 - **Auto pick-order swap (counter-pick automation).** New in **Settings → Auto pick-order swap**: choose **Last pick** and Smiteless works your spot in the pick order as late as possible so you can counter-pick — it accepts a teammate's swap offer that moves you later, and requests one otherwise. **First pick** does the opposite (swap early to lock a contested champ). Off by default. (This is the pick-order swap; the v0.2.80 role swap is a separate setting.)
 

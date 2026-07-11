@@ -168,12 +168,14 @@ def _post_pick_swap(sid, action):
 
 
 def auto_pick_order_swap(target):
-    """Work the champ-select PICK ORDER toward `target` — 'last' (pick last so you can counter-
-    pick) or 'first' (pick early to secure a champ); '' / anything else = off. Each call it will
-    ACCEPT an incoming swap that moves you the right way, else REQUEST one toward the best slot in
-    that direction (one live ask, rate-limited). Returns a short status string or None. Never
-    raises — must not disrupt champ select. (LCU: pickOrderSwaps in the session.)"""
-    if target not in ("first", "last"):
+    """Handle champ-select PICK ORDER swaps. `target`:
+      'any'   -> just ACCEPT every incoming pick-order swap request (no direction, no asking).
+      'last'  -> pick last so you can counter-pick: accept swaps that move you later, else ask.
+      'first' -> pick early to secure a champ: accept swaps that move you earlier, else ask.
+      '' / anything else = off.
+    Returns a short status string or None. Never raises — must not disrupt champ select.
+    (LCU: pickOrderSwaps in the session.)"""
+    if target not in ("any", "first", "last"):
         return None
     try:
         sess = _lcu_json("GET", "/lol-champ-select/v1/session")
@@ -195,13 +197,23 @@ def auto_pick_order_swap(target):
                     done = True                  # you've already locked -> swapping is moot
     pos = {c: i + 1 for i, c in enumerate(order)}
     my_pos = pos.get(local)
-    if done or not my_pos or len(order) < 2:
+    if done:
+        return None
+    swaps = sess.get("pickOrderSwaps") or []
+
+    if target == "any":                          # simplest mode: accept EVERY incoming request
+        for s in swaps:
+            if s.get("state") == "RECEIVED":
+                return (f"pick {pos.get(s.get('cellId'), '?')}"
+                        if _post_pick_swap(s.get("id"), "accept") else None)
+        return None
+
+    if not my_pos or len(order) < 2:
         return None
     best_slot = len(order) if target == "last" else 1
     if my_pos == best_slot:
         return None                              # already where you want to be
     better = (lambda p: p > my_pos) if target == "last" else (lambda p: p < my_pos)
-    swaps = sess.get("pickOrderSwaps") or []
 
     # 1) Accept an incoming offer that moves you the right way (their slot is better than yours).
     for s in swaps:
