@@ -12,6 +12,8 @@ NOAUTO = os.path.expanduser("~/.claude/smiteless_noautoopen")   # presence = aut
 NOHOME = os.path.expanduser("~/.claude/smiteless_nohomeonstart")  # presence = open profile/home at startup OFF
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+SWAP_ROLES = ("top", "jungle", "mid", "adc", "support")   # valid targets for auto-accept role swap
+
 # streak_influence: 0..100, 50 = the original/default behavior (a multiplier m = value/50
 #   scales the enemy form weight, the streak compounding, and the extreme override).
 # gank_threshold: |score| cut for GANK / TOUGH (lower = more lanes tagged).
@@ -39,6 +41,7 @@ def load():
     s = dict(DEFAULTS)
     s.update(BOOLS)
     s["fav_champs"] = []          # ordered favourite picks: ["Kha'Zix", "Ahri, mid", ...]
+    s["auto_swap_roles"] = []     # champ select: role (position) swaps to auto-accept INTO
     try:
         raw = json.load(open(PATH, encoding="utf-8"))
         for k in DEFAULTS:
@@ -51,6 +54,9 @@ def load():
                 s[k] = bool(raw[k])
         if isinstance(raw.get("fav_champs"), list):
             s["fav_champs"] = [str(x).strip() for x in raw["fav_champs"] if str(x).strip()][:20]
+        if isinstance(raw.get("auto_swap_roles"), list):
+            s["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in raw["auto_swap_roles"])
+                                    if r in SWAP_ROLES]
     except Exception:
         pass
     return s
@@ -87,6 +93,11 @@ def save(s):
         clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
     elif "fav_champs" not in clean:
         clean["fav_champs"] = []
+    if "auto_swap_roles" in s:
+        clean["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in (s.get("auto_swap_roles") or []))
+                                    if r in SWAP_ROLES]
+    elif "auto_swap_roles" not in clean:
+        clean["auto_swap_roles"] = []
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"

@@ -109,6 +109,47 @@ def auto_ban(dd, targets, extra_avoid=()):
         return None
 
 
+def auto_accept_swap(want_roles):
+    """If a teammate has offered a ROLE (assigned-position) swap that would put you on a role you
+    want — and you're not already on one of your wanted roles — ACCEPT it. `want_roles` is the
+    set/list of app roles you'll swap INTO ('top','jungle','mid','adc','support'); empty -> no-op.
+    Only ever moves you ONTO a wanted role, never off one, so it can't strand you on a lane you
+    didn't ask for. Returns the role you swapped into, or None. Never raises — must not disrupt
+    champ select. (LCU: positionSwaps in the session; POST .../position-swaps/{id}/accept.)"""
+    want = {r for r in (want_roles or []) if r}
+    if not want:
+        return None
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+    except Exception:
+        return None
+    if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
+        return None
+    swaps = sess.get("positionSwaps") or []
+    if not swaps:
+        return None
+    local = sess.get("localPlayerCellId")
+    pos_of, my_pos = {}, ""
+    for m in (sess.get("myTeam") or []):
+        role = lg.ROLE.get((m.get("assignedPosition") or "").lower(), "")
+        pos_of[m.get("cellId")] = role
+        if m.get("cellId") == local:
+            my_pos = role
+    if not my_pos or my_pos in want:
+        return None                              # no assigned role (blind/ARAM), or already happy
+    for s in swaps:
+        if s.get("state") != "RECEIVED":         # a teammate's incoming offer, awaiting your call
+            continue
+        their = pos_of.get(s.get("cellId"), "")  # the role you'd RECEIVE = their current lane
+        if their and their in want:
+            try:
+                _lcu_json("POST", f"/lol-champ-select/v1/session/position-swaps/{int(s['id'])}/accept")
+                return their
+            except Exception:
+                return None
+    return None
+
+
 def import_build(dd, cid, role, build):
     """Push `build`'s runes + summoners for cid/role into the client. Returns a status
     string; raises RuntimeError with a friendly message on anything expected."""

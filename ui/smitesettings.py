@@ -149,6 +149,22 @@ def main():
     _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
 
+    # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
+    _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
+    _swap_cur = set(s.get("auto_swap_roles") or [])
+    swapvars = {r: tk.BooleanVar(value=(r in _swap_cur)) for r in cfg.SWAP_ROLES}
+    tk.Label(body, text="AUTO-ACCEPT ROLE SWAP", bg=BG, fg=GOLD,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    tk.Label(body, text="In champ select, auto-accept a teammate's role-swap offer that lands you on "
+             "one of these roles. It only ever moves you ONTO a checked role, never off one — so it "
+             "can't strand you on a lane you didn't ask for. None checked = off.",
+             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    swaprow = tk.Frame(body, bg=BG)
+    swaprow.pack(anchor="w", padx=16, pady=(0, 2))
+    for r in cfg.SWAP_ROLES:
+        _chk(swaprow, _SWAP_LBL[r], swapvars[r]).pack(side="left", padx=(0, 8))
+
     from tkinter import ttk
     import lolbuild as _lb
     try:
@@ -394,7 +410,8 @@ def main():
                   "game_intel": intel.get(), "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
-                  "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0)})
+                  "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
+                  "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()]})
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.80
+- **Auto-accept role swaps.** New in **Settings → Auto-accept role swap**: check the role(s) you're happy to play. When a teammate offers a role (position) swap in champ select that would put you on one of them, Smiteless accepts it for you. It **only ever moves you ONTO a checked role, never off one** — so a jungle main who got autofilled support auto-takes the jungle swap, but never gets swapped off jungle. None checked = off. (This is the assigned-lane swap, not a champion trade.)
+
 ## v0.2.79
 - **The player grade now reads how you actually PLAY, not your win/loss.** It scores each of your recent games against your role's benchmarks — CS/min, kill participation, damage share, deaths, vision (the same engine as your post-game review) — and averages them. Win rate is only a light tie-breaker now.
 - **Why this matters:** if you're a strong player grinding on a low/off-role account, or just lost a few playing off-champs, your fundamentals still show through — you'll grade a solid **B**, not a bogus **F**, even mid-losing-streak. It figures out your skill from your gameplay, not from your account. Meanwhile someone who's genuinely inting (bad CS, no participation, feeding) still grades low even if they got carried to a win.
