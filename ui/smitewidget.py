@@ -130,6 +130,96 @@ def _beep(thr, vol=30):
         pass
 
 
+# ---- TEMPO voice callouts: short spoken cues ("Base now", "Rotate to dragon", "Take it")
+# rendered ONCE to WAV with Windows' built-in SAPI voice (System.Speech - free, offline,
+# ships with every Windows 10/11) and played through the same winsound path as the chime.
+_VOICE_VER = "v1"
+
+
+def _tts_path(name, text, vol=30):
+    """Render `text` to a cached WAV via the built-in Windows speech synth. None on failure."""
+    vol = int(max(0, min(100, vol)))
+    p = os.path.join(tempfile.gettempdir(), f"smiteless_voice_{_VOICE_VER}_{name}_{vol}.wav")
+    try:
+        if os.path.exists(p) and os.path.getsize(p) > 1000:
+            return p
+        import subprocess
+        ps = ("Add-Type -AssemblyName System.Speech; "
+              "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+              f"$s.Volume = {vol}; $s.Rate = 2; "
+              f"$s.SetOutputToWaveFile('{p}'); $s.Speak('{text}'); $s.Dispose()")
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                       creationflags=0x08000000,          # CREATE_NO_WINDOW: never flash a console
+                       capture_output=True, timeout=25)
+        if os.path.exists(p) and os.path.getsize(p) > 1000:
+            return p
+    except Exception:
+        pass
+    return None
+
+
+def _say(name, text, vol=30):
+    """Speak a pre-rendered cue (renders on first use). Async; replaces any playing cue."""
+    if vol <= 0:
+        return
+    try:
+        import winsound
+        p = _tts_path(name, text, vol)
+        if p:
+            winsound.PlaySound(p, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+    except Exception:
+        pass
+
+
+# phase -> (cache name, spoken line). MOVE gets a per-objective callout.
+_TEMPO_SPEECH = {
+    "BASE": ("base", "Base now."),
+    "TAKE": ("take", "Take it. You win this fight."),
+    "GIVE": ("give", "Give it. Trade elsewhere."),
+    "EVEN": ("even", "Fifty fifty. Only with vision."),
+    "FORCE": ("force", "Force now. Numbers advantage."),
+}
+_TEMPO_ROTATE = {
+    "Drake": ("rot_drake", "Rotate to dragon."),
+    "Elder": ("rot_elder", "Rotate. Elder dragon."),
+    "Baron": ("rot_baron", "Rotate to baron."),
+    "Herald": ("rot_herald", "Rotate to herald."),
+    "Grubs": ("rot_grubs", "Rotate to grubs."),
+}
+
+
+def _tempo_phrase(phase, obj):
+    if phase == "MOVE":
+        return _TEMPO_ROTATE.get(obj, ("rotate", "Rotate now."))
+    return _TEMPO_SPEECH.get(phase)
+
+
+class _TempoVoice:
+    """Decides WHEN to speak: only on a phase/objective TRANSITION into an actionable
+    phase, with a global cooldown and a per-cue repeat guard so threshold flapping
+    (EVEN<->TAKE on the edge) can't chatter. Pure logic - testable without audio."""
+    COOLDOWN = 6.0             # min seconds between any two spoken cues
+    RESAY = 45.0               # min seconds before the SAME cue may repeat
+
+    def __init__(self):
+        self.key, self.last, self.spoken = None, -1e9, {}
+
+    def cue(self, tempo, now):
+        """(name, text) to speak right now, or None."""
+        if not tempo or tempo.get("phase") in (None, "FARM"):
+            self.key = (tempo or {}).get("phase")
+            return None
+        key = (tempo["phase"], tempo.get("obj"))
+        if key == self.key:
+            return None
+        self.key = key
+        if now - self.last < self.COOLDOWN or now - self.spoken.get(key, -1e9) < self.RESAY:
+            return None
+        self.last = now
+        self.spoken[key] = now
+        return _tempo_phrase(*key)
+
+
 def _dragon_due(prev, secs, fired):
     """Which step (45/30/15) to beep right now as the dragon countdown CROSSES it, or None.
     Mutates `fired`. Crossing-based so a 5s poll or joining mid-window never double-beeps; a
@@ -372,11 +462,17 @@ def main():
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
         tempo_on = _cfg.get("tempo_coach", True)
+        voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
         dvol = int(_cfg.get("dragon_volume", 30))        # Settings volume slider (0-100)
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
+        tvoice = _TempoVoice()                            # tempo callout announce state
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
+        if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (SAPI, one-time)
+            threading.Thread(target=lambda: [_tts_path(nm, tx, dvol) for nm, tx in
+                                             list(_TEMPO_SPEECH.values()) + list(_TEMPO_ROTATE.values())
+                                             + [("rotate", "Rotate now.")]], daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -425,6 +521,14 @@ def main():
                         pulse["tempo"] = lt.tempo_read(dd, raw)
                     except Exception:
                         pulse["tempo"] = None
+                    if voice_on and dvol > 0:            # spoken callout on phase transitions
+                        try:
+                            cue = tvoice.cue(pulse.get("tempo"), time.monotonic())
+                            if cue and not st.get("muted", False):   # ♪ button mutes voice too
+                                threading.Thread(target=_say, args=(cue[0], cue[1], dvol),
+                                                 daemon=True).start()
+                        except Exception:
+                            pass
             if audio_on and raw is not None:             # dragon spawn reminder (45/30/15s)
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None

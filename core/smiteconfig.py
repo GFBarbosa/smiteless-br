@@ -29,6 +29,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "item_widget": True,     # the floating in-game item helper
          "game_intel": True,      # widget: live win read + objective timers + spike alerts
          "tempo_coach": True,     # widget: TEMPO engine — objective-setup directives (farm/base/move/take-give)
+         "tempo_voice": True,     # widget: spoken TEMPO callouts (Windows TTS: "Base now", "Take it", ...)
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client

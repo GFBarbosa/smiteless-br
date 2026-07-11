@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.86
+- **The Tempo engine now talks.** Short spoken callouts fire exactly when a window opens: **"Base now."**, **"Rotate to dragon."** (per-objective), **"Take it — you win this fight."**, **"Give it — trade elsewhere."**, **"Fifty fifty — only with vision."**, **"Force now — numbers advantage."** Voiced by Windows' built-in speech engine — free, offline, rendered once to WAV and cached, played at your existing widget volume. It only speaks on a *phase change* (never repeats, 6s global cooldown, anti-flap guard), the in-game ♪ mute button silences it along with the drake chime, and there's a separate "Tempo voice callouts" toggle in Settings.
+
 ## v0.2.85
 - **Ban suggestions now consider the whole team's hovers, not just yours.** GOOD BANS aggregates the counters of every champ your team is hovering or has locked (including you) and ranks enemy champs by total threat to the draft — a champ that beats two of your lanes now outranks one that only edges yours, so the ban adapts as teammates hover instead of always showing your champ's #1 counter. The shown % is the most-countered teammate's win rate into that champ. Falls back to your champ's counters, then to the meta ban list, if there's nothing to aggregate. (Auto-ban uses the same improved list.)
 

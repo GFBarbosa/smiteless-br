@@ -127,6 +127,7 @@ def main():
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
     tempo = tk.BooleanVar(value=s.get("tempo_coach", True))
+    tempov = tk.BooleanVar(value=s.get("tempo_voice", True))
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
@@ -142,6 +143,7 @@ def main():
     _chk(col1, "In-game item widget", widget).pack(anchor="w")
     _chk(col1, "Live game intel (timers + win read)", intel).pack(anchor="w")
     _chk(col1, "Tempo coach (objective setup windows)", tempo).pack(anchor="w")
+    _chk(col1, "Tempo voice callouts (base / rotate / take)", tempov).pack(anchor="w")
     _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
@@ -427,7 +429,8 @@ def main():
                   "dragon_volume": int(dvol.get()),
                   "matchup_tips": tips.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
-                  "game_intel": intel.get(), "tempo_coach": tempo.get(), "dragon_audio": dragon.get(),
+                  "game_intel": intel.get(), "tempo_coach": tempo.get(), "tempo_voice": tempov.get(),
+                  "dragon_audio": dragon.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
