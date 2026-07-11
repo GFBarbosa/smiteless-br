@@ -84,6 +84,50 @@ E_TAKE, E_GIVE = 500.0, -500.0
 # priority majors, in the order the widget should care about them
 _MAJOR = ("Elder", "Baron", "Drake", "Herald", "Grubs")
 
+# ---- role model: the schedule differs by WHERE you live on the map. A bot laner is 12s
+#      from drake and a cross-map hike from baron; a top laner is the reverse; mid and
+#      jungle sit roughly equidistant. Path lengths are map-unit estimates (modeling). ----
+_LC_ROLE = {"TOP": "top", "JUNGLE": "jungle", "MIDDLE": "mid", "MID": "mid",
+            "BOTTOM": "adc", "UTILITY": "support"}
+_OBJ_SIDE = {"Drake": "bot", "Elder": "bot", "Baron": "top", "Herald": "top", "Grubs": "top"}
+_LANE_SIDE = {"top": "top", "adc": "bot", "support": "bot"}   # mid/jungle: no home side
+_LANE_PATH = {"top": (4800.0, 13800.0), "mid": (6600.0, 6600.0), "adc": (4800.0, 13800.0),
+              "support": (4800.0, 13800.0), "jungle": (7200.0, 7200.0)}
+LANE_TRAVEL_MIN, LANE_TRAVEL_MAX = 8.0, 60.0
+
+
+def _my_role(dd, me):
+    """Your role this game: the Live Client position (ranked/normals), else the role saved
+    at champ select, else jungle (the engine's original flavor)."""
+    r = _LC_ROLE.get((me.get("position") or "").upper(), "")
+    if not r:
+        try:
+            import lolgame as lg
+            cid = dd["name2id"].get(dd["norm"](me.get("championName") or ""), 0)
+            r = lg.load_role(cid) or ""
+        except Exception:
+            r = ""
+    return r or "jungle"
+
+
+def _lane_travel(role, obj_label, ms):
+    """Seconds from your LANE to this objective's pit (walking): same-side lanes are close,
+    cross-map lanes are a hike. Used for the rotate deadline + can-you-even-make-it check
+    (the recall/BASE deadline still uses the fountain path — you back to the fountain)."""
+    side = _OBJ_SIDE.get(obj_label, "bot")
+    same, cross = _LANE_PATH.get(role, _LANE_PATH["jungle"])
+    home = _LANE_SIDE.get(role)
+    dist = same if (home is None or home == side) else cross
+    return max(LANE_TRAVEL_MIN, min(LANE_TRAVEL_MAX, dist / max(200.0, float(ms or 0) or 390.0)))
+
+
+def _has_tp(me):
+    s = me.get("summonerSpells") or {}
+    for k in ("summonerSpellOne", "summonerSpellTwo"):
+        if "teleport" in ((s.get(k) or {}).get("displayName") or "").lower():
+            return True
+    return False
+
 
 def _travel(ms, gt):
     ms = float(ms or 0) or 390.0
@@ -207,8 +251,23 @@ def tempo_read(dd, data):
     T = float(nxt["secs"])
     label = nxt["label"]
 
-    # ---- at / near spawn: the TAKE / EVEN / GIVE verdict ----
+    # ---- role-aware geometry: the recall deadline uses the FOUNTAIN path (you back to
+    #      base), but the rotate deadline + reachability use YOUR LANE's path to this pit ----
+    role = _my_role(dd, _me)
+    laner = role in ("top", "mid", "adc", "support")
+    lane_tv = _lane_travel(role, label, ms)
+    reachable = lane_tv <= T + FIGHT_GRACE       # leaving right now, do you make the fight?
+
+    # ---- at / near spawn: the TAKE / EVEN / GIVE verdict (if you can even get there) ----
     if T <= SETUP_LEAD:
+        if not reachable:
+            if _has_tp(_me):
+                return {"phase": "PUSH", "obj": label, "secs": int(T), "urgent": True,
+                        "line": f"SHOVE — then TP to {label.lower()}",
+                        "sub": "you can't walk there in time; crash the wave and TP the fight"}
+            return {"phase": "PUSH", "obj": label, "secs": int(T), "urgent": True,
+                    "line": f"too far — SHOVE for the cross-trade",
+                    "sub": f"you can't reach {label.lower()}: hard-push your lane, take plates/camps"}
         fe = fight_edge(dd, data, T, travel, gt)
         if fe is None:
             return None
@@ -231,10 +290,14 @@ def tempo_read(dd, data):
 
     # ---- scheduled deadlines, walked back from spawn ----
     base_by = T - travel - SETUP_LEAD - RECALL_S - SHOP_S
-    move_by = T - travel - SETUP_LEAD
+    move_by = T - lane_tv - SETUP_LEAD
     mmss = f"{int(T) // 60}:{int(T) % 60:02d}"
     star = "★ " if soul_point else ""
     if base_by <= 0 < move_by:
+        if laner:
+            return {"phase": "MOVE", "obj": label, "secs": int(T), "urgent": move_by <= 10,
+                    "line": f"{star}CRASH your wave → rotate to {label.lower()} in {int(max(0, move_by))}s",
+                    "sub": f"never rotate off a slow push — crash it, then ward pit ({label} {mmss})"}
         return {"phase": "MOVE", "obj": label, "secs": int(T), "urgent": move_by <= 10,
                 "line": f"{star}ROTATE — leave for {label.lower()} in {int(max(0, move_by))}s",
                 "sub": f"arrive {int(SETUP_LEAD)}s early: pit ward + river control ({label} {mmss})"}
@@ -242,6 +305,7 @@ def tempo_read(dd, data):
         return {"phase": "BASE", "obj": label, "secs": int(T), "urgent": base_by <= 8,
                 "line": f"{star}BASE window — recall inside {int(max(0, base_by))}s",
                 "sub": f"buy fast, you'll reach {label.lower()} {int(SETUP_LEAD)}s early ({mmss})"}
+    tail = ("crash your wave before you leave" if laner else f"path toward {label.lower()}")
     return {"phase": "FARM", "obj": label, "secs": int(T), "urgent": False,
-            "line": f"{star}farm window {int(base_by)}s — path toward {label.lower()}",
-            "sub": f"{label} {mmss} · recall by -{int(T - base_by)}s, arrive by -{int(SETUP_LEAD + travel)}s"}
+            "line": f"{star}farm window {int(base_by)}s — {label.lower()} {mmss}",
+            "sub": f"recall by -{int(T - base_by)}s · leave by -{int(SETUP_LEAD + lane_tv)}s · {tail}"}

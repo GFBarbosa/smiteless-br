@@ -181,6 +181,7 @@ _TEMPO_SPEECH = {
     "GIVE": ("give", "Give it. Trade elsewhere."),
     "EVEN": ("even", "Fifty fifty. Only with vision."),
     "FORCE": ("force", "Force now. Numbers advantage."),
+    "PUSH": ("push", "Too far. Push your lane. Trade it."),
 }
 _TEMPO_ROTATE = {
     "Drake": ("rot_drake", "Rotate to dragon."),
@@ -382,7 +383,7 @@ def main():
         tempo = pulse.get("tempo")
         if tempo:                                         # TEMPO directive: the one thing to do NOW
             tcol = {"TAKE": GREEN, "FORCE": GREEN, "GIVE": RED, "EVEN": GOLD,
-                    "BASE": GOLD, "MOVE": TEAL, "FARM": MUTED}.get(tempo["phase"], TXT)
+                    "BASE": GOLD, "MOVE": TEAL, "PUSH": GOLD, "FARM": MUTED}.get(tempo["phase"], TXT)
             tk.Label(intel, text="◆ " + tempo["line"],
                      font=("Segoe UI Semibold", 9 if tempo["phase"] == "FARM" else 10),
                      fg=tcol, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")

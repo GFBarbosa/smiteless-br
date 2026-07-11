@@ -1535,10 +1535,15 @@ def _ally_comp_bonus(dd, cid, ally_ids):
     return b
 
 
+# power-curve weight by champ class (modeling): who gets scarier as the game goes long.
+_SCALE_W = {"Marksman": 3.0, "Mage": 2.4, "Fighter": 2.0, "Assassin": 1.7, "Tank": 1.6, "Support": 1.4}
+
+
 def game_plan(dd, ally_ids, enemy_ids):
-    """2-3 blunt win-condition bullets from the two comps (champ tags only — robust, no
-    per-patch curation): the enemy's damage split, whether they have a frontline, and how much
-    engage each side has. Returns [] when there isn't enough to say."""
+    """WIN CONDITION bullets, adjusted to THIS game's two comps. The HEADLINE is the scaling
+    verdict — who gets stronger the longer it goes, i.e. WHEN you have to win — computed from
+    each comp's power-curve profile (champ classes). Behind it, the situational reads: damage
+    split, frontline, engage. Returns [] when there isn't enough to say."""
     tags = dd.get("id2tags", {})
 
     def prof(ids):
@@ -1549,9 +1554,18 @@ def game_plan(dd, ally_ids, enemy_ids):
             "ap": sum(1 for s in rows if "Mage" in s),
             "front": sum(1 for s in rows if "Tank" in s),
             "engage": sum(1 for s in rows if ("Tank" in s) or ("Fighter" in s)),
+            "scale": (sum(max((_SCALE_W.get(t, 1.8) for t in s), default=1.8) for s in rows)
+                      / max(1, len(rows))),
         }
     them, me = prof(enemy_ids), prof(ally_ids)
     out = []
+    # headline: the scaling verdict = WHEN you win. Meaningful gap only (0.25+ on the avg curve).
+    if me["n"] >= 4 and them["n"] >= 4:
+        d = me["scale"] - them["scale"]
+        if d >= 0.25:
+            out.append("YOU OUTSCALE — don't coinflip early: play clean, hit 3 items, win the late game.")
+        elif d <= -0.25:
+            out.append("THEY OUTSCALE — your win is EARLY: snowball, force objectives, end before 3 items.")
     if them["n"] >= 3:
         if them["ad"] >= 3 and them["ad"] >= them["ap"] * 2:
             out.append("Enemy damage is mostly AD — an early armor item swings fights.")
@@ -2029,7 +2043,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
             wrapped += _wrap("▸ " + b, font(10), VW - 42)[:2]
         ph_ = 22 + len(wrapped) * 14 + 4
         _rrect(d, (10, y, VW - 10, y + ph_ - 4), 9, fill=(22, 25, 34), outline=PEDGE, width=1)
-        d.text((22, y + 6), "GAME PLAN", font=font(9, 1), fill=GOLD)
+        d.text((22, y + 6), "WIN CONDITION", font=font(9, 1), fill=GOLD)
         for i, ln in enumerate(wrapped):
             d.text((22, y + 22 + i * 14), ln, font=font(10, text="▸"), fill=(206, 210, 218))
         y += ph_ + 6
@@ -2268,7 +2282,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         ly += panel_h + 14
     if plan:
         _rrect(d, (12 + xoff, ly, W2 - 12, ly + plan_h - 4), 8, fill=(22, 25, 34), outline=PEDGE, width=1)
-        d.text((22 + xoff, ly + 6), "GAME PLAN", font=font(9, 1), fill=GOLD)
+        d.text((22 + xoff, ly + 6), "WIN CONDITION", font=font(9, 1), fill=GOLD)
         for i, b in enumerate(plan):
             d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
         ly += plan_h

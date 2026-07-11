@@ -64,10 +64,16 @@ def hover_champ(cid):
     return "hovered"
 
 
+BAN_WAIT_MS = 12000        # hold the auto-ban until this little is left on the phase clock
+
+
 def auto_ban(dd, targets, extra_avoid=()):
     """If it's YOUR ban turn right now, LOCK the first champ in `targets` that's safe to ban:
     not already banned/picked and not a teammate's hovered pick (never ban an ally's champ).
-    Returns the banned championId, or None (not your ban turn / nothing safe / no client).
+    DELIBERATELY WAITS until the last ~12s of the ban phase before locking — every extra
+    second lets more teammates hover, and the team-wide ban math gets sharper with each
+    hover (the caller recomputes `targets` every poll). Fires immediately if the timer
+    isn't readable (never risk missing the ban). Returns the banned championId or None.
     Never raises — auto-ban must never disrupt champ select."""
     if not targets:
         return None
@@ -86,6 +92,10 @@ def auto_ban(dd, targets, extra_avoid=()):
                 action_id = a.get("id")
     if action_id is None:
         return None                              # not your ban turn
+    tmr = sess.get("timer") or {}
+    left = tmr.get("adjustedTimeLeftInPhase")
+    if (not tmr.get("isInfinite")) and isinstance(left, (int, float)) and left > BAN_WAIT_MS:
+        return None                              # clock still fat -> wait for more hovers
     avoid = set(int(c) for c in extra_avoid if c)
     b = sess.get("bans") or {}
     for c in (b.get("myTeamBans") or []) + (b.get("theirTeamBans") or []):

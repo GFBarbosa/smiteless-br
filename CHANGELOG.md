@@ -1,5 +1,14 @@
 # Smiteless — Patch Notes
 
+## v0.2.90
+- **Auto-ban now waits until the last ~12 seconds of the ban phase** before locking. Every extra second lets more teammates hover their picks, and the team-wide ban math recomputes on every poll — so the ban that finally locks is based on the most complete picture of your draft. (Fires immediately if the phase clock can't be read — it will never miss the ban.)
+- **The Tempo engine now knows what lane you're in.** It detects your role live and reshapes the whole schedule around your position on the map:
+  - **Rotate deadlines use YOUR lane's distance to the pit** — a bot laner is ~12s from drake, a top laner ~35s; the old one-size-fits-all fountain math is gone (recall deadlines still use the fountain path, because that's where backing puts you).
+  - **Laners get wave discipline built in:** "CRASH your wave → rotate" — it will never tell you to walk away from a slow push, and the farm window reminds you to crash before leaving.
+  - **"Too far" honesty + TP awareness:** if you physically can't reach the fight in time (top laner, drake spawning now), it stops pretending — **"SHOVE for the cross-trade"** (take plates/camps while they posture), or **"SHOVE — then TP to drake"** if you're holding Teleport. New spoken callout to match.
+  - Junglers keep the original pathing-flavored schedule, now with a more accurate on-map rotate deadline.
+- **GAME PLAN is now WIN CONDITION** — and it opens with the read that actually decides games: the **scaling verdict**. It compares both comps' power curves and headlines *when* you win: "YOU OUTSCALE — don't coinflip early, hit 3 items" vs "THEY OUTSCALE — your win is EARLY: snowball and end." Only claims it when the gap is real; the damage-split / frontline / engage reads follow behind.
+
 ## v0.2.89
 - **Mastery now has its own color scale (it used to lie).** The mastery text was inheriting the color of the player's *recent win rate* — so a 209k-point main could show "worse" (brown) than someone's 23k dabble (green) purely because of their last 10 games. Mastery is now colored by champ comfort itself: **gold = their MAIN (100k+ pts), green = comfortable (30k+), plain = knows it (8k+), dim = barely played**, and **red "off-champ" = first-timing it**. The recent W/L keeps its old green/tan/red coloring, and the legend spells out the scale.
 
