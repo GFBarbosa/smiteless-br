@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.3.0
+- **Auto role-swap now fights to GET your role, not just accept one — the autofill escape.** If you get autofilled off a role you actually play, Smiteless immediately REQUESTS a position swap from whoever has one of your roles (and still accepts any offer that lands you on one). It only ever moves you ONTO a checked role, never off it, and won't spam the same teammate. Set your roles in **Settings → Auto role swap**. Getting your main role every game is one of the biggest quiet win-rate edges there is.
+
 ## v0.2.99
 - **The champ-select ally scout is now always visible.** Clean lobby or not, the panel shows a compact team line — `team: Bob G2·B  Ann S1·C·2L` (name, rank, grade, loss streak) — so you can see the scout working every lobby, not only when a DODGE READ flag fires. (For the record: ally names in champ select come through the Riot Client's chat service — the same bypass Porofessor uses — since Riot only anonymized the client UI, not the chat backend. Enemies remain genuinely hidden until loading; no tool has those.)
 

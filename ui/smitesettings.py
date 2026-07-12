@@ -157,11 +157,12 @@ def main():
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
     _swap_cur = set(s.get("auto_swap_roles") or [])
     swapvars = {r: tk.BooleanVar(value=(r in _swap_cur)) for r in cfg.SWAP_ROLES}
-    tk.Label(body, text="AUTO-ACCEPT ROLE SWAP", bg=BG, fg=GOLD,
+    tk.Label(body, text="AUTO ROLE SWAP (autofill escape)", bg=BG, fg=GOLD,
              font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    tk.Label(body, text="In champ select, auto-accept a teammate's role-swap offer that lands you on "
-             "one of these roles. It only ever moves you ONTO a checked role, never off one — so it "
-             "can't strand you on a lane you didn't ask for. None checked = off.",
+    tk.Label(body, text="Check the roles you actually play. If you get autofilled off them, Smiteless "
+             "automatically REQUESTS a swap from a teammate who has one — and accepts any offer that "
+             "lands you on one. It only ever moves you ONTO a checked role, never off one. None "
+             "checked = off.",
              bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     swaprow = tk.Frame(body, bg=BG)

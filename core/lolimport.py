@@ -120,14 +120,32 @@ def auto_ban(dd, targets, extra_avoid=()):
         return None
 
 
+_POS_SWAP_LAST = {"sid": None, "ts": 0.0}     # anti-spam for our outgoing ROLE-swap requests
+
+
+def _post_pos_swap(sid, cellid, action):
+    """POST a position-swap action. request/accept can key off the swap id or the holder's
+    cellId depending on client version — try both; the wrong one 404s harmlessly."""
+    for seg in (sid, cellid):
+        if seg is None:
+            continue
+        try:
+            _lcu_json("POST", f"/lol-champ-select/v1/session/position-swaps/{int(seg)}/{action}")
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def auto_accept_swap(want_roles):
-    """If a teammate has offered a ROLE (assigned-position) swap that would put you on a role you
-    want — and you're not already on one of your wanted roles — ACCEPT it. `want_roles` is the
-    set/list of app roles you'll swap INTO ('top','jungle','mid','adc','support'); empty -> no-op.
-    Only ever moves you ONTO a wanted role, never off one, so it can't strand you on a lane you
-    didn't ask for. Returns the role you swapped into, or None. Never raises — must not disrupt
-    champ select. (LCU: positionSwaps in the session; POST .../position-swaps/{id}/accept.)"""
-    want = {r for r in (want_roles or []) if r}
+    """Work the ROLE (assigned-position) swaps toward a lane you want — the autofill escape.
+    `want_roles` = the app roles you'll play ('top','jungle','mid','adc','support'); empty ->
+    no-op. If you're already on a wanted role, does nothing. Otherwise it ACCEPTS any incoming
+    offer that lands you on a wanted role, and otherwise proactively REQUESTS a swap from a
+    teammate who's ON one of your wanted roles (one live ask, 10s anti-spam). It only ever
+    moves you ONTO a wanted role, never off one. Returns a short status ('jungle' /
+    'ask jungle') or None. Never raises — must not disrupt champ select. (LCU: positionSwaps.)"""
+    want = [r for r in (want_roles or []) if r]
     if not want:
         return None
     try:
@@ -148,16 +166,29 @@ def auto_accept_swap(want_roles):
             my_pos = role
     if not my_pos or my_pos in want:
         return None                              # no assigned role (blind/ARAM), or already happy
+
+    # 1) ACCEPT an incoming offer that lands you on a wanted role.
     for s in swaps:
-        if s.get("state") != "RECEIVED":         # a teammate's incoming offer, awaiting your call
+        if s.get("state") != "RECEIVED":
             continue
-        their = pos_of.get(s.get("cellId"), "")  # the role you'd RECEIVE = their current lane
+        their = pos_of.get(s.get("cellId"), "")
         if their and their in want:
-            try:
-                _lcu_json("POST", f"/lol-champ-select/v1/session/position-swaps/{int(s['id'])}/accept")
-                return their
-            except Exception:
-                return None
+            return their if _post_pos_swap(s.get("id"), s.get("cellId"), "accept") else None
+
+    # 2) Otherwise REQUEST a swap from a teammate who's ON a wanted role (want-order preference).
+    for role in want:
+        cell = next((c for c, r in pos_of.items() if r == role and c != local), None)
+        if cell is None:
+            continue
+        s = next((x for x in swaps if x.get("cellId") == cell), None)
+        if not s or s.get("state") not in (None, "AVAILABLE"):
+            continue                             # already SENT/BUSY/DECLINED -> leave it
+        sid = s.get("id")
+        now = time.time()
+        if _POS_SWAP_LAST["sid"] == sid and now - _POS_SWAP_LAST["ts"] < 10:
+            return None                          # don't hammer the same teammate
+        _POS_SWAP_LAST.update(sid=sid, ts=now)
+        return f"ask {role}" if _post_pos_swap(sid, cell, "request") else None
     return None
 
 
