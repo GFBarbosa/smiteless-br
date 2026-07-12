@@ -1496,7 +1496,7 @@ def site_urls(riot_id):
 _PICK_CACHE = {}
 # A broad per-role champ pool (strongest / most-common first). Doubles as (a) the meta
 # fallback when we can't read your mastery, and (b) the "which champs play this role" filter
-# that lets 'GOOD THIS GAME' surface YOUR mastery-5+ champs for the role BEFORE any enemy has
+# that lets 'GOOD THIS GAME' surface YOUR 12k+ mastery champs for the role BEFORE any enemy has
 # locked (so it's populated the moment champ select opens, not only once you hover). Unknown
 # names resolve to nothing and are skipped, so it's safe to be generous.
 _ROLE_FALLBACK = {
@@ -1595,23 +1595,24 @@ def game_plan(dd, ally_ids, enemy_ids):
     return out[:3]
 
 
-MIN_MASTERY = 5         # only suggest champs you're at LEAST this mastery level on
-PREF_MASTERY = 7        # ...preferring mastery 7+ ("comfort") first
+MIN_MASTERY = 12000     # only suggest champs with at least this many mastery POINTS — the
+                        # climb line: sub-12k picks win ~44% vs 51%+ past it (1M-game study)
+PREF_MASTERY = 30000    # ...preferring 30k+ ("real comfort") first
 
 
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     """A few role-appropriate champ suggestions for champ select, scored by enemy counters
-    (op.gg) + ally comp fit. When `fam` (a {championId: masteryLevel} map) is given, it ONLY
-    suggests champs you're mastery MIN_MASTERY+ on, mastery 7+ first — never a champ you can't
-    play. If mastery is unavailable (client closed / API down) it falls back to the meta ranking
-    so the section isn't just empty."""
+    (op.gg) + ally comp fit. When `fam` (a {championId: masteryPOINTS} map, pooled across all
+    your accounts) is given, it ONLY suggests champs with MIN_MASTERY+ points (the 12k climb
+    line — sub-12k picks win ~44%), preferring 30k+ comfort first. If mastery is unavailable
+    (client closed / API down) it falls back to the meta ranking so the section isn't empty."""
     role = lb.ROLE.get((role or "").lower(), (role or "").lower())
     if role not in _ROLE_FALLBACK:
         return []
     ally_ids = tuple(sorted(i for i in ally_ids if i))
     enemy_ids = tuple(sorted(i for i in enemy_ids if i))
     have_fam = bool(fam)
-    elig = {c: lvl for c, lvl in (fam or {}).items() if (lvl or 0) >= MIN_MASTERY}   # M5+ only
+    elig = {c: pts for c, pts in (fam or {}).items() if (pts or 0) >= MIN_MASTERY}   # 12k+ points only
     ck = (role, ally_ids, enemy_ids, have_fam, frozenset(elig.items()))
     if ck in _PICK_CACHE:
         return _PICK_CACHE[ck]
@@ -1647,11 +1648,11 @@ def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     def _key(kv):
         cid, s = kv
         base = (s["sum"] / max(1, s["n"])) + s.get("comp", 0.0)
-        lvl = elig.get(cid, 0)                 # M7+ first, then M5/6, then the meta score
-        return (lvl >= PREF_MASTERY, lvl, base, s["play"])
+        pts = elig.get(cid, 0)                 # 30k+ comfort first, then points, then meta
+        return (pts >= PREF_MASTERY, pts, base, s["play"])
     ranked = sorted(scores.items(), key=_key, reverse=True)
     if have_fam:
-        # HARD mastery gate: only champs you're M5+ on. No meta fallback — better to show fewer
+        # HARD mastery gate: only champs with 12k+ points. No meta fallback — better to show fewer
         # than to suggest a champ you don't play.
         picked = [cid for cid, _ in ranked if cid in elig and cid not in banned][:topn]
     else:
@@ -2085,7 +2086,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
-        d.text((20, y + 20), "no mastery-5+ picks for this role", font=font(10), fill=MUTED)
+        d.text((20, y + 20), "no 12k+ mastery picks for this role", font=font(10), fill=MUTED)
     y += 66
     # good bans
     d.text((20, y), "GOOD BANS", font=font(9, 1), fill=GOLD)
@@ -2472,7 +2473,10 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 climb_note = ""
                 if my_cid and not auto_note:
                     try:
-                        _pts = lg.my_mastery_points().get(my_cid)
+                        # pooled across ALL your accounts — 100k on the main means the
+                        # smurf pick is fine; only warn when NO account knows the champ
+                        _pool = ls.familiarity(lg.my_mastery_points())
+                        _pts = _pool.get(my_cid) if _pool else None
                         if _pts is not None and _pts < 12000:
                             climb_note = (f"⚠ {_pts // 1000}k mastery pick — sub-12k wins ~44% "
                                           f"(1M-game study); your mains climb faster")
@@ -2487,7 +2491,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     # champs you actually play, pooled across ALL your accounts (main + smurfs):
                     # the live current-account mastery merged with the cross-account aggregate.
                     sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
-                                          fam=ls.familiarity(lg.my_mastery()))
+                                          fam=ls.familiarity(lg.my_mastery_points()))
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     if settings.get("dock_champ_select", True):

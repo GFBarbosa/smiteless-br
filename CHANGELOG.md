@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.95
+- **"Good this game" now enforces the 12k-mastery climb line — across ALL your accounts.** Champ suggestions are gated on 12,000+ mastery **points** (was mastery level 5+), pooled across your main and every registered smurf (max per champ), with 30k+ comfort picks ranked first. Sub-12k champs are never suggested — if nothing qualifies for your role it says so rather than pushing an off-mastery pick. The champ-select hover warning and the profile's CLIMB LEAK check use the same all-accounts pool, so a champ you have 100k on your main never warns on the smurf.
+
 ## v0.2.94
 - **Matchup tips are now REAL written guides, not AI.** Lane tips are scraped from counterstats.net — actual prose counter-advice written by MOBAFire guide authors for the exact enemy champion, preferring tips written by players of YOUR champion (the true matchup POV), with vote-ranked general tips as backup. Loads in ~1 second (the old AI generator took 60-120s and sometimes failed), cached per patch, deterministic. The AI path survives only as an offline fallback. **Junglers get matchup tips now too** (they were excluded entirely).
 - **THE CLIMB SYSTEM — research-backed fast-climb discipline, built in.** Deep-dive into what actually makes people climb fast (sources: iTero's 1M-game mastery study, Deng et al. ACM CHI PLAY 2024 on 597k matches, loltheory's 100k-game break analysis):

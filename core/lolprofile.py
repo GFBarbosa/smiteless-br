@@ -626,7 +626,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         sub12k = []
         try:
             import lolgame as lg
-            pts = lg.my_mastery_points()
+            pts = ls.familiarity(lg.my_mastery_points())   # pooled across ALL accounts
             if pts:
                 for c in champs[:3]:
                     cid = dd["name2id"].get(dd["norm"](c["champ"]), 0)

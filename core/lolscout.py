@@ -37,7 +37,7 @@ RANK_TTL = 1800        # re-pull a player's rank at most every 30 min
 MASTERY_ALL_TTL = 12 * 3600     # a whole account's mastery barely moves -> cache half a day
 FAM_TTL = 6 * 3600              # rebuild the cross-account familiarity pool at most every 6h
 ACCOUNTS_FILE = os.path.expanduser("~/.claude/smiteless_accounts.json")   # your main + smurfs
-FAM_FILE = os.path.join(CACHE, "familiarity_lvl.json")                    # pooled mastery LEVEL cache
+FAM_FILE = os.path.join(CACHE, "familiarity_pts.json")                    # pooled mastery POINTS cache
 KEYOK_TTL = 300        # cache a key's validity ~5 min so each scout doesn't re-ping Riot
 _CALLS = []            # sliding-window call timestamps for rate limiting
 _CALLS_LOCK = threading.Lock()   # scouting runs the 10 players in parallel -> serialize the throttle
@@ -335,12 +335,13 @@ def mastery(puuid, champ_id, key):
 
 
 def all_mastery(puuid, key):
-    """{championId: masteryLevel} for a puuid — ALL champs in one champion-mastery-v4 call,
-    cached ~12h (mastery barely moves). {} on failure. Level (not points) so callers can gate
-    suggestions on 'mastery 5+'. Cache kind 'masterylvl' so it never mixes with old point caches."""
+    """{championId: masteryPOINTS} for a puuid — ALL champs in one champion-mastery-v4 call,
+    cached ~12h (mastery barely moves). {} on failure. POINTS, not level: the climb research
+    (1M-game study) gates on ~12k points, and levels can't express that. Cache kind
+    'masterypts' so it never mixes with the old level caches."""
     if not puuid:
         return {}
-    fp = _cache_path("masterylvl", puuid)
+    fp = _cache_path("masterypts", puuid)
     try:
         c = json.load(open(fp))
         if time.time() - c.get("ts", 0) < MASTERY_ALL_TTL:
@@ -354,7 +355,7 @@ def all_mastery(puuid, key):
         for r in d:
             cid = r.get("championId")
             if cid:
-                out[int(cid)] = r.get("championLevel", 0) or 0
+                out[int(cid)] = r.get("championPoints", 0) or 0
     try:
         json.dump({"m": out, "ts": time.time()}, open(fp, "w"))
     except Exception:
