@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.2.97
+- **The take/give math no longer trusts fog of war.** Enemy items only update when they've been SEEN — so an enemy farming in fog looked poorer than they were, biasing calls toward "take." Each player's power now uses their **estimated earned gold from scores** (CS, kills, assists — which update for everyone regardless of vision), with visible items as a floor. A fed-but-unseen enemy team now correctly reads as a GIVE.
+- **Contest calls fire earlier.** The TAKE / GIVE / 50-50 verdict now lands **45 seconds before spawn** (was 30) — while you can still rotate on it, not as the fight starts. Decision thresholds retuned for the new power scale.
+- **Bans: your lane comes first.** Your own champ's counters now weigh ~2× a teammate's in the ban ranking — but a champ that dumpsters TWO teammates still outranks a champ that's merely annoying for you, and pick-rate weighting stays (no more banning 4%-pick niche counters).
+
 ## v0.2.96
 - **The in-game widget is now a real HUD, not a wall of text.** The body is fully redrawn (same rendering style as the main board): the tempo directive is a **color-coded card** (red = give, green = take, gold = decide), objective timers are **chips** (gold when something's UP), intel rows are aligned with proper glyphs, and the item advice sits visually quieter below a divider. Numbers got one format — "GIVE baron (−23k · 2 down)" instead of three different spellings of the same fact — and a fed enemy is announced once, not twice. Same information, drawn like it matters.
 

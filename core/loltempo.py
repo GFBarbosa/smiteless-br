@@ -78,8 +78,10 @@ SETUP_LEAD = 30.0          # arrive this early: pit ward + river control + posit
 FIGHT_GRACE = 12.0         # dead player back within this of the fight start still counts
 LATE_ARRIVAL = 32.0        # back within this = arrives mid-fight, counted at half power
 
-# TAKE / GIVE decision thresholds on the gold-equivalent fight edge E (modeling).
-E_TAKE, E_GIVE = 500.0, -500.0
+# TAKE / GIVE decision thresholds on the gold-equivalent fight edge E (modeling). Sized
+# for the score-estimated power scale (bigger absolute numbers than the old item-only read).
+E_TAKE, E_GIVE = 800.0, -800.0
+VERDICT_LEAD = 45.0        # the contest/give call fires this early (setup deadlines stay 30s)
 
 # priority majors, in the order the widget should care about them
 _MAJOR = ("Elder", "Baron", "Drake", "Herald", "Grubs")
@@ -135,10 +137,28 @@ def _travel(ms, gt):
     return max(TRAVEL_MIN, min(TRAVEL_MAX, PATH_UNITS / max(200.0, ms) - hg))
 
 
-def _power(dd, p):
-    """One player's gold-equivalent fight power: item gold + XP valued at XP_GOLD."""
+def _est_gold(p, gt):
+    """ESTIMATED total earned gold from scores the Live Client reports for everyone
+    regardless of vision (CS, kills, assists, game time). Critical because enemy ITEM
+    data only updates when they've been seen — an enemy farming in fog looks poorer than
+    they are. Modeling constants: 500 start, ~20.4g/10s passive from 1:50, ~20.5g/CS,
+    300g/kill, ~155g/assist (bounty averages)."""
+    sc = p.get("scores") or {}
+    g = 500.0
+    if gt > 110:
+        g += (gt - 110) * 2.04
+    g += float(sc.get("creepScore") or 0) * 20.5
+    g += float(sc.get("kills") or 0) * 300.0 + float(sc.get("assists") or 0) * 155.0
+    return g
+
+
+def _power(dd, p, gt):
+    """One player's gold-equivalent fight power: XP value + the BEST-KNOWN read of their
+    gold — visible item gold, or the score-based estimate (x0.82 spent-fraction) when
+    that's higher (i.e. their items are stale because they haven't been seen)."""
     items = [it.get("itemID") for it in (p.get("items") or []) if it.get("itemID")]
     _n, gold = ll._completed_items(dd, items)
+    gold = max(gold, _est_gold(p, gt) * 0.82)
     return gold + XP_CUM.get(max(1, min(18, int(p.get("level", 1)))), 0) * XP_GOLD
 
 
@@ -181,12 +201,12 @@ def fight_edge(dd, data, t_obj, travel, gt):
     ap = ab = 0.0
     for p in allies:
         av = _avail(p, t_obj, travel, gt)
-        ap += _power(dd, p) * av
+        ap += _power(dd, p, gt) * av
         ab += av
     ep = eb = 0.0
     for p in enemies:
         av = _avail(p, t_obj, travel, gt)
-        ep += _power(dd, p) * av
+        ep += _power(dd, p, gt) * av
         eb += av
     bodies = ab - eb
     e = (ap - ep) + BODY_GOLD * bodies
@@ -252,7 +272,7 @@ def tempo_read(dd, data):
     dead_e = [p for p in enemies if p.get("isDead") and float(p.get("respawnTimer") or 0) >= 10]
     dead_a = [p for p in allies if p.get("isDead")]
     if (dead_e and len(dead_e) > len(dead_a)
-            and (nxt is None or float(nxt["secs"]) > SETUP_LEAD)):
+            and (nxt is None or float(nxt["secs"]) > VERDICT_LEAD)):
         win = min(float(p.get("respawnTimer") or 0) for p in dead_e)
         n_up, n_en = len(allies) - len(dead_a), len(enemies) - len(dead_e)
         return {"phase": "FORCE", "obj": (nxt or {}).get("label"), "secs": int(win),
@@ -274,8 +294,9 @@ def tempo_read(dd, data):
     # a pit fight lasts ~25s+, so anyone within that window is still a contester.
     reachable = lane_tv <= (T + FIGHT_GRACE if T > 0 else 25.0)
 
-    # ---- at / near spawn: the TAKE / EVEN / GIVE verdict (if you can even get there) ----
-    if T <= SETUP_LEAD:
+    # ---- approaching spawn: the TAKE / EVEN / GIVE verdict, fired EARLY (45s out) so the
+    #      call lands while you can still act on it, not as the pit fight starts ----
+    if T <= VERDICT_LEAD:
         if not reachable:
             if _has_tp(_me):
                 return {"phase": "PUSH", "obj": label, "secs": int(T), "urgent": True,

@@ -1776,15 +1776,18 @@ def _role_presence(dd):
     return out
 
 
-def team_bans(dd, hovers, taken=(), topn=3):
-    """Good bans for the WHOLE TEAM's draft, ranked by EXPECTED VALUE — not just 'who
-    counters us hardest' but 'who counters us, weighted by how likely we are to actually
-    face them'. For every ally hover/lock (yours included), each losing matchup contributes
-    (49 - our_wr) x that counter's PICK RATE in the role. A niche hard-counter (the
-    'always bans Zac' bug: brutal into you but a 4%-pick champ) now loses to a popular
-    counter you'll meet every third game; threats to multiple lanes still stack. Finalists
-    get a small 'they're strong this patch anyway' boost from the same dataset.
-    hovers = [(cid, role), ...]; returns [(cid, worst_ally_wr), ...]."""
+SELF_BAN_W = 1.8           # your own lane's counters weigh ~2x a teammate's in the ban EV
+
+
+def team_bans(dd, hovers, taken=(), topn=3, self_cid=0):
+    """Good bans for the WHOLE TEAM's draft, ranked by EXPECTED VALUE:
+      threat = (how hard they counter each hover) x (their PICK RATE in that role),
+    summed over the team — with YOUR champ's counters weighted SELF_BAN_W (~2x): the ban
+    protects your own game first, but a champ that's merely annoying for you while it
+    absolutely dumpsters two teammates still climbs the list, and a niche 4%-pick
+    hard-counter still loses to a popular counter you'll actually face. Finalists get a
+    small 'strong this patch' boost. hovers = [(cid, role), ...]; self_cid marks which
+    hover is YOU. Returns [(cid, worst_ally_wr), ...]."""
     hovs = [(c, r) for c, r in (hovers or []) if c]
     if not hovs:
         return []
@@ -1792,10 +1795,11 @@ def team_bans(dd, hovers, taken=(), topn=3):
     threat, worst = {}, {}
     for cid, role in hovs:
         rkey = _OPGG_POS.get(lb.ROLE.get((role or "").lower(), ""), "")
+        w_self = SELF_BAN_W if (self_cid and cid == self_cid) else 1.0
         for e_cid, wr, _play in _champ_threats(dd, cid, role):
             pr = pres.get((e_cid, rkey), (None, None))[0] if rkey else None
             presence = pr if pr is not None else 0.10   # no data -> assume average presence
-            threat[e_cid] = threat.get(e_cid, 0.0) + (49.0 - wr) * max(0.01, presence) * 10.0
+            threat[e_cid] = threat.get(e_cid, 0.0) + (49.0 - wr) * max(0.01, presence) * 10.0 * w_self
             if wr < worst.get(e_cid, 100.0):
                 worst[e_cid] = wr                  # the most-countered ally's WR (display)
     if not threat:
@@ -2446,7 +2450,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 # pick intent + yours, counters aggregated), falling back to your champ's
                 # counters, then to high-priority solo-q bans (bans happen before picks, so
                 # there's always a target to show/auto-ban).
-                ideas = team_bans(dd, allies, taken=taken) \
+                ideas = team_bans(dd, allies, taken=taken, self_cid=my_cid) \
                     or (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
                     or general_bans(dd, my_role, taken)
                 if settings.get("auto_ban", False):     # your ban turn? -> lock the top safe ban
