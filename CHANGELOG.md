@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.2.98
+- **Ally scout while you can still dodge.** Champ select now identifies your four teammates (via the Riot Client, the same method Porofessor uses) and scouts them immediately — if someone's on a 3+ loss tilt streak or grading F, a **DODGE READ** line appears on the panel *before* you're locked in. Enemies stay hidden until loading (Riot anonymizes them).
+- Refreshed the project README.
+
 ## v0.2.97
 - **The take/give math no longer trusts fog of war.** Enemy items only update when they've been SEEN — so an enemy farming in fog looked poorer than they were, biasing calls toward "take." Each player's power now uses their **estimated earned gold from scores** (CS, kills, assists — which update for everyone regardless of vision), with visible items as a floor. A fed-but-unseen enemy team now correctly reads as a GIVE.
 - **Contest calls fire earlier.** The TAKE / GIVE / 50-50 verdict now lands **45 seconds before spawn** (was 30) — while you can still rotate on it, not as the fight starts. Decision thresholds retuned for the new power scale.

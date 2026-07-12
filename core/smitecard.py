@@ -2371,6 +2371,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     auto_done = 0                         # champ we already auto-imported for (once per lock)
     auto_note = None                      # "auto-imported ✓" note shown on the panel
     last_cs_sig = None                    # champ-select frame signature (skip identical re-renders)
+    team_read = {"state": "idle", "text": ""}   # per-champ-select ally scout (dodge read)
     shown = False                         # have we rendered a real session (champ select / game)?
     inactive = 0                          # consecutive reads with the client out of an active phase
     acct_captured = False                 # auto-remember the logged-in account once per session
@@ -2471,6 +2472,42 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         limp.auto_pick_order_swap(settings.get("auto_pick_swap"))
                     except Exception:
                         pass
+                # ALLY SCOUT while you can still dodge: teammate Riot IDs come from the
+                # Riot Client chat participants (allies only — enemies are anonymized).
+                # One background pass per champ select; flags tilted / F-grade teammates.
+                if team_read["state"] == "idle":
+                    team_read["state"] = "busy"
+                    def _team_scout():
+                        flags = []
+                        try:
+                            me_rid = (lg.current_account() or "")
+                            key = ls.read_key()
+                            for rid in lg.champselect_allies()[:5]:
+                                if not key or rid.lower() == (me_rid or "").lower():
+                                    continue
+                                pu = ls.resolve_puuid(rid, key)
+                                if not pu:
+                                    continue
+                                n, w, cg, cw, form, _m, kda, perf = ls.scout(dd, pu, 0, key, 10)
+                                sc = {"n": n, "w": w, "cg": cg, "cw": cw, "form": form,
+                                      "kda": kda, "perf": perf, "rank": ls.rank(pu, key)}
+                                g, _c = player_rating(sc)
+                                streak = 0
+                                for won in form:
+                                    if won:
+                                        break
+                                    streak += 1
+                                nm = rid.split("#")[0]
+                                if streak >= 3:
+                                    flags.append(f"{nm} tilted ({streak}L)")
+                                elif g == "F":
+                                    flags.append(f"{nm} F-grade")
+                            team_read["text"] = ("⚠ DODGE READ: " + " · ".join(flags[:3])
+                                                 if flags else "")
+                        except Exception:
+                            team_read["text"] = ""
+                        team_read["state"] = "done"
+                    threading.Thread(target=_team_scout, daemon=True).start()
                 # CLIMB check on the hovered pick: sub-12k mastery points is the single
                 # biggest self-inflicted WR leak (~44% vs 51%+, 1M-game study) — warn early,
                 # while there's still time to hover something you actually play.
@@ -2490,7 +2527,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
-                       auto_note, climb_note, get_rune_idx(), tuple(favs))
+                       auto_note, climb_note, team_read["text"], get_rune_idx(), tuple(favs))
                 if sig != last_cs_sig:
                     # champs you actually play, pooled across ALL your accounts (main + smurfs):
                     # the live current-account mastery merged with the cross-account aggregate.
@@ -2505,7 +2542,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              suggestions=sugg, bans=(bans_my, bans_their),
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
-                             note=(auto_note or climb_note), favs=favs,
+                             note=(auto_note or team_read["text"] or climb_note), favs=favs,
                              auto_ban=bool(settings.get("auto_ban", False))))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,

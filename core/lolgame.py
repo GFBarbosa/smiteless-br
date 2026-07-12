@@ -105,6 +105,26 @@ def my_mastery_points(ttl=300):
     return dict(_MASTERY_CACHE.get("pts") or {})
 
 
+def champselect_allies():
+    """Riot IDs of your TEAMMATES in the current champ select, via the Riot Client's chat
+    participants endpoint (the Porofessor method): ['Name#TAG', ...]. [] outside champ
+    select / on any failure. Enemies are anonymized by Riot — allies only."""
+    try:
+        lf = os.path.expandvars(r"%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile")
+        _n, _p, port, pw, _proto = open(lf).read().split(":")
+        out = lb.http(f"https://127.0.0.1:{port}/chat/v5/participants",
+                      headers={"Authorization": "Basic " +
+                               __import__("base64").b64encode(f"riot:{pw}".encode()).decode()},
+                      timeout=4, insecure=True)
+        rids = []
+        for p in (out.get("participants") or []):
+            if "champ-select" in (p.get("cid") or "") and p.get("game_name"):
+                rids.append(f"{p['game_name']}#{p.get('game_tag', '')}")
+        return rids
+    except Exception:
+        return []
+
+
 def save_role(cid, pos):
     if not (cid and pos):
         return
