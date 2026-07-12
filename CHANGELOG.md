@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.96
+- **The in-game widget is now a real HUD, not a wall of text.** The body is fully redrawn (same rendering style as the main board): the tempo directive is a **color-coded card** (red = give, green = take, gold = decide), objective timers are **chips** (gold when something's UP), intel rows are aligned with proper glyphs, and the item advice sits visually quieter below a divider. Numbers got one format — "GIVE baron (−23k · 2 down)" instead of three different spellings of the same fact — and a fed enemy is announced once, not twice. Same information, drawn like it matters.
+
 ## v0.2.95
 - **"Good this game" now enforces the 12k-mastery climb line — across ALL your accounts.** Champ suggestions are gated on 12,000+ mastery **points** (was mastery level 5+), pooled across your main and every registered smurf (max per champ), with 30k+ comfort picks ranked first. Sub-12k champs are never suggested — if nothing qualifies for your role it says so rather than pushing an off-mastery pick. The champ-select hover warning and the profile's CLIMB LEAK check use the same all-accounts pool, so a champ you have 100k on your main never warns on the smurf.
 

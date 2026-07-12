@@ -190,9 +190,11 @@ def fight_edge(dd, data, t_obj, travel, gt):
         eb += av
     bodies = ab - eb
     e = (ap - ep) + BODY_GOLD * bodies
-    detail = f"{(ap - ep) / 1000:+.1f}k gold-eq"
-    if abs(bodies) >= 0.5:
-        detail += f", {bodies:+.1f} bodies"
+    detail = f"{e / 1000:+.0f}k"                 # ONE number: the whole edge, gold-equivalent
+    if bodies <= -0.5:
+        detail += f" · {abs(bodies):.0f} down"
+    elif bodies >= 0.5:
+        detail += f" · {bodies:.0f} up"
     return e, bodies, detail
 
 
@@ -286,21 +288,21 @@ def tempo_read(dd, data):
         if fe is None:
             return None
         e, bodies, detail = fe
-        soul_tag = " — SOUL POINT (soul team wins ~85-90%)" if soul_point else ""
+        soul_tag = " · SOUL POINT" if soul_point else ""
         if e >= E_TAKE:
             return {"phase": "TAKE", "obj": label, "secs": int(T), "urgent": True,
-                    "line": f"TAKE {label.lower()} — you win this fight ({detail})",
-                    "sub": f"edge +{int(e)}g{soul_tag} — commit with vision, don't dance"}
+                    "line": f"TAKE {label.lower()} ({detail}){soul_tag}",
+                    "sub": "you win this fight — commit with vision, don't dance"}
         if e <= E_GIVE:
-            alt = "grubs" if label == "Drake" and gt < 850 else \
-                  "the opposite side — push a lane, take camps/plates"
+            alt = "trade: grubs" if label == "Drake" and gt < 850 else \
+                  "trade: push the opposite lane, take camps/plates"
             return {"phase": "GIVE", "obj": label, "secs": int(T), "urgent": True,
-                    "line": f"GIVE {label.lower()} — you lose this fight ({detail})",
-                    "sub": (f"edge {int(e)}g — trade: {alt}{soul_tag}" if not soul_point else
-                            f"edge {int(e)}g — SOUL POINT: only contest with a pick first{soul_tag}")}
+                    "line": f"GIVE {label.lower()} ({detail}){soul_tag}",
+                    "sub": (f"you lose this fight — {alt}" if not soul_point else
+                            "SOUL POINT — only contest off a pick; otherwise trade BIG")}
         return {"phase": "EVEN", "obj": label, "secs": int(T), "urgent": True,
-                "line": f"{label} is a 50/50 ({detail})",
-                "sub": f"take it only with a vision or smite edge{soul_tag} — never coinflip blind"}
+                "line": f"{label} is a 50/50 ({detail}){soul_tag}",
+                "sub": "only take it with a vision or smite edge — never coinflip blind"}
 
     # ---- scheduled deadlines, walked back from spawn ----
     base_by = T - travel - SETUP_LEAD - RECALL_S - SHOP_S

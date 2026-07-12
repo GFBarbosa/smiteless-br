@@ -336,6 +336,184 @@ def _dragon_due(prev, secs, fired):
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
 
 
+# ---- PIL-rendered body: the widget's content is DRAWN (cards, chips, aligned rows) like
+# the main board, instead of stacked Tk text labels — that's the difference between a HUD
+# and a log file. One image per tick, swapped into a single Label.
+_WFONTS = {}
+
+
+def _wfont(sz, bold=False):
+    from PIL import ImageFont
+    key = (sz, bold)
+    if key not in _WFONTS:
+        try:
+            _WFONTS[key] = ImageFont.truetype("seguisb.ttf" if bold else "segoeui.ttf", sz)
+        except Exception:
+            _WFONTS[key] = ImageFont.load_default()
+    return _WFONTS[key]
+
+
+_SYM_CHARS = set("⌖◎⚠⌂⚑✓✗⟳✦◆★●▸")
+
+
+def _tfont(text, sz, bold=False):
+    """Font for a line: Segoe UI Symbol when it carries glyphs segoeui can't draw (they
+    render as tofu boxes otherwise), plain/semibold Segoe UI everywhere else."""
+    from PIL import ImageFont
+    if any(c in _SYM_CHARS for c in (text or "")):
+        key = (sz, "sym")
+        if key not in _WFONTS:
+            try:
+                _WFONTS[key] = ImageFont.truetype("seguisym.ttf", sz)
+            except Exception:
+                return _wfont(sz, bold)
+        return _WFONTS[key]
+    return _wfont(sz, bold)
+
+
+C_BG = (17, 19, 26); C_CARD = (23, 26, 38); C_SEP = (39, 44, 60); C_GOLD = (200, 170, 110)
+C_TXT = (216, 214, 207); C_MUT = (129, 127, 119); C_RED = (224, 100, 108)
+C_GRN = (95, 196, 122); C_TEAL = (76, 192, 176); C_BLUE = (127, 168, 224); C_PUR = (201, 139, 219)
+_PHASE_C = {"TAKE": C_GRN, "FORCE": C_GRN, "GIVE": C_RED, "EVEN": C_GOLD,
+            "BASE": C_GOLD, "MOVE": C_TEAL, "PUSH": C_GOLD, "FARM": C_MUT}
+_KIND_C = {"core": C_TXT, "insert": C_GOLD, "counter": C_RED, "antiheal": C_PUR,
+           "build": C_GOLD, "boots": C_BLUE}
+
+
+def _wwrap(d, text, f, maxw):
+    lines, cur = [], ""
+    for w in (text or "").split():
+        t = (cur + " " + w).strip()
+        if d.textlength(t, font=f) <= maxw:
+            cur = t
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _chip(d, x, y, text, fg, bg, f):
+    w = int(d.textlength(text, font=f)) + 14
+    d.rounded_rectangle([x, y, x + w, y + 17], radius=8, fill=bg)
+    d.text((x + 7, y + 8), text, font=f, fill=fg, anchor="lm")
+    return w
+
+
+def _render_body(dd, rec, pulse, recall, W=318):
+    """Draw the widget body as one image: champ+win header, the tempo directive as a color-
+    coded CARD, objective timer chips, aligned intel rows, then the item block. Deduped:
+    a spiked enemy named in an item line isn't announced twice."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W, 720), C_BG)
+    d = ImageDraw.Draw(img)
+    y, x = 6, 10
+    wrapw = W - 2 * x
+    pulse = pulse or {}
+
+    # ---- champ + win chip ----
+    name = (rec.get("champ") or "?").split("·")[0].strip()
+    d.text((x, y + 2), name, font=_wfont(15, 1), fill=C_TXT)
+    wp = pulse.get("winprob")
+    if wp:
+        t = f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%"
+        f = _wfont(11, 1)
+        cw = int(d.textlength(t, font=f)) + 14
+        _chip(d, W - x - cw, y + 2, t, C_GRN if wp["ahead"] else C_RED, (28, 33, 46), f)
+    y += 26
+
+    # ---- tempo directive card ----
+    tempo = pulse.get("tempo")
+    if tempo:
+        pc = _PHASE_C.get(tempo["phase"], C_TXT)
+        tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_BG, pc))
+        lf = _wfont(12, 1)
+        lines = _wwrap(d, tempo["line"], lf, wrapw - 20)
+        subs = []
+        if tempo.get("sub") and tempo["phase"] in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
+            subs = _wwrap(d, tempo["sub"], _wfont(10), wrapw - 20)
+        ch = 12 + len(lines) * 17 + (len(subs) * 14 + 3 if subs else 0)
+        d.rounded_rectangle([x, y, W - x, y + ch], radius=9, fill=tint, outline=pc, width=1)
+        yy = y + 7
+        for ln in lines:
+            d.text((x + 10, yy), ln, font=lf, fill=pc)
+            yy += 17
+        yy += 3
+        for ln in subs:
+            d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUT)
+            yy += 14
+        y += ch + 7
+
+    # ---- objective timer chips ----
+    objs = pulse.get("objectives") or []
+    if objs:
+        cx = x
+        f = _wfont(10, 1)
+        for o in objs[:3]:
+            up = o["secs"] <= 0
+            t = f"{o['label']} UP" if up else f"{o['label']} {o['secs'] // 60}:{o['secs'] % 60:02d}"
+            fg = C_GOLD if up or o.get("urgent") else (C_TEAL if o.get("setup") else C_MUT)
+            cx += _chip(d, cx, y, t, fg, C_CARD, f) + 6
+        y += 24
+
+    # ---- intel rows (one font, one glyph column) ----
+    sp = pulse.get("spike")
+    rec_lines = list((rec.get("lines") or [])[:2] if pulse else (rec.get("lines") or []))
+    if sp:                                        # dedupe: spiked enemy already named below?
+        for i, (k, t) in enumerate(rec_lines):
+            if sp["name"] in t:
+                rec_lines[i] = (k, t.split(" — ")[0])
+    rows = []
+    jg = pulse.get("jungle")
+    if jg:
+        s = jg.get("state")
+        if s == "dead":
+            r = jg.get("respawn") or 0
+            rows.append(("⌖", f"{jg['champ']} DEAD{f' — back {r}s' if r else ''} · free map", C_GRN, 1))
+        elif s == "seen":
+            rows.append(("⌖", f"{jg['champ']} seen {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago", C_TEAL, 1))
+        elif s == "nosign":
+            rows.append(("⌖", f"{jg['champ']} NO SIGN {jg['idle']}s — respect the gank", C_RED, 1))
+        elif s == "moving":
+            rows.append(("⌖", f"{jg['champ']} on the move ({jg.get('idle', 0)}s quiet)", C_GOLD, 0))
+        elif s == "farming":
+            rows.append(("⌖", f"{jg['champ']} farm registered", C_MUT, 0))
+    gk = pulse.get("gank")
+    if gk:
+        rows.append(("◎", f"gank {gk['lane'].lower()} — {gk['champ']} {gk['lvl']} vs {gk['vs_lvl']}", C_GRN, 1))
+    if sp:
+        rows.append(("⚠", f"{sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}", C_RED, 0))
+    for glyph, text, col, bold in rows:
+        d.text((x + 2, y), glyph, font=_tfont(glyph, 10), fill=col)
+        for ln in _wwrap(d, text, _wfont(10, bold), wrapw - 20):
+            d.text((x + 20, y), ln, font=_wfont(10, bold), fill=col)
+            y += 15
+    if rows:
+        y += 4
+
+    # ---- items (reference block, visually quieter) ----
+    if recall or rec_lines:
+        d.line([x, y, W - x, y], fill=C_SEP, width=1)
+        y += 7
+    if recall:
+        g = recall.get("gap", 0)
+        rc = C_GOLD if g == 0 else (C_TEAL if g <= 350 else C_MUT)
+        t = "⌂ " + recall["text"]
+        for ln in _wwrap(d, t, _tfont(t, 10, 1), wrapw):
+            d.text((x, y), ln, font=_tfont(ln, 10, 1), fill=rc)
+            y += 15
+        y += 1
+    for kind, txt in rec_lines:
+        tag = KIND_TAG.get(kind, "▸")
+        t = f"{tag}  {txt}" if tag else txt
+        for ln in _wwrap(d, t, _tfont(t, 10, kind == "core"), wrapw):
+            d.text((x, y), ln, font=_tfont(ln, 10, kind == "core"), fill=_KIND_C.get(kind, C_TXT))
+            y += 15
+    return img.crop((0, 0, W, y + 8))
+
+
 def acquire_single_instance():
     _kernel32.CreateMutexW(None, False, "Global\\SmitelessWidget")
     return _kernel32.GetLastError() != 183                # ERROR_ALREADY_EXISTS
@@ -420,148 +598,33 @@ def main():
                              daemon=True).start()
     vol.bind("<ButtonRelease-1>", _vol_done)
 
-    champrow = tk.Frame(outer, bg=BG)
-    champrow.pack(fill="x", padx=9, pady=(4, 0))
-    champ = tk.Label(champrow, text="waiting for a live game…", font=("Segoe UI Semibold", 11),
+    # the body is ONE drawn image (see _render_body) — a HUD, not a stack of text labels.
+    from PIL import ImageTk
+    champ = tk.Label(outer, text="waiting for a live game…", font=("Segoe UI Semibold", 11),
                      fg=MUTED, bg=BG, anchor="w")
-    champ.pack(side="left")
-    wpchip = tk.Label(champrow, text="", font=("Segoe UI Semibold", 9), bg=BG, fg=MUTED, padx=7)
-    wpchip.pack(side="right")
-
-    # order on screen: header · champ · INTEL (tempo + timers — the live macro value) ·
-    # separator · body (item advice — reference) · source line. Macro on top, items below.
-    body = tk.Frame(outer, bg=BG)
-    body.pack(fill="x", padx=9, pady=(2, 3))
-    sep = tk.Frame(outer, bg=SEP, height=1)
-    intel = tk.Frame(outer, bg=BG)                        # tempo / objectives / jungle / gank / spike
-    summ = tk.Label(outer, text="open in-game or a replay to see suggestions",
-                    font=("Segoe UI", 7), fg=MUTED, bg=BG, anchor="w", justify="left")
-    summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
-
-    def _fmt(secs):
-        return "UP" if secs <= 0 else f"{secs // 60}:{secs % 60:02d}"
-
-    def render_intel(pulse):
-        for w in intel.winfo_children():
-            w.destroy()
-        if not pulse:
-            sep.pack_forget()
-            intel.pack_forget()
-            wpchip.config(text="", bg=BG)
-            st["hot"] = False
-            return
-        intel.pack(fill="x", padx=9, pady=(3, 1), before=body)   # macro block ABOVE the items
-        sep.pack(fill="x", padx=9, pady=(2, 0), before=body)
-        # "hot" = something on screen needs your eyes -> the window solidifies on its own
-        tempo = pulse.get("tempo")
-        st["hot"] = bool((tempo and (tempo.get("urgent") or tempo.get("phase")
-                                     in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
-                         or pulse.get("gank") or pulse.get("spike"))
-        wp = pulse.get("winprob")
-        if wp:
-            wpchip.config(text=f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%",
-                          fg=(GREEN if wp["ahead"] else RED), bg=PANEL)
-        else:
-            wpchip.config(text="", bg=BG)
-        tempo = pulse.get("tempo")
-        if tempo:                                         # TEMPO directive: the one thing to do NOW
-            tcol = {"TAKE": GREEN, "FORCE": GREEN, "GIVE": RED, "EVEN": GOLD,
-                    "BASE": GOLD, "MOVE": TEAL, "PUSH": GOLD, "FARM": MUTED}.get(tempo["phase"], TXT)
-            tk.Label(intel, text="◆ " + tempo["line"],
-                     font=("Segoe UI Semibold", 9 if tempo["phase"] == "FARM" else 10),
-                     fg=tcol, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
-            # the WHY line only when there's a decision to justify — routine phases
-            # (farm/base/move) are self-explanatory and were just noise
-            if tempo.get("sub") and tempo["phase"] in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
-                tk.Label(intel, text="   " + tempo["sub"], font=("Segoe UI", 8),
-                         fg=MUTED, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x")
-        objs = pulse.get("objectives") or []
-        if objs:
-            row = tk.Frame(intel, bg=BG)
-            row.pack(fill="x")
-            tk.Label(row, text="⟳", font=("Segoe UI", 9), fg=TEAL, bg=BG).pack(side="left")
-            for o in objs[:3]:
-                col = GOLD if o["urgent"] else (TEAL if o["up"] else (TXT if o.get("setup") else MUTED))
-                txt = f" {o['label']} {_fmt(o['secs'])}"
-                if o.get("setup"):
-                    txt += " · set up"                    # ~75s out: shove + ward before it spawns
-                tk.Label(row, text=txt + " ", font=("Segoe UI", 9,
-                         "bold" if o["urgent"] else "normal"), fg=col, bg=BG).pack(side="left")
-        jg, gk, sp = pulse.get("jungle"), pulse.get("gank"), pulse.get("spike")
-        if jg:
-            state = jg.get("state")
-            jbold = False
-            if state == "dead":
-                r = jg.get("respawn") or 0
-                jtxt = f"⌖ {jg['champ']} DEAD — back in {r}s · free map" if r else \
-                       f"⌖ {jg['champ']} DEAD — free map"
-                jcol, jbold = GREEN, True
-            elif state == "seen":
-                jtxt = f"⌖ {jg['champ']} SEEN {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago"
-                jcol, jbold = TEAL, True
-            elif state == "nosign":
-                tail = f" (last: {jg['last_side']})" if jg.get("last_side") else ""
-                jtxt = f"⌖ {jg['champ']} NO SIGN {jg['idle']}s — respect the gank{tail}"
-                jcol, jbold = RED, True
-            elif state == "farming":
-                tail = f" · last seen {jg['last_side']}" if jg.get("last_side") else ""
-                jtxt = f"⌖ {jg['champ']} farm registered{tail}"
-                jcol = MUTED
-            elif state == "moving":
-                jtxt = f"⌖ {jg['champ']} on the move ({jg.get('idle', 0)}s quiet)"
-                jcol = GOLD
-            elif jg.get("side"):                          # legacy one-shot read shape
-                jtxt = f"⌖ {jg['champ']} last seen {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago"
-                jcol = TEAL
-            else:
-                jtxt = f"⌖ {jg['champ']}: {jg.get('what') or 'no read yet'}"
-                jcol = MUTED
-            tk.Label(intel, text=jtxt, font=("Segoe UI Semibold", 9) if jbold else ("Segoe UI", 9),
-                     fg=jcol, bg=BG, anchor="w", justify="left").pack(fill="x")
-        if gk:
-            tk.Label(intel, text=f"◎ GANK: {gk['lane']} — {gk['champ']} lvl {gk['lvl']} vs {gk['vs_lvl']}",
-                     font=("Segoe UI Semibold", 9), fg=GREEN, bg=BG, anchor="w").pack(fill="x")
-        if sp:
-            tk.Label(intel, text=f"⚠ {sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}",
-                     font=("Segoe UI", 9), fg=RED, bg=BG, anchor="w").pack(fill="x")
+    champ.pack(fill="x", padx=10, pady=(6, 7))
+    shot = tk.Label(outer, bg=BG, bd=0)
 
     def render(rec, pulse=None, recall=None):
-        for w in body.winfo_children():
-            w.destroy()
         if not rec:
+            shot.pack_forget()
             champ.config(text="waiting for a live game…", fg=MUTED)
-            summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
-            summ.config(text="open in-game or a replay to see suggestions")
-            render_intel(None)
+            champ.pack(fill="x", padx=10, pady=(6, 7))
+            st["hot"] = False
             return
-        champ.config(text=rec["champ"], fg=TXT)
-        if recall:                                        # power-spike / back-timing hint
-            g = recall.get("gap", 0)
-            rc = GOLD if g == 0 else (TEAL if g <= 350 else MUTED)
-            tk.Label(body, text="⌂ " + recall["text"], font=("Segoe UI Semibold", 9),
-                     fg=rc, bg=BG, anchor="w", justify="left", wraplength=300).pack(fill="x", pady=(0, 2))
-        if not rec["lines"]:
-            tk.Label(body, text="standard build — nothing to adjust",
-                     font=("Segoe UI", 9), fg=MUTED, bg=BG, anchor="w").pack(fill="x")
-        # mid-game (intel up): item advice trims to the 2 most important lines — game-winning
-        # info stays, the book doesn't. Out of game it's reference mode: show everything.
-        for kind, txt in (rec["lines"][:2] if pulse else rec["lines"]):
-            tag = KIND_TAG.get(kind, "▸")
-            label = f"{tag}  {txt}" if tag else txt
-            # item advice is reference material now - it sits BELOW the live macro block and
-            # must not out-shout it (the tempo directive owns the biggest font in the widget)
-            fnt = ("Segoe UI Semibold", 9) if kind == "core" else ("Segoe UI", 8)
-            tk.Label(body, text=label, font=fnt, fg=KIND_COLOR.get(kind, TXT), bg=BG,
-                     anchor="w", justify="left", wraplength=300).pack(fill="x", pady=0)
-        if rec.get("no_pool"):
-            tk.Label(body, text="(no op.gg pool for this champ/role yet)", font=("Segoe UI", 8),
-                     fg=MUTED, bg=BG, anchor="w").pack(fill="x")
-        render_intel(pulse)
-        if pulse:                                         # in-game: the footer is noise — drop it
-            summ.pack_forget()
-        else:
-            summ.pack(side="bottom", fill="x", padx=9, pady=(1, 5))
-            summ.config(text=rec["summary"])
+        champ.pack_forget()
+        tempo = (pulse or {}).get("tempo")
+        st["hot"] = bool((tempo and (tempo.get("urgent") or tempo.get("phase")
+                                     in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
+                         or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
+        try:
+            im = _render_body(dd, rec, pulse, recall)
+        except Exception:
+            return                                       # keep the last good frame
+        ph = ImageTk.PhotoImage(im)
+        shot.configure(image=ph)
+        shot.image = ph                                  # keep a reference or Tk drops it
+        shot.pack(fill="x", padx=1, pady=(0, 1))
 
     # --- drag anywhere on the chrome; persist where you drop it ---
     drag = {"x": 0, "y": 0}
@@ -576,7 +639,7 @@ def main():
     def drop(_e):
         _save_pos(root.winfo_x(), root.winfo_y())
 
-    for w in (outer, hdr, champrow, champ, summ):
+    for w in (outer, hdr, champ, shot):
         w.bind("<Button-1>", press)
         w.bind("<B1-Motion>", move)
         w.bind("<ButtonRelease-1>", drop)
