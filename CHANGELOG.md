@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.2.99
+- **The champ-select ally scout is now always visible.** Clean lobby or not, the panel shows a compact team line — `team: Bob G2·B  Ann S1·C·2L` (name, rank, grade, loss streak) — so you can see the scout working every lobby, not only when a DODGE READ flag fires. (For the record: ally names in champ select come through the Riot Client's chat service — the same bypass Porofessor uses — since Riot only anonymized the client UI, not the chat backend. Enemies remain genuinely hidden until loading; no tool has those.)
+
 ## v0.2.98
 - **Ally scout while you can still dodge.** Champ select now identifies your four teammates (via the Riot Client, the same method Porofessor uses) and scouts them immediately — if someone's on a 3+ loss tilt streak or grading F, a **DODGE READ** line appears on the panel *before* you're locked in. Enemies stay hidden until loading (Riot anonymizes them).
 - Refreshed the project README.

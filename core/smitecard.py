@@ -2478,7 +2478,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 if team_read["state"] == "idle":
                     team_read["state"] = "busy"
                     def _team_scout():
-                        flags = []
+                        flags, roster = [], []
                         try:
                             me_rid = (lg.current_account() or "")
                             key = ls.read_key()
@@ -2497,13 +2497,22 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                                     if won:
                                         break
                                     streak += 1
-                                nm = rid.split("#")[0]
+                                nm = rid.split("#")[0][:10]
+                                rk = (sc["rank"] or {})
+                                ab = TIER_ABBR.get((rk.get("tier") or "").upper(), "")
+                                ab += _DIVNUM.get(rk.get("div", ""), "") if ab else ""
+                                roster.append(f"{nm} {ab or '?'}·{g or '?'}"
+                                              + (f"·{streak}L" if streak >= 2 else ""))
                                 if streak >= 3:
                                     flags.append(f"{nm} tilted ({streak}L)")
                                 elif g == "F":
                                     flags.append(f"{nm} F-grade")
-                            team_read["text"] = ("⚠ DODGE READ: " + " · ".join(flags[:3])
-                                                 if flags else "")
+                            if flags:
+                                team_read["text"] = "⚠ DODGE READ: " + " · ".join(flags[:3])
+                            elif roster:                   # clean lobby -> still show the scout
+                                team_read["text"] = "team: " + "  ".join(roster[:4])
+                            else:
+                                team_read["text"] = ""
                         except Exception:
                             team_read["text"] = ""
                         team_read["state"] = "done"
