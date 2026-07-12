@@ -93,11 +93,46 @@ _CS_BOX = re.compile(
     r"champion/square/([a-z0-9]+)\.png.*?class=\"score\">(-?\d+)</span>", re.S)
 
 
+# These are USER-SUBMITTED prose. A lot of it is salt stories, rants, or worse — gate hard.
+# Any hit here = the tip is dropped entirely, never shown or cached.
+_TIP_BLOCK = re.compile(
+    r"nigg|n[i1]gg|nig\*|\bfag|f[a4]gg|retard|\bkys\b|kill your ?self|autist|\bcunt\b", re.I)
+# Story / rant markers — not advice, drop them (the 'I once made a 420 player 0/10' genre).
+_TIP_JUNK = re.compile(
+    r"\breport(ed|s)?\b|\bhonor\b|trash ?talk|\btoxic\b|1v1|after the game|\briot\b|"
+    r"banned me|\bflam(ed|e)\b|\binted?\b|\bgrief(ed|ing)?\b|\btroll(ed|ing)?\b|\bxd\b", re.I)
+# Advice markers — real matchup guidance uses these; used to score + require substance.
+_TIP_ADVICE = re.compile(
+    r"\byou\b|\byour\b|dodge|bait|poke|avoid|\bwait\b|\bsave\b|ward|respect|all-?in|freeze|"
+    r"trade|shove|roam|track|punish|engage|disengag|level ?6|spike|cooldown|position|kite|"
+    r"\bpeel\b|sidestep|\bzone\b|early game|\bgank|\bcc\b|ult\b|hook|stun", re.I)
+
+
+def _tip_ok(text):
+    """True if a scraped tip reads as actual ADVICE, not a story/rant/abuse."""
+    tl = text.lower()
+    if _TIP_BLOCK.search(tl) or _TIP_JUNK.search(tl):
+        return False
+    if sum(ord(c) > 127 for c in text) > 5:
+        return False                              # non-English (counterstats has PT/ES/etc tips)
+    if not _TIP_ADVICE.search(tl):
+        return False                              # no advice vocabulary at all -> skip
+    # story detector: heavy first-person narration with little advice = someone's game recap
+    narration = len(re.findall(r"\bi\b|\bhe\b|\bme\b|\bhim\b", tl))
+    if narration >= 4 and len(_TIP_ADVICE.findall(tl)) < 3:
+        return False
+    return True
+
+
+def _tip_score(text):
+    return len(set(m.lower() for m in _TIP_ADVICE.findall(text)))   # distinct advice cues
+
+
 def fetch_cs_tips(enemy_name, patch):
-    """Every written counter-tip for playing AGAINST `enemy_name`, scraped from
-    counterstats.net: [{lane, champ, votes, text}]. champ = the author's champion (the
-    matchup POV). Cached per enemy+patch; [] on any failure — caller falls back."""
-    fp = os.path.join(CS_CACHE, f"{_safe(enemy_name)}_{_safe(patch)}.json")
+    """Every USABLE written counter-tip for playing AGAINST `enemy_name`, scraped from
+    counterstats.net and quality-filtered: [{lane, champ, votes, text}]. champ = the author's
+    champion (the matchup POV). Cached per enemy+patch; [] on any failure — caller falls back."""
+    fp = os.path.join(CS_CACHE, f"{_safe(enemy_name)}_{_safe(patch)}_v2.json")   # v2 = filtered
     try:
         return json.load(open(fp, encoding="utf-8"))
     except Exception:
@@ -117,11 +152,11 @@ def fetch_cs_tips(enemy_name, patch):
         lane = m.group(1)
         chunk = html[m.end(): secs[i + 1].start() if i + 1 < len(secs) else len(html)]
         for b in _CS_BOX.finditer(chunk):
-            text = _cs_clean(b.group(1))
-            if len(text) < 60:                    # too short to be advice
+            text = _cs_clean(b.group(1))[:360]         # check + store the SAME string
+            if len(text) < 60 or not _tip_ok(text):    # too short, not advice, or non-English
                 continue
             tips.append({"lane": lane, "champ": b.group(2), "votes": int(b.group(3)),
-                         "text": text[:600]})
+                         "text": text})
     if tips:
         try:
             os.makedirs(CS_CACHE, exist_ok=True)
@@ -146,8 +181,8 @@ def written_tip(dd, my_cid, opp_cid, role, patch):
     norm = dd["norm"]
     mine_norm = norm(dd["id2name"].get(my_cid, ""))
     pool = [t for t in tips if t["lane"] == lane] or tips
-    def rank(t):                                  # votes first, then substance
-        return (t["votes"], min(len(t["text"]), 420))
+    def rank(t):                                  # most advice cues, then votes, then length
+        return (_tip_score(t["text"]), t["votes"], min(len(t["text"]), 320))
     mine = sorted((t for t in pool if norm(t["champ"]) == mine_norm), key=rank, reverse=True)
     if mine:
         return f"{mine[0]['text']}  — a {dd['id2name'].get(my_cid, '')} main (MOBAFire)"

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.3.1
+- **Matchup tips are quality-filtered now.** The written-guide scraper was showing raw user submissions — including salt stories, rants, and even slurs. Tips are now hard-gated: anything with slurs/abuse, toxicity/report/"1v1 after the game" rant markers, non-English text, or that reads as a personal game-recap instead of advice is dropped entirely. What's left is ranked by how much actual matchup guidance it contains. Sorry you saw that one.
+
 ## v0.3.0
 - **Auto role-swap now fights to GET your role, not just accept one — the autofill escape.** If you get autofilled off a role you actually play, Smiteless immediately REQUESTS a position swap from whoever has one of your roles (and still accepts any offer that lands you on one). It only ever moves you ONTO a checked role, never off it, and won't spam the same teammate. Set your roles in **Settings → Auto role swap**. Getting your main role every game is one of the biggest quiet win-rate edges there is.
 
