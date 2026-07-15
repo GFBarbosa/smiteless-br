@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.5.1
+- **Refinement pass (council audit).** Fixed a real bug: a live-data hiccup could silently kill the GHOST race for the rest of the game (a variable-name collision in the widget's poll loop). Polish: the RESPAWN countdown is now neutral white so it never wears the same gold as a 50/50 directive; muted text on the widget matches the board's brighter grey (it was near-invisible at ghost opacity); routine "farm window" reminders are a quiet plain line again instead of a bordered decision card; the objective named by a TAKE/GIVE/EVEN verdict no longer repeats as a timer chip below it; Settings labels caught up with reality ("Matchup lane tips (written guides)" — they haven't been AI since v0.2.94 — and the volume slider now says it controls chime + voice + fanfare).
+
 ## v0.5.0
 - **RESPAWN — the death screen is now a plan.** The moment you die, the widget collapses to a single card: a ticking respawn countdown, ONE directive for when you're back — `DRAKE 0:38 — you make it, and you win it. Buy fast, path bot river` (teal = go, red = don't, gold = neutral) — and the next item to buy, since you're literally standing in the shop. It reuses the tempo engine's fight math, and here the travel model is at its most honest: everywhere else "time from base" is an estimate, but on the death screen you really are at the fountain. When nothing major is coming, you get your role's productive default (reset camps / shove the wave) instead of dead air. The instant you respawn, the normal HUD snaps back. Toggle: **Settings → Respawn plan**.
 

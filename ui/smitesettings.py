@@ -108,8 +108,8 @@ def main():
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
                        5, 60, 1, s["profile_games"], lambda v: f"{int(v)}")
-    dvol = scale_row("Dragon spawn volume",
-                     "how loud the 45/30/15s drake chime is (0 = silent). Applies next game.",
+    dvol = scale_row("Audio volume (chime + voice)",
+                     "drake chime, voice callouts and the ghost fanfare (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
@@ -149,7 +149,7 @@ def main():
     _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
     _chk(col1, "Ghost race (chase your best game)", ghostv).pack(anchor="w")
     _chk(col1, "Respawn plan (death-screen card)", respawnv).pack(anchor="w")
-    _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
+    _chk(col1, "Matchup lane tips (written guides)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
     _chk(col1, "Auto-ban top recommended (champ select)", autoban).pack(anchor="w")

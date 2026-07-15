@@ -373,7 +373,7 @@ def _tfont(text, sz, bold=False):
 
 
 C_BG = (17, 19, 26); C_CARD = (23, 26, 38); C_SEP = (39, 44, 60); C_GOLD = (200, 170, 110)
-C_TXT = (216, 214, 207); C_MUT = (129, 127, 119); C_RED = (224, 100, 108)
+C_TXT = (216, 214, 207); C_MUT = (155, 152, 142); C_RED = (224, 100, 108)   # C_MUT matches the board's MUTED - the old darker grey was illegible at the widget's 0.84 ghost alpha
 C_GRN = (95, 196, 122); C_TEAL = (76, 192, 176); C_BLUE = (127, 168, 224); C_PUR = (201, 139, 219)
 _PHASE_C = {"TAKE": C_GRN, "FORCE": C_GRN, "GIVE": C_RED, "EVEN": C_GOLD,
             "BASE": C_GOLD, "MOVE": C_TEAL, "PUSH": C_GOLD, "FARM": C_MUT}
@@ -415,7 +415,9 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     d.text((x + 2, y), "RESPAWN", font=_wfont(12, 1), fill=C_MUT)
     t = f"back {secs // 60}:{secs % 60:02d}"
     f = _wfont(15, 1)
-    d.text((W - x - 2 - d.textlength(t, font=f), y - 2), t, font=f, fill=C_GOLD)
+    # neutral white, never a tone color: a gold countdown next to a gold 'plan' directive
+    # made the one card that must be unambiguous carry two identical gold clocks
+    d.text((W - x - 2 - d.textlength(t, font=f), y - 2), t, font=f, fill=C_TXT)
     y += 24
     d.line([x, y, W - x, y], fill=C_SEP, width=1)
     y += 8
@@ -464,7 +466,14 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
 
     # ---- tempo directive card ----
     tempo = pulse.get("tempo")
-    if tempo:
+    if tempo and tempo["phase"] == "FARM":
+        # routine farm reminder: a plain quiet row - the bordered card is reserved for
+        # phases that are actually a decision (v0.2.93: farm lines stand alone)
+        for ln in _wwrap(d, tempo["line"], _wfont(11), wrapw - 4):
+            d.text((x + 2, y), ln, font=_wfont(11), fill=C_MUT)
+            y += 15
+        y += 5
+    elif tempo:
         pc = _PHASE_C.get(tempo["phase"], C_TXT)
         tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_BG, pc))
         lf = _wfont(12, 1)
@@ -501,6 +510,9 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
 
     # ---- objective timer chips ----
     objs = pulse.get("objectives") or []
+    if tempo and tempo.get("phase") in ("TAKE", "GIVE", "EVEN") and tempo.get("obj"):
+        # the verdict card already names this objective and its clock - don't repeat it
+        objs = [o for o in objs if o.get("label") != tempo["obj"]]
     if objs:
         cx = x
         f = _wfont(10, 1)
@@ -727,7 +739,9 @@ def main():
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
-        grace = lrec.GhostRace()                          # GHOST: live race vs your PB game
+        ghostrace = lrec.GhostRace()   # GHOST: live race vs your PB game. NOT named 'grace' -
+                                       # the quit logic below reuses that name for a float,
+                                       # which silently killed the race after any :2999 blip.
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
         if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (one-time)
@@ -800,7 +814,7 @@ def main():
             ghost = None
             if ghost_on and raw is not None:             # GHOST pace race vs your own best game
                 try:
-                    ghost = grace.update(dd, raw)
+                    ghost = ghostrace.update(dd, raw)
                 except Exception:
                     ghost = None
                 if ghost and ghost.get("new_record_event") and not st.get("muted", False):
