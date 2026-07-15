@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.5.0
+- **RESPAWN — the death screen is now a plan.** The moment you die, the widget collapses to a single card: a ticking respawn countdown, ONE directive for when you're back — `DRAKE 0:38 — you make it, and you win it. Buy fast, path bot river` (teal = go, red = don't, gold = neutral) — and the next item to buy, since you're literally standing in the shop. It reuses the tempo engine's fight math, and here the travel model is at its most honest: everywhere else "time from base" is an estimate, but on the death screen you really are at the fountain. When nothing major is coming, you get your role's productive default (reset camps / shove the wave) instead of dead air. The instant you respawn, the normal HUD snaps back. Toggle: **Settings → Respawn plan**.
+
 ## v0.4.0
 - **GHOST — race your own best game, live.** Smiteless now learns a "ghost" from your single best-graded game on each champ+role (grade A or better): its minute-by-minute CS and gold pace, and its death count. Next time you're on that champ, one quiet line in the in-game widget races you against it like a speedrun timer — `GHOST · CS +8 · deaths 1/2 · +340g` — glowing gold while you're ahead, dimming silently when you're not. Crossing 10:00 flashes your CS split vs the record; 15:00 flashes deaths. Finish ahead and you get the item-get jingle, a spoken "New record." — and the ghost gets faster. Your only opponent is who you were last week: ghosts are built purely from your own in-game performance, never rank or win/loss. First game on a champ sets the baseline. Toggle: **Settings → Ghost race**.
 

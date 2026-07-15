@@ -356,3 +356,81 @@ def tempo_read(dd, data):
     return {"phase": "FARM", "obj": label, "secs": int(T), "urgent": False,
             "line": f"{star}farm window {int(base_by)}s → {label.lower()}",
             "sub": f"recall by -{int(T - base_by)}s · leave by -{int(SETUP_LEAD + lane_tv)}s · {tail}"}
+
+
+# how early before spawn a fresh respawn should still bother walking to the pit; beyond
+# this the objective is too far out to be THE respawn plan (farm/shove instead).
+RESPAWN_HORIZON = 120.0
+
+
+def respawn_plan(dd, data):
+    """DEATH-SCREEN plan: None unless the ACTIVE player is dead right now. The grey screen
+    is the one moment the fountain->pit travel model is EXACTLY right (you respawn at the
+    fountain), so the make-it/miss-it call is at its most trustworthy here. Returns
+    {secs, obj, line, sub, tone} — tone: 'go' (teal) / 'hold' (red) / 'plan' (gold)."""
+    if not data or not (data.get("allPlayers")):
+        return None
+    split = ll._team_split(data)
+    if not split:
+        return None
+    me = split[0]
+    if not me.get("isDead"):
+        return None
+    gd = data.get("gameData") or {}
+    gt = float(gd.get("gameTime") or 0.0)
+    secs = float(me.get("respawnTimer") or 0.0)
+    if secs <= 0.0:                                # payload lag on the flip: estimate once
+        secs = death_timer(me.get("level", 1), gt) * 0.5
+    act = data.get("activePlayer") or {}
+    ms = ((act.get("championStats") or {}).get("moveSpeed"))
+    travel = _travel(ms, gt)                       # fountain path — literally where you are
+    role = _my_role(dd, me)
+
+    try:
+        majors = [o for o in ll.objectives(data) if o.get("label") in _MAJOR]
+    except Exception:
+        majors = []
+    # the plan targets the first ACTIONABLE major: a future spawn, or something already
+    # up that you can still reach — an objective that's been sitting up out of reach
+    # (uncontested grubs) shouldn't hijack the respawn plan from the next real fight.
+    nxt = next((o for o in majors
+                if float(o["secs"]) > 0 or (secs + travel) <= 25.0), None)
+
+    def mmss(t):
+        t = max(0, int(t))
+        return f"{t // 60}:{t % 60:02d}"
+
+    if nxt is not None and float(nxt["secs"]) <= secs + travel + RESPAWN_HORIZON:
+        label, T = nxt["label"], float(nxt["secs"])
+        arrival = secs + travel
+        side = _OBJ_SIDE.get(label, "bot")
+        # pre-spawn you must beat spawn+grace; an already-up pit fight lasts ~25s
+        make_it = arrival <= (T + FIGHT_GRACE if T > 0 else 25.0)
+        head = f"{label.upper()} {mmss(T)}" if T > 0 else f"{label.upper()} IS UP"
+        if not make_it:
+            return {"secs": secs, "obj": label, "tone": "hold",
+                    "line": f"{head} — you won't make it.",
+                    "sub": "don't run at a lost fight — shove the opposite lane, take camps/plates"}
+        fe = fight_edge(dd, data, max(T, arrival), travel, gt)
+        e = fe[0] if fe else 0.0
+        if e >= E_TAKE:
+            return {"secs": secs, "obj": label, "tone": "go",
+                    "line": f"{head} — you make it, and you win it.",
+                    "sub": f"buy fast, path {side} river"}
+        if e <= E_GIVE:
+            return {"secs": secs, "obj": label, "tone": "hold",
+                    "line": f"{head} — you make it, but you lose the 5v5.",
+                    "sub": "don't force it — trade cross-map, take what they leave open"}
+        return {"secs": secs, "obj": label, "tone": "plan",
+                "line": f"{head} — you make it. It's a 50/50.",
+                "sub": f"buy, path {side} river — go in with vision or not at all"}
+
+    # nothing major soon: the productive default for your role, next objective on the radar
+    radar = f" · {nxt['label']} {mmss(nxt['secs'])}" if nxt is not None else ""
+    if role == "jungle":
+        line, sub = "reset your camps, safe side first", f"full clear toward the next spawn{radar}"
+    elif role in ("adc", "support"):
+        line, sub = "group bot, catch the wave", f"reset the lane before the next play{radar}"
+    else:
+        line, sub = "shove your wave back in", f"kill the freeze before it sets{radar}"
+    return {"secs": secs, "obj": None, "tone": "plan", "line": line, "sub": sub}

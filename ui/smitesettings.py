@@ -130,6 +130,7 @@ def main():
     tempov = tk.BooleanVar(value=s.get("tempo_voice", True))
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     ghostv = tk.BooleanVar(value=s.get("ghost_race", True))
+    respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
@@ -147,6 +148,7 @@ def main():
     _chk(col1, "Tempo voice callouts (base / rotate / take)", tempov).pack(anchor="w")
     _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
     _chk(col1, "Ghost race (chase your best game)", ghostv).pack(anchor="w")
+    _chk(col1, "Respawn plan (death-screen card)", respawnv).pack(anchor="w")
     _chk(col1, "Matchup lane tips (AI)", tips).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
     _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
@@ -434,6 +436,7 @@ def main():
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "ghost_race": ghostv.get(),
+                  "respawn_plan": respawnv.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
@@ -448,7 +451,7 @@ def main():
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
-        for v in (tips, duo, widget, intel, dragon, ghostv, dodge, dock, autoq, auto, homeonstart):
+        for v in (tips, duo, widget, intel, dragon, ghostv, respawnv, dodge, dock, autoq, auto, homeonstart):
             v.set(True)
         flash_side.set(0)
         _upd_flash()

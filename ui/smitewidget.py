@@ -403,16 +403,53 @@ def _chip(d, x, y, text, fg, bg, f):
     return w
 
 
-def _render_body(dd, rec, pulse, recall, ghost=None, W=318):
+_TONE_C = {"go": C_TEAL, "hold": C_RED, "plan": C_GOLD}
+
+
+def _render_dead(d, img, dead, rec, x, y, wrapw, W):
+    """RESPAWN: the death-screen card. The grey screen is the only zero-cost reading
+    window in a live game, so the ENTIRE widget collapses to one card: countdown, one
+    directive for when you're back, and the buy (you're in the shop right now)."""
+    tone = _TONE_C.get(dead.get("tone"), C_GOLD)
+    secs = max(0, int(dead.get("secs") or 0))
+    d.text((x + 2, y), "RESPAWN", font=_wfont(12, 1), fill=C_MUT)
+    t = f"back {secs // 60}:{secs % 60:02d}"
+    f = _wfont(15, 1)
+    d.text((W - x - 2 - d.textlength(t, font=f), y - 2), t, font=f, fill=C_GOLD)
+    y += 24
+    d.line([x, y, W - x, y], fill=C_SEP, width=1)
+    y += 8
+    lf = _wfont(12, 1)
+    for ln in _wwrap(d, dead.get("line") or "", lf, wrapw - 4):
+        d.text((x + 2, y), ln, font=lf, fill=tone)
+        y += 17
+    for ln in _wwrap(d, dead.get("sub") or "", _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+        y += 14
+    buy = next((t_ for k, t_ in (rec.get("lines") or []) if k in ("core", "build")), None) if rec else None
+    if buy:
+        y += 4
+        t = f"▸  {buy}"
+        for ln in _wwrap(d, t, _tfont(t, 10, 1), wrapw - 4):
+            d.text((x + 2, y), ln, font=_tfont(ln, 10, 1), fill=C_TXT)
+            y += 15
+    return img.crop((0, 0, W, y + 8))
+
+
+def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
     """Draw the widget body as one image: champ+win header, the tempo directive as a color-
     coded CARD, the ghost pace row, objective timer chips, aligned intel rows, then the item
-    block. Deduped: a spiked enemy named in an item line isn't announced twice."""
+    block. Deduped: a spiked enemy named in an item line isn't announced twice. While the
+    player is DEAD the whole body is replaced by the single RESPAWN card — being dead is
+    the moment to reduce density, not add to it."""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (W, 720), C_BG)
     d = ImageDraw.Draw(img)
     y, x = 6, 10
     wrapw = W - 2 * x
     pulse = pulse or {}
+    if dead:
+        return _render_dead(d, img, dead, rec, x, y, wrapw, W)
 
     # ---- champ + win chip ----
     name = (rec.get("champ") or "?").split("·")[0].strip()
@@ -621,7 +658,7 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=BG, bd=0)
 
-    def render(rec, pulse=None, recall=None, ghost=None):
+    def render(rec, pulse=None, recall=None, ghost=None, dead=None):
         if not rec:
             shot.pack_forget()
             champ.config(text="waiting for a live game…", fg=MUTED)
@@ -630,11 +667,12 @@ def main():
             return
         champ.pack_forget()
         tempo = (pulse or {}).get("tempo")
-        st["hot"] = bool((tempo and (tempo.get("urgent") or tempo.get("phase")
-                                     in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
+        st["hot"] = bool(dead                     # dead = solid: you're reading the plan
+                         or (tempo and (tempo.get("urgent") or tempo.get("phase")
+                                        in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall, ghost)
+            im = _render_body(dd, rec, pulse, recall, ghost, dead)
         except Exception:
             return                                       # keep the last good frame
         ph = ImageTk.PhotoImage(im)
@@ -685,6 +723,7 @@ def main():
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
         ghost_on = _cfg.get("ghost_race", True)
+        respawn_on = _cfg.get("respawn_plan", True)
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
@@ -752,6 +791,12 @@ def main():
                                                  daemon=True).start()
                         except Exception:
                             pass
+            dead = None
+            if respawn_on and raw is not None:           # RESPAWN: the death-screen plan card
+                try:
+                    dead = lt.respawn_plan(dd, raw)
+                except Exception:
+                    dead = None
             ghost = None
             if ghost_on and raw is not None:             # GHOST pace race vs your own best game
                 try:
@@ -779,7 +824,7 @@ def main():
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
-                       "ghost": ghost})
+                       "ghost": ghost, "dead": dead})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -832,7 +877,8 @@ def main():
                     return
                 try:                                     # a render bug must never kill the pump
                     if isinstance(msg, dict) and "rec" in msg:
-                        render(msg["rec"], msg.get("pulse"), msg.get("recall"), msg.get("ghost"))
+                        render(msg["rec"], msg.get("pulse"), msg.get("recall"), msg.get("ghost"),
+                               msg.get("dead"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:

@@ -32,6 +32,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "tempo_voice": True,     # widget: spoken TEMPO callouts (Windows TTS: "Base now", "Take it", ...)
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ
+         "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
          "auto_import": False,    # import runes+summs AUTOMATICALLY when you lock a champ
