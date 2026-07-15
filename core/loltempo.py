@@ -58,11 +58,8 @@ def death_timer(level, gt):
     return brw * (1.0 + tif)
 
 
-# ---- XP -> gold-equivalent power (wiki "Experience": cumulative XP to reach each level) ----
-XP_CUM = {1: 0, 2: 280, 3: 660, 4: 1140, 5: 1720, 6: 2400, 7: 3180, 8: 4060, 9: 5040,
-          10: 6120, 11: 7300, 12: 8580, 13: 9960, 14: 11440, 15: 13020, 16: 14700,
-          17: 16480, 18: 18360}
-XP_GOLD = 0.25             # modeling assumption: gold value per XP point
+# XP->gold table + per-player power/est-gold now live in lollive (ONE BRAIN): the same
+# economy model feeds fight_edge here, win_prob there, and the GHOST gold trace.
 BODY_GOLD = 900            # modeling assumption: man-advantage value beyond the missing gold
 
 # ---- travel model. Fountain->pit path length in map units (~14.8k-unit map, estimated
@@ -137,29 +134,8 @@ def _travel(ms, gt):
     return max(TRAVEL_MIN, min(TRAVEL_MAX, PATH_UNITS / max(200.0, ms) - hg))
 
 
-def _est_gold(p, gt):
-    """ESTIMATED total earned gold from scores the Live Client reports for everyone
-    regardless of vision (CS, kills, assists, game time). Critical because enemy ITEM
-    data only updates when they've been seen — an enemy farming in fog looks poorer than
-    they are. Modeling constants: 500 start, ~20.4g/10s passive from 1:50, ~20.5g/CS,
-    300g/kill, ~155g/assist (bounty averages)."""
-    sc = p.get("scores") or {}
-    g = 500.0
-    if gt > 110:
-        g += (gt - 110) * 2.04
-    g += float(sc.get("creepScore") or 0) * 20.5
-    g += float(sc.get("kills") or 0) * 300.0 + float(sc.get("assists") or 0) * 155.0
-    return g
-
-
-def _power(dd, p, gt):
-    """One player's gold-equivalent fight power: XP value + the BEST-KNOWN read of their
-    gold — visible item gold, or the score-based estimate (x0.82 spent-fraction) when
-    that's higher (i.e. their items are stale because they haven't been seen)."""
-    items = [it.get("itemID") for it in (p.get("items") or []) if it.get("itemID")]
-    _n, gold = ll._completed_items(dd, items)
-    gold = max(gold, _est_gold(p, gt) * 0.82)
-    return gold + XP_CUM.get(max(1, min(18, int(p.get("level", 1)))), 0) * XP_GOLD
+_est_gold = ll.est_gold    # legacy aliases: the economy moved to lollive (ONE BRAIN);
+_power = ll.player_power   # fight_edge math below is unchanged, only its inputs moved.
 
 
 def _avail(p, t_obj, travel, gt):
@@ -175,18 +151,7 @@ def _avail(p, t_obj, travel, gt):
     return 0.0
 
 
-def _drake_counts(data, allies):
-    """(ally_drakes, enemy_drakes) from DragonKill events, credited via killer name."""
-    import lolgame as lg
-    names = {lg._gname(p.get("riotId") or p.get("summonerName") or "") for p in allies}
-    a = e = 0
-    for ev in ll._events(data):
-        if ev.get("EventName") == "DragonKill":
-            if lg._gname(ev.get("KillerName") or "") in names:
-                a += 1
-            else:
-                e += 1
-    return a, e
+_drake_counts = ll.drake_counts   # moved to lollive (ONE BRAIN); win_prob shares it
 
 
 def fight_edge(dd, data, t_obj, travel, gt):

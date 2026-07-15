@@ -25,12 +25,19 @@ SCUTTLE_FIRST, SCUTTLE_SHOW_UNTIL = 175, 210        # 2:55 first scuttle (wiki: 
 ALERT_LEAD = 45                                    # within this many seconds = "soon" (urgent)
 SETUP_LEAD = 75                                    # inside this = start SETTING UP (shove + ward)
 
-# ---- economy proxy weights for the win read (see win_prob) ----
-LEVEL_GOLD = 130          # each champ level ~ this much "economy" (captures the XP lead)
-KILL_GOLD = 230           # rough average bounty banked per kill
+# ---- ONE BRAIN: the live game-economy model. win_prob (here), the tempo engine's
+#      fight_edge (loltempo) and the GHOST gold trace (lolrecords) all read from the
+#      same per-player power estimate below, so the win% chip and the TAKE/GIVE coach
+#      can never tell opposite stories about the same game state. ----
+XP_CUM = {1: 0, 2: 280, 3: 660, 4: 1140, 5: 1720, 6: 2400, 7: 3180, 8: 4060, 9: 5040,
+          10: 6120, 11: 7300, 12: 8580, 13: 9960, 14: 11440, 15: 13020, 16: 14700,
+          17: 16480, 18: 18360}   # wiki "Experience": cumulative XP to reach each level
+XP_GOLD = 0.25            # modeling assumption: gold value per XP point
 DRAKE_GOLD = 230          # standing value of a drake (buff + soul progress), per drake taken
 BARON_GOLD = 1700         # an active baron is worth roughly this in pushing/teamfight power
-GOLD_SCALE = 7000.0       # gold lead at which the read is ~73% - bigger = flatter curve
+GOLD_SCALE = 3400.0       # gold-equivalent lead at which the read is ~68% - bigger = flatter
+                          # curve (retuned for the full est-gold power scale; was 7000 on the
+                          # old finished-items-only scale)
 
 
 def _read():
@@ -129,7 +136,9 @@ def _completed_items(dd, items):
     return n, gold
 
 
-def _team_split(data):
+def team_split(data):
+    """(me, allies, enemies, my_team) from an allgamedata payload, or None. THE shared
+    identity read - every live consumer (tempo, ghost, win read) goes through this."""
     players = data.get("allPlayers") or []
     act = data.get("activePlayer") or {}
     myg = lg._gname(act.get("riotId") or act.get("summonerName") or "")
@@ -140,6 +149,49 @@ def _team_split(data):
     allies = [p for p in players if p.get("team") == myteam]
     enemies = [p for p in players if p.get("team") != myteam]
     return me, allies, enemies, myteam
+
+
+_team_split = team_split                   # legacy alias: existing callers keep working
+
+
+def est_gold(p, gt):
+    """ESTIMATED total earned gold from scores the Live Client reports for everyone
+    regardless of vision (CS, kills, assists, game time). Critical because enemy ITEM
+    data only updates when they've been seen — an enemy farming in fog looks poorer than
+    they are. Modeling constants: 500 start, ~20.4g/10s passive from 1:50, ~20.5g/CS,
+    300g/kill, ~155g/assist (bounty averages). (Moved from loltempo — ONE BRAIN.)"""
+    sc = p.get("scores") or {}
+    g = 500.0
+    if gt > 110:
+        g += (gt - 110) * 2.04
+    g += float(sc.get("creepScore") or 0) * 20.5
+    g += float(sc.get("kills") or 0) * 300.0 + float(sc.get("assists") or 0) * 155.0
+    return g
+
+
+def player_power(dd, p, gt):
+    """One player's gold-equivalent fight power: XP value + the BEST-KNOWN read of their
+    gold — visible item gold, or the score-based estimate (x0.82 spent-fraction) when
+    that's higher (i.e. their items are stale because they haven't been seen).
+    (Moved from loltempo — ONE BRAIN.)"""
+    items = [it.get("itemID") for it in (p.get("items") or []) if it.get("itemID")]
+    _n, gold = _completed_items(dd, items)
+    gold = max(gold, est_gold(p, gt) * 0.82)
+    return gold + XP_CUM.get(max(1, min(18, int(p.get("level", 1)))), 0) * XP_GOLD
+
+
+def drake_counts(data, allies):
+    """(ally_drakes, enemy_drakes) from DragonKill events, credited via killer name.
+    (Moved from loltempo — ONE BRAIN; win_prob's own copy of this logic is gone.)"""
+    names = {lg._gname(p.get("riotId") or p.get("summonerName") or "") for p in allies}
+    a = e = 0
+    for ev in _events(data):
+        if ev.get("EventName") == "DragonKill":
+            if lg._gname(ev.get("KillerName") or "") in names:
+                a += 1
+            else:
+                e += 1
+    return a, e
 
 
 def power_spike(dd, data):
@@ -166,55 +218,32 @@ def power_spike(dd, data):
 
 
 def win_prob(dd, data):
-    """Transparent live win read: a logistic on net item-gold + level + drake/baron lead.
-    Returns {pct, ahead, basis}. Deliberately simple - 'dial in later' lives in the consts."""
-    split = _team_split(data)
+    """Transparent live win read on the SAME economy the tempo engine fights with (ONE
+    BRAIN): per-player fog-proof power (est gold + XP via player_power) + drake/baron
+    swings, through a logistic. The old read counted finished items only, so a farmed
+    enemy in fog inflated our win% while fight_edge (correctly) said we lose — the two
+    could contradict each other on the same widget frame. Returns {pct, ahead, basis}."""
+    split = team_split(data)
     if not split:
         return None
     _me, allies, enemies, _t = split
     if not (allies and enemies):
         return None
-
-    def econ(team):
-        g = 0
-        for p in team:
-            items = [it.get("itemID") for it in (p.get("items") or []) if it.get("itemID")]
-            _n, gold = _completed_items(dd, items)
-            g += gold + int(p.get("level", 1)) * LEVEL_GOLD
-            sc = p.get("scores") or {}
-            g += int(sc.get("kills", 0)) * KILL_GOLD
-        return g
-
-    ev = _events(data)
-    # drakes/baron are credited to the killing TEAM, which the Live Client doesn't label per
-    # event - so approximate from killer side via player names on each team.
-    ally_names = {lg._gname(p.get("riotId") or p.get("summonerName") or "") for p in allies}
-
-    def team_objs(name):
-        a = b = 0
-        for e in ev:
-            killer = lg._gname(e.get("KillerName") or "")
-            on_ally = killer in ally_names
-            if e.get("EventName") == "DragonKill":
-                a += 1 if on_ally else 0
-                b += 0 if on_ally else 1
-            elif e.get("EventName") == "BaronKill":
-                pass
-        return a, b
-
-    my_dr, en_dr = team_objs("d")
-    # baron: count recent (<180s) barons per side as an "active" power swing
     gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
+
+    my_dr, en_dr = drake_counts(data, allies)
+    # baron: count recent (<180s) barons per side as an "active" power swing
+    ally_names = {lg._gname(p.get("riotId") or p.get("summonerName") or "") for p in allies}
     my_bar = en_bar = 0
-    for e in ev:
+    for e in _events(data):
         if e.get("EventName") == "BaronKill" and gt - float(e.get("EventTime") or 0) < 180:
             if lg._gname(e.get("KillerName") or "") in ally_names:
                 my_bar += 1
             else:
                 en_bar += 1
 
-    my_g = econ(allies) + my_dr * DRAKE_GOLD + my_bar * BARON_GOLD
-    en_g = econ(enemies) + en_dr * DRAKE_GOLD + en_bar * BARON_GOLD
+    my_g = sum(player_power(dd, p, gt) for p in allies) + my_dr * DRAKE_GOLD + my_bar * BARON_GOLD
+    en_g = sum(player_power(dd, p, gt) for p in enemies) + en_dr * DRAKE_GOLD + en_bar * BARON_GOLD
     diff = my_g - en_g
     import math
     pct = 1.0 / (1.0 + math.exp(-diff / GOLD_SCALE))

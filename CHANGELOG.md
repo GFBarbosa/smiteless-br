@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.6.0
+- **ONE BRAIN — the win% and the coach now share the same eyes.** The live win read used to count only finished items it could SEE, while the TAKE/GIVE tempo verdict used the fog-proof economy estimate — so the widget could say "WIN 88%" directly above "GIVE drake (−8k)". The win% now runs on the exact same per-player power model as the fight math (score-estimated gold + XP, immune to fog-of-war item staleness) plus drake/baron swings, recalibrated so a one-item team lead reads ~68% instead of a flat 50%. Same chip, same card — they just can't disagree anymore. (The GHOST gold trace reads from the same model too.) Verified against the old engine: the fight math itself is unchanged to the decimal.
+
 ## v0.5.1
 - **Refinement pass (council audit).** Fixed a real bug: a live-data hiccup could silently kill the GHOST race for the rest of the game (a variable-name collision in the widget's poll loop). Polish: the RESPAWN countdown is now neutral white so it never wears the same gold as a 50/50 directive; muted text on the widget matches the board's brighter grey (it was near-invisible at ghost opacity); routine "farm window" reminders are a quiet plain line again instead of a bordered decision card; the objective named by a TAKE/GIVE/EVEN verdict no longer repeats as a timer chip below it; Settings labels caught up with reality ("Matchup lane tips (written guides)" — they haven't been AI since v0.2.94 — and the volume slider now says it controls chime + voice + fanfare).
 

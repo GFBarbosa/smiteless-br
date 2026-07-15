@@ -174,8 +174,7 @@ class GhostRace:
         cs_d = int(round(my_cs - gh_cs))
         gold_d = 0
         try:
-            import loltempo as lt
-            gold_d = int(round(lt._est_gold(me, gt) - ghost_at(self.rec["g"])))
+            gold_d = int(round(ll.est_gold(me, gt) - ghost_at(self.rec["g"])))
         except Exception:
             pass
         ahead = cs_d >= 0 and my_d <= gh_d
