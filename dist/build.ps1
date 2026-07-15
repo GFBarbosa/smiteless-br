@@ -35,7 +35,7 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Write-Host "==> freeze Python app (PyInstaller)" -ForegroundColor Cyan
 $hidden = @("smiteoverlay","smitewidget","smitesettings","smiteprofile","phasecheck","smiteupdate","smitestats","smitekeycheck","selftest",
             "smitecard","smiteconfig","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
-            "lollive","lolvision","lolprofile","claudecli","winsound","wave","PIL._tkinter_finder")
+            "lollive","lolvision","lolprofile","lolrecords","claudecli","winsound","wave","PIL._tkinter_finder")
 $pyiArgs = @("--noconfirm","--onedir","--windowed","--name","SmitelessApp","--icon",$ico,
              "--paths",(Join-Path $repo "core"),"--paths",(Join-Path $repo "ui"),"--paths",(Join-Path $repo "tools"),
              "--distpath",(Join-Path $build "pyi"),"--workpath",(Join-Path $build "pyiwork"),"--specpath",$build)

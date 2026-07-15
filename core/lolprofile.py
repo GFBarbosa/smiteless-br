@@ -565,6 +565,12 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         if other and not rid and mine.get("name"):
             rid = mine["name"]                     # clicked-through by puuid: recover the name
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
+        if not other:                              # GHOST: an A-grade self game may set a new
+            try:                                   # champ+role pace record (see lolrecords)
+                import lolrecords
+                lolrecords.maybe_record(key, puuid, mid, mine, score, d.get("dur", 0))
+            except Exception:
+                pass
         review = review_for_player(d["parts"], puuid, d.get("dur", 0), dd=dd)
         tips = review.get("tips", [])
         if not tl_done:                            # newest game -> prepend a timeline post-game review

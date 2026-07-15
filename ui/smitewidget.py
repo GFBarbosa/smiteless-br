@@ -22,6 +22,7 @@ import lolbuild as lb
 import lolitems as li
 import lollive as ll
 import loltempo as lt
+import lolrecords as lrec
 import phasecheck
 import smiteconfig as cfg
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
@@ -402,10 +403,10 @@ def _chip(d, x, y, text, fg, bg, f):
     return w
 
 
-def _render_body(dd, rec, pulse, recall, W=318):
+def _render_body(dd, rec, pulse, recall, ghost=None, W=318):
     """Draw the widget body as one image: champ+win header, the tempo directive as a color-
-    coded CARD, objective timer chips, aligned intel rows, then the item block. Deduped:
-    a spiked enemy named in an item line isn't announced twice."""
+    coded CARD, the ghost pace row, objective timer chips, aligned intel rows, then the item
+    block. Deduped: a spiked enemy named in an item line isn't announced twice."""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (W, 720), C_BG)
     d = ImageDraw.Draw(img)
@@ -445,6 +446,21 @@ def _render_body(dd, rec, pulse, recall, W=318):
             d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUT)
             yy += 14
         y += ch + 7
+
+    # ---- GHOST pace row: you vs your best game on this champ (speedrun-timer style).
+    # One ambient line: glows gold while ahead, dims to a whisper when behind (a timer,
+    # not a nag); a crossed split briefly replaces it with the split result.
+    if ghost:
+        if ghost.get("split"):
+            txt, ok = ghost["split"]
+            gcol, gtxt = (C_GRN if ok else C_RED), f"★ {txt}"
+        elif ghost["status"] == "first":
+            gcol, gtxt = C_MUT, "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
+        else:
+            gcol = C_GOLD if ghost["status"] == "ahead" else C_MUT
+            gtxt = "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
+        d.text((x + 2, y), gtxt, font=_tfont(gtxt, 10, ghost["status"] == "ahead"), fill=gcol)
+        y += 17
 
     # ---- objective timer chips ----
     objs = pulse.get("objectives") or []
@@ -605,7 +621,7 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=BG, bd=0)
 
-    def render(rec, pulse=None, recall=None):
+    def render(rec, pulse=None, recall=None, ghost=None):
         if not rec:
             shot.pack_forget()
             champ.config(text="waiting for a live game…", fg=MUTED)
@@ -618,7 +634,7 @@ def main():
                                      in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall)
+            im = _render_body(dd, rec, pulse, recall, ghost)
         except Exception:
             return                                       # keep the last good frame
         ph = ImageTk.PhotoImage(im)
@@ -668,9 +684,11 @@ def main():
         tempo_on = _cfg.get("tempo_coach", True)
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
+        ghost_on = _cfg.get("ghost_race", True)
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
+        grace = lrec.GhostRace()                          # GHOST: live race vs your PB game
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
         if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (one-time)
@@ -734,6 +752,20 @@ def main():
                                                  daemon=True).start()
                         except Exception:
                             pass
+            ghost = None
+            if ghost_on and raw is not None:             # GHOST pace race vs your own best game
+                try:
+                    ghost = grace.update(dd, raw)
+                except Exception:
+                    ghost = None
+                if ghost and ghost.get("new_record_event") and not st.get("muted", False):
+                    # beat your ghost: the triumphant "item get" jingle + a spoken stamp,
+                    # then the record itself is rewritten from Riot data on the next
+                    # profile load - so the fanfare is provisional, the ghost is exact.
+                    threading.Thread(target=_beep, args=(15, st["vol"]), daemon=True).start()
+                    if voice_on and st["vol"] > 0:
+                        threading.Thread(target=_say, args=("record", "New record.", st["vol"]),
+                                         daemon=True).start()
             if audio_on and raw is not None:             # dragon spawn reminder (45/30/15s)
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None
@@ -746,7 +778,8 @@ def main():
                     threading.Thread(target=_say, args=("hello", "Tempo online.", st["vol"]),
                                      daemon=True).start()
                 seen, last_ok = True, now
-                q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall})
+                q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
+                       "ghost": ghost})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -799,7 +832,7 @@ def main():
                     return
                 try:                                     # a render bug must never kill the pump
                     if isinstance(msg, dict) and "rec" in msg:
-                        render(msg["rec"], msg.get("pulse"), msg.get("recall"))
+                        render(msg["rec"], msg.get("pulse"), msg.get("recall"), msg.get("ghost"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:

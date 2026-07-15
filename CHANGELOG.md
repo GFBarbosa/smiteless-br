@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.4.0
+- **GHOST — race your own best game, live.** Smiteless now learns a "ghost" from your single best-graded game on each champ+role (grade A or better): its minute-by-minute CS and gold pace, and its death count. Next time you're on that champ, one quiet line in the in-game widget races you against it like a speedrun timer — `GHOST · CS +8 · deaths 1/2 · +340g` — glowing gold while you're ahead, dimming silently when you're not. Crossing 10:00 flashes your CS split vs the record; 15:00 flashes deaths. Finish ahead and you get the item-get jingle, a spoken "New record." — and the ghost gets faster. Your only opponent is who you were last week: ghosts are built purely from your own in-game performance, never rank or win/loss. First game on a champ sets the baseline. Toggle: **Settings → Ghost race**.
+
 ## v0.3.1
 - **Matchup tips are quality-filtered now.** The written-guide scraper was showing raw user submissions — including salt stories, rants, and even slurs. Tips are now hard-gated: anything with slurs/abuse, toxicity/report/"1v1 after the game" rant markers, non-English text, or that reads as a personal game-recap instead of advice is dropped entirely. What's left is ranked by how much actual matchup guidance it contains. Sorry you saw that one.
 
