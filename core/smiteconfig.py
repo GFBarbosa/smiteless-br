@@ -29,6 +29,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "item_widget": True,     # the floating in-game item helper
          "game_intel": True,      # widget: live win read + objective timers + spike alerts
          "tempo_coach": True,     # widget: TEMPO engine — objective-setup directives (farm/base/move/take-give)
+         "free_alarm": True,      # widget: FREE — alarm when the enemy jungler provably can't contest an objective
          "tempo_voice": True,     # widget: spoken TEMPO callouts (Windows TTS: "Base now", "Take it", ...)
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ

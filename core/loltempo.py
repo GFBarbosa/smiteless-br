@@ -154,11 +154,13 @@ def _avail(p, t_obj, travel, gt):
 _drake_counts = ll.drake_counts   # moved to lollive (ONE BRAIN); win_prob shares it
 
 
-def fight_edge(dd, data, t_obj, travel, gt):
+def fight_edge(dd, data, t_obj, travel, gt, drop_enemy=None):
     """The core math: gold-equivalent fight edge E at an objective starting in t_obj
     seconds. E = (ally available power - enemy available power) + BODY_GOLD * body diff,
     where availability is death-timer-and-travel aware. Returns (E, ally_up_bodies,
-    detail-string)."""
+    detail-string). drop_enemy (a game-name) prices that enemy OUT of the fight — the
+    'their jungler provably can't contest' read the FREE alarm runs on."""
+    import lolgame as lg
     split = ll._team_split(data)
     if not split:
         return None
@@ -171,6 +173,8 @@ def fight_edge(dd, data, t_obj, travel, gt):
     ep = eb = 0.0
     for p in enemies:
         av = _avail(p, t_obj, travel, gt)
+        if drop_enemy and lg._gname(p.get("riotId") or p.get("summonerName") or "") == drop_enemy:
+            av = 0.0
         ep += _power(dd, p, gt) * av
         eb += av
     bodies = ab - eb
@@ -183,9 +187,72 @@ def fight_edge(dd, data, t_obj, travel, gt):
     return e, bodies, detail
 
 
-def tempo_read(dd, data):
+# ---- FREE: the free-objective alarm. Fuses the one enemy-position signal :2999 can
+#      PROVE — the enemy jungler's DEATH TIMER — with the objective schedule and the ONE
+#      BRAIN fight math. When he's dead and can't walk back before the pit fight is over,
+#      the objective is free; the alarm fires early and loud so you path + ward the setup
+#      instead of reacting at 45s. (A live-but-unseen jungler is deliberately NOT trusted:
+#      cross-map traverse is faster than securing an objective, so a mere sighting can't
+#      prove 'free' — that stays the respect-the-gank row's job.) ----
+FREE_HORIZON = 90.0        # only alarm for an objective within this many seconds
+PIT_FIGHT_S = 15.0         # seconds needed at the pit to actually take the thing
+E_FREE = 500.0             # modest positive bar for the them-minus-jungler fight edge
+MIN_WINDOW = 6.0           # a window shorter than this isn't actionable -> stay silent
+
+
+def free_objective(dd, data):
+    """{phase:'FREE', ...} when a major objective is provably uncontestable by the enemy
+    jungler because he's DEAD (respawnTimer + base->pit travel lands after the objective is
+    already decided), else None. Gated on you being able to reach it AND on fight_edge with
+    their jungler priced out clearing E_FREE, so a hopelessly-behind team is never walked
+    into a losing 4v4."""
+    try:
+        jg = ll._TRACKER._status(float((data.get("gameData") or {}).get("gameTime") or 0.0))
+        gname = ll._TRACKER.gname
+    except Exception:
+        return None
+    if not jg or not gname or jg.get("state") != "dead":
+        return None
+    gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
+    try:
+        majors = [o for o in ll.objectives(data) if o.get("label") in _MAJOR]
+    except Exception:
+        return None
+    nxt = next((o for o in majors if float(o["secs"]) <= FREE_HORIZON), None)
+    if nxt is None:
+        return None
+    T, label = float(nxt["secs"]), nxt["label"]
+    decided_at = max(T, 0.0) + PIT_FIGHT_S            # the objective is gone by then
+    # ironclad: a respawn timer is not a guess. He walks base->pit after reviving.
+    their_back = float(jg.get("respawn") or 0) + _travel(390.0, gt)
+    window = their_back - decided_at
+    if window < MIN_WINDOW:
+        return None
+    why = f"their {jg['champ']} dead {int(jg.get('respawn') or 0)}s"
+    # can YOU make it, and do you win it 4v5?
+    act = data.get("activePlayer") or {}
+    ms = ((act.get("championStats") or {}).get("moveSpeed"))
+    me = (ll._team_split(data) or (None,))[0]
+    if me is None:
+        return None
+    lane_tv = _lane_travel(_my_role(dd, me), label, ms)
+    if lane_tv > decided_at:
+        return None
+    fe = fight_edge(dd, data, max(T, 0.0), _travel(ms, gt), gt, drop_enemy=gname)
+    if fe is None or fe[0] < E_FREE:
+        return None
+    mmss = f"{int(max(0, T)) // 60}:{int(max(0, T)) % 60:02d}"
+    head = f"FREE {label.lower()} {mmss}" if T > 0 else f"FREE {label.lower()} — UP"
+    return {"phase": "FREE", "obj": label, "secs": int(T), "urgent": True,
+            "line": f"{head} — {why} · yours {int(window)}s",
+            "sub": f"path {_OBJ_SIDE.get(label, 'bot')} river NOW — ward, take it, leave"}
+
+
+def tempo_read(dd, data, free_alarm=True):
     """The directive: what YOU should be doing right now relative to the next major
     objective. Returns {phase, line, sub, obj, secs, urgent} or None outside a game.
+    FREE (the free-objective alarm) outranks everything: a provably uncontested
+    objective is the highest-EV call the engine can make.
 
     Timeline, walked backward from spawn T (all live-computed):
       base_by = T - travel - SETUP_LEAD - RECALL_S - SHOP_S   (last moment to start recall)
@@ -205,6 +272,13 @@ def tempo_read(dd, data):
         objs = []
     majors = [o for o in objs if o.get("label") in _MAJOR]
     nxt = majors[0] if majors else None
+    # FREE outranks the whole ladder: a provably uncontested objective (their jungler dead
+    # or shown cross-map) is the highest-EV call there is. Fires early so you path + ward
+    # the setup, not react at 45s. Silent unless it can PROVE the window.
+    if free_alarm:
+        free = free_objective(dd, data)
+        if free is not None:
+            return free
     # FIRST-spawn baron is a posture objective, not an alarm — almost nobody rushes it on
     # spawn. Until a baron has died: prefer a drake/elder even if it's a few minutes later,
     # and when baron IS the only thing coming, schedule it gently (no recall pressure).

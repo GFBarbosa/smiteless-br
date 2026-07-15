@@ -229,6 +229,7 @@ def _say(name, text, vol=30):
 
 # phase -> (cache name, spoken line). MOVE gets a per-objective callout.
 _TEMPO_SPEECH = {
+    "FREE": ("free", "Free objective. Their jungler's out. Take it now."),
     "BASE": ("base", "Base now."),
     "TAKE": ("take", "Take it. You win this fight."),
     "GIVE": ("give", "Give it. Trade elsewhere."),
@@ -375,7 +376,7 @@ def _tfont(text, sz, bold=False):
 C_BG = (17, 19, 26); C_CARD = (23, 26, 38); C_SEP = (39, 44, 60); C_GOLD = (200, 170, 110)
 C_TXT = (216, 214, 207); C_MUT = (155, 152, 142); C_RED = (224, 100, 108)   # C_MUT matches the board's MUTED - the old darker grey was illegible at the widget's 0.84 ghost alpha
 C_GRN = (95, 196, 122); C_TEAL = (76, 192, 176); C_BLUE = (127, 168, 224); C_PUR = (201, 139, 219)
-_PHASE_C = {"TAKE": C_GRN, "FORCE": C_GRN, "GIVE": C_RED, "EVEN": C_GOLD,
+_PHASE_C = {"FREE": C_TEAL, "TAKE": C_GRN, "FORCE": C_GRN, "GIVE": C_RED, "EVEN": C_GOLD,
             "BASE": C_GOLD, "MOVE": C_TEAL, "PUSH": C_GOLD, "FARM": C_MUT}
 _KIND_C = {"core": C_TXT, "insert": C_GOLD, "counter": C_RED, "antiheal": C_PUR,
            "build": C_GOLD, "boots": C_BLUE}
@@ -479,7 +480,7 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
         lf = _wfont(12, 1)
         lines = _wwrap(d, tempo["line"], lf, wrapw - 20)
         subs = []
-        if tempo.get("sub") and tempo["phase"] in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
+        if tempo.get("sub") and tempo["phase"] in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
             subs = _wwrap(d, tempo["sub"], _wfont(10), wrapw - 20)
         ch = 12 + len(lines) * 17 + (len(subs) * 14 + 3 if subs else 0)
         d.rounded_rectangle([x, y, W - x, y + ch], radius=9, fill=tint, outline=pc, width=1)
@@ -510,7 +511,7 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
 
     # ---- objective timer chips ----
     objs = pulse.get("objectives") or []
-    if tempo and tempo.get("phase") in ("TAKE", "GIVE", "EVEN") and tempo.get("obj"):
+    if tempo and tempo.get("phase") in ("FREE", "TAKE", "GIVE", "EVEN") and tempo.get("obj"):
         # the verdict card already names this objective and its clock - don't repeat it
         objs = [o for o in objs if o.get("label") != tempo["obj"]]
     if objs:
@@ -681,7 +682,7 @@ def main():
         tempo = (pulse or {}).get("tempo")
         st["hot"] = bool(dead                     # dead = solid: you're reading the plan
                          or (tempo and (tempo.get("urgent") or tempo.get("phase")
-                                        in ("TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
+                                        in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
             im = _render_body(dd, rec, pulse, recall, ghost, dead)
@@ -732,6 +733,7 @@ def main():
         _cfg = cfg.load()
         intel_on = _cfg.get("game_intel", True)
         tempo_on = _cfg.get("tempo_coach", True)
+        free_on = _cfg.get("free_alarm", True)
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
         ghost_on = _cfg.get("ghost_race", True)
@@ -794,7 +796,7 @@ def main():
                     pulse = None
                 if pulse is not None and tempo_on:       # TEMPO directive rides the same fetch
                     try:
-                        pulse["tempo"] = lt.tempo_read(dd, raw)
+                        pulse["tempo"] = lt.tempo_read(dd, raw, free_alarm=free_on)
                     except Exception:
                         pulse["tempo"] = None
                     if voice_on and st["vol"] > 0:       # spoken callout on phase transitions
