@@ -30,9 +30,10 @@ from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
 
 INGAME_PHASES = ("GameStart", "InProgress", "Reconnect")   # widget belongs on screen only here
 
-BG = "#11131a"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#7f7d75"
-RED = "#e0646c"; PURPLE = "#c98bdb"; BLUE = "#7fa8e0"; GREEN = "#5fc47a"; TEAL = "#4cc0b0"
-PANEL = "#151823"; SEP = "#232838"
+import smiteskin as skin
+BG = skin.BG; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
+RED = skin.RED; PURPLE = skin.PURPLE; BLUE = skin.BLUE; GREEN = skin.GREEN; TEAL = skin.TEAL
+PANEL = skin.PANEL; SEP = skin.SEP   # (PANEL was a drifted #151823, MUTED a darker grey - unified)
 KIND_COLOR = {"core": TXT, "insert": GOLD, "counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
 KIND_TAG = {"core": "", "insert": "⚑", "counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 1                                                  # seconds between live reads (all local)
@@ -729,10 +730,15 @@ def main():
 
     hdr = tk.Frame(outer, bg=PANEL)                      # header strip
     hdr.pack(fill="x")
+    # Header restyle (v0.9.1 council): the strip stays — it's the drag handle plus live
+    # controls — but it stops dressing like a title bar. One gold ◆ carries the identity;
+    # the wordmark and every control rest at MUTED and only brighten under the cursor.
     tk.Label(hdr, text=" ◆", font=("Segoe UI", 8), fg=GOLD, bg=PANEL).pack(side="left")
-    tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=GOLD, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
+    tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=MUTED, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
     close = tk.Label(hdr, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
     close.pack(side="right")
+    close.bind("<Enter>", lambda e: close.config(fg=TXT))
+    close.bind("<Leave>", lambda e: close.config(fg=MUTED))
     # LEGEND — the one "?" this HUD is allowed. Click: a reference card opens beside the
     # widget decoding every phase color, glyph, chip and item tag; click again to dismiss.
     # Auto-opens ONCE on first run (see render's waiting branch), then it's pull-only.
@@ -740,7 +746,7 @@ def main():
     helpb.pack(side="right", padx=(0, 4))
     # Drake chime mute — click to silence the 45/30/15 drake cues for THIS game (resets next
     # game). Struck-through red note = muted; gold note = alerts on. (Settings has a permanent off.)
-    mute = tk.Label(hdr, text="♪", font=("Segoe UI", 10, "bold"), fg=GOLD, bg=PANEL, cursor="hand2")
+    mute = tk.Label(hdr, text="♪", font=("Segoe UI", 10, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
     mute.pack(side="right", padx=(0, 2))
 
     def _toggle_mute(*_):
@@ -748,8 +754,10 @@ def main():
         if st["muted"]:
             mute.config(fg=RED, font=("Segoe UI", 10, "bold", "overstrike"))
         else:
-            mute.config(fg=GOLD, font=("Segoe UI", 10, "bold"))
+            mute.config(fg=MUTED, font=("Segoe UI", 10, "bold"))
     mute.bind("<Button-1>", _toggle_mute)
+    mute.bind("<Enter>", lambda e: st.get("muted") or mute.config(fg=GOLD))
+    mute.bind("<Leave>", lambda e: st.get("muted") or mute.config(fg=MUTED))
 
     # Volume slider — live control for the voice callouts + drake chime (0 = silent).
     # Applies instantly, persists to Settings on release, and plays a short preview so
@@ -761,7 +769,8 @@ def main():
                    width=7, sliderlength=12, bd=0, highlightthickness=0, bg=PANEL,
                    troughcolor=SEP, activebackground=GOLD, cursor="hand2", command=_on_vol)
     vol.set(st["vol"])
-    vol.pack(side="right", padx=(0, 7), pady=3)
+    # the slider is the noisiest header element — it appears only while the cursor is
+    # over the widget (the pump's pointer check below packs/unpacks it)
 
     def _vol_done(_e):
         try:
@@ -1120,6 +1129,12 @@ def main():
             if a != st.get("alpha"):
                 st["alpha"] = a
                 root.attributes("-alpha", a)
+            if inside != st.get("vol_vis"):      # hover-reveal the volume slider
+                st["vol_vis"] = inside
+                if inside:
+                    vol.pack(side="right", padx=(0, 7), pady=3)
+                else:
+                    vol.pack_forget()
         except Exception:
             pass
         root.after(400, pump)

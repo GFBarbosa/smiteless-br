@@ -17,9 +17,10 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import smiteconfig as cfg
 import lolscout as ls
 
-BG = "#11131a"; PANEL = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"
-GREEN = "#5fc47a"; RED = "#d46d78"; TROUGH = "#0d0f16"; BTN = "#262b3b"; BTN_A = "#333a52"
-ENTRY_BG = "#0f1219"
+import smiteskin as skin
+BG = skin.BG; PANEL = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
+GREEN = skin.GREEN; RED = skin.RED; TROUGH = skin.ENTRY; BTN = skin.BTN; BTN_A = skin.BTN_HOVER
+ENTRY_BG = skin.ENTRY   # (RED was a drifted #d46d78, ENTRY a drifted #0f1219 - unified)
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEY_FILES = [os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")]
 
@@ -38,6 +39,7 @@ def main():
     root = tk.Tk()
     root.title("Smiteless Settings")
     root.configure(bg=BG)
+    skin.dark_titlebar(root)
     root.resizable(True, True)
     try:
         root.iconbitmap(os.path.join(HERE, "smiteless.ico"))

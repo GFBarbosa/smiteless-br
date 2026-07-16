@@ -25,8 +25,9 @@ for _s in ("stdout", "stderr"):                 # pythonw / bundled exe: no cons
         except Exception:
             pass
 
-BG = "#11131a"; PANEL = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"
-MUTED = "#9b988e"; BULLET = "#8fb4e0"; BOLD = "#efe9dc"
+import smiteskin as skin
+BG = skin.BG; PANEL = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT
+MUTED = skin.MUTED; BULLET = "#8fb4e0"; BOLD = "#efe9dc"
 RAW_URL = "https://raw.githubusercontent.com/bobbyroylee/smiteless/main/CHANGELOG.md"
 _k32 = ctypes.windll.kernel32
 
@@ -73,6 +74,7 @@ def main():
     root = tk.Tk()
     root.title("Smiteless — Patch Notes")
     root.configure(bg=BG)
+    skin.dark_titlebar(root)
     root.geometry("560x680")
     try:
         for ico in (os.path.join(_R, "assets", "smiteless.ico"),

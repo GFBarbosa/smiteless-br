@@ -31,9 +31,10 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import smitecard as sc
 import smiteconfig as cfg
 
-BG = "#11131a"   # matches smitecard's background so there's no border seam
-BAR_BG = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#9b988e"
-GREEN = "#5fc47a"; RED = "#e0646c"; ENTRY_BG = "#0d0f16"; BTN_BG = "#262b3b"; BTN_ACTIVE = "#333a52"
+import smiteskin as skin
+BG = skin.BG     # matches smitecard's background so there's no border seam
+BAR_BG = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
+GREEN = skin.GREEN; RED = skin.RED; ENTRY_BG = skin.ENTRY; BTN_BG = skin.BTN; BTN_ACTIVE = skin.BTN_HOVER
 
 # ---- win32 constants ----
 GWL_EXSTYLE = -20
@@ -353,8 +354,14 @@ def main():
     status.pack(side="left", padx=8)
     refresh_key_label()
 
+    # The key bar earns its row only when there's work to do: with a valid key the board
+    # floats clean, and the bar (with its refresh controls) returns on the next launch
+    # after the 24h dev key lapses or goes missing.
+    key_ok = (read_current_key() or "").startswith("RGAPI-")
     root.update_idletasks()
-    bar_h = bar.winfo_reqheight()                # the key bar's fixed height, added below the board
+    bar_h = 0 if key_ok else bar.winfo_reqheight()   # the key bar's height, added below the board
+    if key_ok:
+        bar.pack_forget()
     hwnd = toplevel_hwnd(root.winfo_id())        # the REAL top-level (winfo_id can be a child)
     make_no_activate(hwnd)
 
@@ -409,10 +416,11 @@ def main():
         st["dragged"] = False                    # a fresh dock gets to balance itself again
         st["pos"] = None                         # recenter on the next frame
         st["barh"] = bar_h
-        try:
-            bar.pack(side="bottom", fill="x")
-        except Exception:
-            pass
+        if bar_h:                                # bar only exists on screen when the key needs work
+            try:
+                bar.pack(side="bottom", fill="x")
+            except Exception:
+                pass
 
     def close(*_):
         st["closing"] = True

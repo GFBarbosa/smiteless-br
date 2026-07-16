@@ -21,8 +21,9 @@ import lolscout as ls
 import smitecard as sc
 import smiteconfig as cfg
 
-BG = "#0e1016"; BAR = "#171a24"; GOLD = "#c8aa6e"; TXT = "#d8d6cf"; MUTED = "#8b897f"
-BTN = "#262b3b"; BTN_HOVER = "#333a52"
+import smiteskin as skin
+BG = skin.BG; BAR = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
+BTN = skin.BTN; BTN_HOVER = skin.BTN_HOVER   # (BG was a drifted #0e1016 - unified in skin)
 _kernel32 = ctypes.windll.kernel32
 _user32 = ctypes.windll.user32
 
@@ -64,6 +65,7 @@ def main():
     root = tk.Tk()
     root.title("Smiteless — Profile")
     root.configure(bg=BG)
+    skin.dark_titlebar(root)
     try:
         cand = []
         if getattr(sys, "frozen", False):
@@ -316,6 +318,7 @@ def main():
         win = tk.Toplevel(root)
         win.title("Smiteless — Full review")
         win.configure(bg=BG)
+        skin.dark_titlebar(win)
         win.minsize(560, 360)
         tk.Label(win, text=f"{game.get('champ', '?')} ({game.get('pos', '?')})", bg=BG, fg=GOLD,
                  font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(12, 2))
