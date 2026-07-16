@@ -18,9 +18,15 @@ import smiteconfig as cfg
 import lolscout as ls
 
 import smiteskin as skin
-BG = skin.BG; PANEL = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
-GREEN = skin.GREEN; RED = skin.RED; TROUGH = skin.ENTRY; BTN = skin.BTN; BTN_A = skin.BTN_HOVER
-ENTRY_BG = skin.ENTRY   # (RED was a drifted #d46d78, ENTRY a drifted #0f1219 - unified)
+# Duskfall tokens - see docs/UIDESIGN.md. Nothing below this block may spell out a hex or
+# a font-family string; everything routes through skin.* so the whole window re-themes
+# from one place.
+VOID, SURFACE, RAISED, HOVER = skin.VOID, skin.SURFACE, skin.RAISED, skin.HOVER
+SUNKEN, LINE, LINE_SOFT = skin.SUNKEN, skin.LINE, skin.LINE_SOFT
+TXT, MUTED, FAINT = skin.TXT, skin.MUTED, skin.FAINT
+EMBER, EMBER_DEEP, ARC = skin.EMBER, skin.EMBER_DEEP, skin.ARC
+GOOD, BAD, WARN = skin.GOOD, skin.BAD, skin.WARN
+BODY, SMALL = skin.BODY, skin.SMALL
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEY_FILES = [os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")]
 
@@ -38,7 +44,7 @@ def main():
     s = cfg.load()
     root = tk.Tk()
     root.title("Smiteless Settings")
-    root.configure(bg=BG)
+    root.configure(bg=VOID)
     skin.dark_titlebar(root)
     root.resizable(True, True)
     try:
@@ -46,14 +52,14 @@ def main():
     except Exception:
         pass
 
-    shell = tk.Frame(root, bg=BG)
+    shell = tk.Frame(root, bg=VOID)
     shell.pack(fill="both", expand=True)
     vbar = tk.Scrollbar(shell, orient="vertical")
     vbar.pack(side="right", fill="y")
-    canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, yscrollcommand=vbar.set)
+    canvas = tk.Canvas(shell, bg=VOID, highlightthickness=0, yscrollcommand=vbar.set)
     canvas.pack(side="left", fill="both", expand=True)
     vbar.config(command=canvas.yview)
-    body = tk.Frame(canvas, bg=BG)
+    body = tk.Frame(canvas, bg=VOID)
     body_id = canvas.create_window((0, 0), window=body, anchor="nw")
 
     def _sync_scroll(_=None):
@@ -68,30 +74,32 @@ def main():
         _ver = _su.local_version()
     except Exception:
         _ver = ""
-    _hdr = tk.Frame(body, bg=BG)
-    _hdr.pack(fill="x", padx=18, pady=(16, 1))
-    tk.Label(_hdr, text="SMITELESS  SETTINGS", bg=BG, fg=GOLD,
-             font=("Segoe UI", 13, "bold")).pack(side="left")
+    _hdr = tk.Frame(body, bg=VOID)
+    _hdr.pack(fill="x", padx=skin.PAD_WIN, pady=(16, 1))
+    skin.brand_row(_hdr, "settings", bg=VOID).pack(side="left")
     if _ver:
-        tk.Label(_hdr, text=f"v{_ver}", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(8, 0), pady=(6, 0))
+        tk.Label(_hdr, text=f"v{_ver}", bg=RAISED, fg=MUTED, font=skin.body(SMALL)).pack(
+            side="left", padx=(10, 0), pady=(4, 4), ipadx=6, ipady=1)
     tk.Label(body, text="Changes apply live - the overlay's gank tags update within a few seconds.",
-             bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=18, pady=(0, 8))
+             bg=VOID, fg=MUTED, font=skin.body(SMALL)).pack(anchor="w", padx=skin.PAD_WIN, pady=(0, 8))
 
     def scale_row(title, desc, lo, hi, res, val, fmt):
-        fr = tk.Frame(body, bg=PANEL)
-        fr.pack(fill="x", padx=14, pady=5)
-        top = tk.Frame(fr, bg=PANEL)
+        outer = skin.card(body, rail=LINE)
+        outer.pack(fill="x", padx=14, pady=5)
+        fr = outer.body
+        top = tk.Frame(fr, bg=SURFACE)
         top.pack(fill="x", padx=12, pady=(8, 0))
-        tk.Label(top, text=title, bg=PANEL, fg=TXT, font=("Segoe UI", 10, "bold")).pack(side="left")
+        tk.Label(top, text=title, bg=SURFACE, fg=TXT, font=skin.body(BODY, bold=True)).pack(side="left")
         valv = tk.StringVar()
-        tk.Label(top, textvariable=valv, bg=PANEL, fg=GOLD, font=("Consolas", 10, "bold")).pack(side="right")
+        tk.Label(top, textvariable=valv, bg=SURFACE, fg=ARC,
+                 font=skin.display(BODY, bold=True)).pack(side="right")
         sc = tk.Scale(fr, from_=lo, to=hi, resolution=res, orient="horizontal", showvalue=0,
-                      bg=PANEL, fg=TXT, troughcolor=TROUGH, highlightthickness=0, bd=0,
-                      activebackground=GOLD, sliderrelief="flat", length=440)
+                      bg=SURFACE, fg=TXT, troughcolor=SUNKEN, highlightthickness=0, bd=0,
+                      activebackground=EMBER, sliderrelief="flat", length=440)
         sc.set(val)
         sc.pack(fill="x", padx=10)
         descv = tk.StringVar()
-        tk.Label(fr, textvariable=descv, bg=PANEL, fg=MUTED, font=("Segoe UI", 8),
+        tk.Label(fr, textvariable=descv, bg=SURFACE, fg=MUTED, font=skin.body(SMALL),
                  anchor="w", justify="left").pack(fill="x", padx=12, pady=(0, 8))
 
         def upd(_=None):
@@ -118,9 +126,9 @@ def main():
     homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
     startwin = tk.BooleanVar(value=cfg.autostart_enabled())
 
-    def _chk(parent, text, var):
-        return tk.Checkbutton(parent, text=text, variable=var, bg=BG, fg=TXT, selectcolor=TROUGH,
-                              activebackground=BG, activeforeground=TXT, font=("Segoe UI", 9),
+    def _chk(parent, text, var, bg=VOID):
+        return tk.Checkbutton(parent, text=text, variable=var, bg=bg, fg=TXT, selectcolor=SUNKEN,
+                              activebackground=bg, activeforeground=TXT, font=skin.body(BODY),
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
@@ -140,40 +148,43 @@ def main():
     autoban = tk.BooleanVar(value=s.get("auto_ban", False))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
-    tk.Label(body, text="FEATURES", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    ffr = tk.Frame(body, bg=BG)
+    skin.section_rule(body, "FEATURES").pack(fill="x", padx=18, pady=(10, 2))
+    ffr = tk.Frame(body, bg=VOID)
     ffr.pack(fill="x", padx=16)
-    col1 = tk.Frame(ffr, bg=BG); col1.pack(side="left", fill="x", expand=True, anchor="n")
-    col2 = tk.Frame(ffr, bg=BG); col2.pack(side="left", fill="x", expand=True, anchor="n")
-    _chk(col1, "In-game item widget", widget).pack(anchor="w")
-    _chk(col1, "Live game intel (timers + win read)", intel).pack(anchor="w")
-    _chk(col1, "Tempo coach (objective setup windows)", tempo).pack(anchor="w")
-    _chk(col1, "Free-objective alarm (enemy jg can't contest)", freev).pack(anchor="w")
-    _chk(col1, "Tempo voice callouts (base / rotate / take)", tempov).pack(anchor="w")
-    _chk(col1, "Dragon spawn audio (45/30/15s)", dragon).pack(anchor="w")
-    _chk(col1, "Ghost race (chase your best game)", ghostv).pack(anchor="w")
-    _chk(col1, "Respawn plan (death-screen card)", respawnv).pack(anchor="w")
-    _chk(col1, "Matchup lane tips (written guides)", tips).pack(anchor="w")
-    _chk(col1, "Auto-accept queue", autoq).pack(anchor="w")
-    _chk(col1, "Auto-import runes + summs on lock", autoimp).pack(anchor="w")
-    _chk(col1, "Auto-ban top recommended (champ select)", autoban).pack(anchor="w")
-    _chk(col2, "Duo / premade detection", duo).pack(anchor="w")
-    _chk(col2, "Dodge alerts (champ select)", dodge).pack(anchor="w")
-    _chk(col2, "Dock champ-select panel by client", dock).pack(anchor="w")
+    _c1 = skin.card(ffr, rail=LINE)
+    _c1.pack(side="left", fill="both", expand=True, padx=(0, 5))
+    _c2 = skin.card(ffr, rail=LINE)
+    _c2.pack(side="left", fill="both", expand=True, padx=(5, 0))
+    col1 = tk.Frame(_c1.body, bg=SURFACE); col1.pack(fill="both", expand=True, padx=10, pady=8)
+    col2 = tk.Frame(_c2.body, bg=SURFACE); col2.pack(fill="both", expand=True, padx=10, pady=8)
+    _chk(col1, "In-game item widget", widget, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Live game intel (timers + win read)", intel, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Tempo coach (objective setup windows)", tempo, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Free-objective alarm (enemy jg can't contest)", freev, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Tempo voice callouts (base / rotate / take)", tempov, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Dragon spawn audio (45/30/15s)", dragon, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Ghost race (chase your best game)", ghostv, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Respawn plan (death-screen card)", respawnv, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Matchup lane tips (written guides)", tips, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Auto-accept queue", autoq, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Auto-import runes + summs on lock", autoimp, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Auto-ban top recommended (champ select)", autoban, bg=SURFACE).pack(anchor="w")
+    _chk(col2, "Duo / premade detection", duo, bg=SURFACE).pack(anchor="w")
+    _chk(col2, "Dodge alerts (champ select)", dodge, bg=SURFACE).pack(anchor="w")
+    _chk(col2, "Dock champ-select panel by client", dock, bg=SURFACE).pack(anchor="w")
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
     _swap_cur = set(s.get("auto_swap_roles") or [])
     swapvars = {r: tk.BooleanVar(value=(r in _swap_cur)) for r in cfg.SWAP_ROLES}
-    tk.Label(body, text="AUTO ROLE SWAP (autofill escape)", bg=BG, fg=GOLD,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    skin.section_rule(body, "AUTO ROLE SWAP (autofill escape)").pack(fill="x", padx=18, pady=(10, 2))
     tk.Label(body, text="Check the roles you actually play. If you get autofilled off them, Smiteless "
              "automatically REQUESTS a swap from a teammate who has one — and accepts any offer that "
              "lands you on one. It only ever moves you ONTO a checked role, never off one. None "
              "checked = off.",
-             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
-    swaprow = tk.Frame(body, bg=BG)
+    swaprow = tk.Frame(body, bg=VOID)
     swaprow.pack(anchor="w", padx=16, pady=(0, 2))
     for r in cfg.SWAP_ROLES:
         _chk(swaprow, _SWAP_LBL[r], swapvars[r]).pack(side="left", padx=(0, 8))
@@ -181,20 +192,19 @@ def main():
     # Auto PICK-ORDER swap — trade your spot in the pick order toward first / last pick.
     _pk = s.get("auto_pick_swap")
     pickswap = tk.StringVar(value=(_pk if _pk in ("first", "last") else "off"))
-    tk.Label(body, text="AUTO PICK-ORDER SWAP", bg=BG, fg=GOLD,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
+    skin.section_rule(body, "AUTO PICK-ORDER SWAP").pack(fill="x", padx=18, pady=(10, 2))
     tk.Label(body, text="Auto-handle pick-order swaps. \"Accept any\" just accepts every incoming "
              "swap request. \"Last pick\" works you as late as possible so you can counter-pick; "
              "\"First pick\" swaps you early to lock a contested champ (these accept an offer that "
              "moves you the right way, and ask for one otherwise).",
-             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
-    pkrow = tk.Frame(body, bg=BG)
+    pkrow = tk.Frame(body, bg=VOID)
     pkrow.pack(anchor="w", padx=16, pady=(0, 2))
     for _lbl, _val in (("Off", "off"), ("Accept any", "any"), ("First pick", "first"), ("Last pick", "last")):
-        tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=BG, fg=TXT,
-                       selectcolor=TROUGH, activebackground=BG, activeforeground=TXT,
-                       font=("Segoe UI", 9), bd=0, highlightthickness=0).pack(side="left", padx=(0, 10))
+        tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=VOID, fg=TXT,
+                       selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
+                       font=skin.body(BODY), bd=0, highlightthickness=0).pack(side="left", padx=(0, 10))
 
     from tkinter import ttk
     import lolbuild as _lb
@@ -210,43 +220,42 @@ def main():
     try:
         _st = ttk.Style()
         _st.theme_use("clam")
-        _st.configure("Fav.TCombobox", fieldbackground=ENTRY_BG, background=BTN, foreground=TXT,
-                      arrowcolor=TXT, bordercolor=BTN, lightcolor=BTN, darkcolor=BTN)
-        root.option_add("*TCombobox*Listbox.background", ENTRY_BG)
+        _st.configure("Fav.TCombobox", fieldbackground=SUNKEN, background=RAISED, foreground=TXT,
+                      arrowcolor=TXT, bordercolor=RAISED, lightcolor=RAISED, darkcolor=RAISED)
+        root.option_add("*TCombobox*Listbox.background", SUNKEN)
         root.option_add("*TCombobox*Listbox.foreground", TXT)
-        root.option_add("*TCombobox*Listbox.selectBackground", BTN_A)
+        root.option_add("*TCombobox*Listbox.selectBackground", HOVER)
         root.option_add("*TCombobox*Listbox.selectForeground", TXT)
     except Exception:
         pass
 
-    tk.Label(body, text="FAVOURITE PICKS", bg=BG, fg=GOLD,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
+    skin.section_rule(body, "FAVOURITE PICKS").pack(fill="x", padx=18, pady=(12, 2))
     tk.Label(body, text="Pick a champ from the dropdown and Add it — order is priority (use ↑/↓). "
              "A role limits it to that role. In champ select the panel lists your top still-open "
              "picks (recommend-only — it never hovers or locks).",
-             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
-    favfr = tk.Frame(body, bg=PANEL)
+    favfr = skin.card(body, rail=LINE)
     favfr.pack(fill="x", padx=14, pady=(0, 6))
 
-    addrow = tk.Frame(favfr, bg=PANEL)
+    addrow = tk.Frame(favfr.body, bg=SURFACE)
     addrow.pack(fill="x", padx=8, pady=(8, 4))
     champ_var = tk.StringVar()
     champ_cb = ttk.Combobox(addrow, textvariable=champ_var, values=_champ_names, width=18,
-                            style="Fav.TCombobox", font=("Segoe UI", 9))
+                            style="Fav.TCombobox", font=skin.body(SMALL))
     champ_cb.pack(side="left")
     role_var = tk.StringVar(value="any role")
     role_om = tk.OptionMenu(addrow, role_var, "any role", "top", "jungle", "mid", "adc", "support")
-    role_om.config(bg=BTN, fg=TXT, activebackground=BTN_A, activeforeground=TXT, relief="flat",
-                   highlightthickness=0, font=("Segoe UI", 8), width=8, cursor="hand2")
-    role_om["menu"].config(bg=PANEL, fg=TXT, activebackground=BTN_A)
+    role_om.config(bg=RAISED, fg=TXT, activebackground=HOVER, activeforeground=TXT, relief="flat",
+                   highlightthickness=0, font=skin.body(SMALL), width=8, cursor="hand2")
+    role_om["menu"].config(bg=SURFACE, fg=TXT, activebackground=HOVER)
     role_om.pack(side="left", padx=6)
 
-    listfr = tk.Frame(favfr, bg=PANEL)
+    listfr = tk.Frame(favfr.body, bg=SURFACE)
     listfr.pack(fill="x", padx=8, pady=(0, 8))
-    fav_list = tk.Listbox(listfr, height=5, bg=ENTRY_BG, fg=TXT, selectbackground=BTN_A,
+    fav_list = tk.Listbox(listfr, height=5, bg=SUNKEN, fg=TXT, selectbackground=HOVER,
                           selectforeground=TXT, relief="flat", highlightthickness=0, bd=0,
-                          font=("Consolas", 9), activestyle="none")
+                          font=skin.mono(SMALL), activestyle="none")
     fav_list.pack(side="left", fill="x", expand=True)
     for _entry in (s.get("fav_champs") or []):
         fav_list.insert("end", _entry)
@@ -292,89 +301,85 @@ def main():
             fav_list.insert(j, v)
             fav_list.selection_set(j)
 
-    def _favbtn(parent, txt, cmd):
-        return tk.Button(parent, text=txt, command=cmd, bg=BTN, fg=TXT, activebackground=BTN_A,
-                         activeforeground=TXT, relief="flat", bd=0, padx=8, pady=2,
-                         font=("Segoe UI", 8, "bold"), cursor="hand2")
-    _favbtn(addrow, "+ Add", _add_fav).pack(side="left", padx=(6, 0))
+    skin.button(addrow, "+ Add", _add_fav).pack(side="left", padx=(6, 0))
     champ_cb.bind("<KeyRelease>", _filter_champs)
     champ_cb.bind("<Return>", _add_fav)
-    favbtns = tk.Frame(listfr, bg=PANEL)
+    favbtns = tk.Frame(listfr, bg=SURFACE)
     favbtns.pack(side="left", fill="y", padx=(6, 0))
-    _favbtn(favbtns, "Remove", _rm_fav).pack(fill="x", pady=1)
-    _favbtn(favbtns, "↑", lambda: _move(-1)).pack(fill="x", pady=1)
-    _favbtn(favbtns, "↓", lambda: _move(1)).pack(fill="x", pady=1)
+    skin.button(favbtns, "Remove", _rm_fav).pack(fill="x", pady=1)
+    skin.button(favbtns, "↑", lambda: _move(-1)).pack(fill="x", pady=1)
+    skin.button(favbtns, "↓", lambda: _move(1)).pack(fill="x", pady=1)
 
-    tk.Label(body, text="YOUR ACCOUNTS", bg=BG, fg=GOLD,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
+    skin.section_rule(body, "YOUR ACCOUNTS").pack(fill="x", padx=18, pady=(12, 2))
     tk.Label(body, text="One Riot ID per line (Name#TAG). Accounts you log into are remembered "
              "automatically; add smurfs here too. 'Good this game' pools your champion mastery "
              "across all of them, so it recommends champs you know on ANY account.",
-             bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
-    accfr = tk.Frame(body, bg=PANEL)
+    accfr = skin.card(body, rail=LINE)
     accfr.pack(fill="x", padx=14, pady=(0, 6))
-    acc_text = tk.Text(accfr, height=4, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
-                       font=("Consolas", 9), wrap="none", highlightthickness=0, bd=0)
+    acc_text = tk.Text(accfr.body, height=4, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
+                       font=skin.mono(SMALL), wrap="none", highlightthickness=0, bd=0)
     acc_text.pack(fill="x", padx=8, pady=8)
     try:
         acc_text.insert("1.0", "\n".join(a["riot_id"] for a in ls.load_accounts()))
     except Exception:
         pass
 
-    fkey = tk.Frame(body, bg=PANEL)
+    fkey = skin.card(body, rail=LINE)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
-    tk.Label(fkey, text="FLASH KEY", bg=PANEL, fg=TXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
-    row = tk.Frame(fkey, bg=PANEL)
+    tk.Label(fkey.body, text="FLASH KEY", bg=SURFACE, fg=TXT,
+             font=skin.body(BODY, bold=True)).pack(anchor="w", padx=12, pady=(8, 0))
+    row = tk.Frame(fkey.body, bg=SURFACE)
     row.pack(fill="x", padx=12, pady=(2, 8))
-    tk.Label(row, text="D", bg=PANEL, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(side="left")
+    tk.Label(row, text="D", bg=SURFACE, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
     fscale = tk.Scale(row, from_=0, to=1, resolution=1, orient="horizontal", showvalue=0,
-                      variable=flash_side, bg=PANEL, fg=TXT, troughcolor=TROUGH, highlightthickness=0,
-                      bd=0, activebackground=GOLD, sliderrelief="flat", length=180)
+                      variable=flash_side, bg=SURFACE, fg=TXT, troughcolor=SUNKEN, highlightthickness=0,
+                      bd=0, activebackground=EMBER, sliderrelief="flat", length=180)
     fscale.pack(side="left", padx=8)
-    tk.Label(row, text="F", bg=PANEL, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(side="left")
+    tk.Label(row, text="F", bg=SURFACE, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
     fstat = tk.StringVar()
-    tk.Label(row, textvariable=fstat, bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left", padx=(10, 0))
+    tk.Label(row, textvariable=fstat, bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left", padx=(10, 0))
 
     def _upd_flash(_=None):
         fstat.set("Flash on D" if flash_side.get() == 0 else "Flash on F")
     fscale.config(command=_upd_flash)
     _upd_flash()
 
-    tk.Label(body, text="STARTUP", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(10, 2))
-    afr = tk.Frame(body, bg=BG)
+    skin.section_rule(body, "STARTUP").pack(fill="x", padx=18, pady=(10, 2))
+    afr = tk.Frame(body, bg=VOID)
     afr.pack(fill="x", padx=16, pady=(0, 0))
     _chk(afr, "Auto-open at champ select", auto).pack(side="left")
     _chk(afr, "Open profile/home on startup", homeonstart).pack(side="left", padx=(18, 0))
     _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
-    tk.Label(body, text="RIOT API KEY", bg=BG, fg=GOLD, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(12, 2))
-    keyfr = tk.Frame(body, bg=PANEL)
+    skin.section_rule(body, "RIOT API KEY").pack(fill="x", padx=18, pady=(12, 2))
+    keyfr = skin.card(body, rail=WARN)
     keyfr.pack(fill="x", padx=14, pady=(0, 5))
-    top = tk.Frame(keyfr, bg=PANEL)
+    top = tk.Frame(keyfr.body, bg=SURFACE)
     top.pack(fill="x", padx=12, pady=(8, 0))
-    tk.Label(top, text="Current key:", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
-    keylbl = tk.Label(top, text="", bg=PANEL, fg=MUTED, font=("Consolas", 9, "bold"))
+    tk.Label(top, text="Current key:", bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left")
+    keylbl = tk.Label(top, text="", bg=SURFACE, fg=MUTED, font=skin.mono(SMALL, bold=True))
     keylbl.pack(side="left", padx=(6, 0))
 
-    row = tk.Frame(keyfr, bg=PANEL)
+    row = tk.Frame(keyfr.body, bg=SURFACE)
     row.pack(fill="x", padx=10, pady=(6, 2))
-    key_entry = tk.Entry(row, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
-                         font=("Consolas", 9), width=44)
+    key_entry = tk.Entry(row, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
+                         font=skin.mono(SMALL), width=44)
     key_entry.pack(side="left", fill="x", expand=True, ipady=3)
 
-    key_status = tk.Label(keyfr, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 8),
+    key_status = tk.Label(keyfr.body, text="", bg=SURFACE, fg=MUTED, font=skin.body(SMALL),
                           anchor="w", justify="left")
     key_status.pack(fill="x", padx=12, pady=(2, 8))
-    tk.Label(keyfr, text="Saved to ~/.riot_api_key and ~/.riot_api_key.txt", bg=PANEL,
-             fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=12, pady=(0, 8))
+    tk.Label(keyfr.body, text="Saved to ~/.riot_api_key and ~/.riot_api_key.txt", bg=SURFACE,
+             fg=MUTED, font=skin.body(SMALL)).pack(anchor="w", padx=12, pady=(0, 8))
 
     def refresh_key_label():
         k = ls.read_key()
         if k and k.startswith("RGAPI-"):
-            keylbl.config(text=f"...{k[-4:]} set", fg=GREEN)
+            keylbl.config(text=f"...{k[-4:]} set", fg=GOOD)
         else:
-            keylbl.config(text="not set", fg=RED)
+            keylbl.config(text="not set", fg=BAD)
 
     def open_dev_site():
         webbrowser.open("https://developer.riotgames.com/")
@@ -384,7 +389,7 @@ def main():
         try:
             c = root.clipboard_get().strip()
         except Exception:
-            key_status.config(text="clipboard is empty", fg=RED)
+            key_status.config(text="clipboard is empty", fg=BAD)
             return
         key_entry.delete(0, "end")
         key_entry.insert(0, c)
@@ -393,35 +398,29 @@ def main():
     def save_key():
         k = key_entry.get().strip()
         if not (k.startswith("RGAPI-") and len(k) >= 24):
-            key_status.config(text="that doesn't look like an RGAPI-... key", fg=RED)
+            key_status.config(text="that doesn't look like an RGAPI-... key", fg=BAD)
             return
         for p in KEY_FILES:
             try:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(k)
             except Exception as e:
-                key_status.config(text=f"save failed: {e}", fg=RED)
+                key_status.config(text=f"save failed: {e}", fg=BAD)
                 return
         key_entry.delete(0, "end")
         refresh_key_label()
-        key_status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GREEN)
+        key_status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GOOD)
 
-    bfr = tk.Frame(keyfr, bg=PANEL)
+    bfr = tk.Frame(keyfr.body, bg=SURFACE)
     bfr.pack(fill="x", padx=10, pady=(0, 8))
 
-    def _mkbtn(parent, text, cmd, accent=False):
-        return tk.Button(parent, text=text, command=cmd, bg=(GOLD if accent else BTN),
-                         fg=(BG if accent else TXT), activebackground=(GOLD if accent else BTN_A),
-                         activeforeground=(BG if accent else TXT), relief="flat", bd=0, padx=12, pady=4,
-                         font=("Segoe UI", 8, "bold"), cursor="hand2")
-
-    _mkbtn(bfr, "Get key ↗", open_dev_site).pack(side="left", padx=(0, 4))
-    _mkbtn(bfr, "Paste", paste_key).pack(side="left", padx=4)
-    _mkbtn(bfr, "Save key", save_key, accent=True).pack(side="left", padx=4)
+    skin.button(bfr, "Get key ↗", open_dev_site).pack(side="left", padx=(0, 4))
+    skin.button(bfr, "Paste", paste_key).pack(side="left", padx=4)
+    skin.button(bfr, "Save key", save_key, primary=True).pack(side="left", padx=4)
     key_entry.bind("<Return>", lambda e: save_key())
     refresh_key_label()
 
-    status = tk.Label(body, text="", bg=BG, fg=GREEN, font=("Segoe UI", 8))
+    status = tk.Label(body, text="", bg=VOID, fg=GOOD, font=skin.body(SMALL))
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
@@ -450,7 +449,7 @@ def main():
         cfg.set_auto_open(auto.get())
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
-        status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GREEN)
+        status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GOOD)
 
     def reset():
         scout.set(cfg.DEFAULTS["scout_games"])
@@ -463,17 +462,11 @@ def main():
         autoq.set(False)
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)
 
-    def mkbtn(parent, text, cmd, accent=False):
-        return tk.Button(parent, text=text, command=cmd, bg=(GOLD if accent else BTN),
-                         fg=(BG if accent else TXT), activebackground=(GOLD if accent else BTN_A),
-                         activeforeground=(BG if accent else TXT), relief="flat", bd=0, padx=16, pady=5,
-                         font=("Segoe UI", 9, "bold"), cursor="hand2")
-
-    btns = tk.Frame(body, bg=BG)
+    btns = tk.Frame(body, bg=VOID)
     btns.pack(fill="x", padx=14, pady=(10, 16))
-    mkbtn(btns, "Save", save, accent=True).pack(side="left", padx=4)
-    mkbtn(btns, "Reset", reset).pack(side="left", padx=4)
-    mkbtn(btns, "Close", root.destroy).pack(side="right", padx=4)
+    skin.button(btns, "Save", save, primary=True).pack(side="left", padx=4)
+    skin.button(btns, "Reset", reset).pack(side="left", padx=4)
+    skin.button(btns, "Close", root.destroy).pack(side="right", padx=4)
 
     root.update_idletasks()
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()

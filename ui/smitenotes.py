@@ -26,8 +26,11 @@ for _s in ("stdout", "stderr"):                 # pythonw / bundled exe: no cons
             pass
 
 import smiteskin as skin
-BG = skin.BG; PANEL = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT
-MUTED = skin.MUTED; BULLET = "#8fb4e0"; BOLD = "#efe9dc"
+# Duskfall tokens - see docs/UIDESIGN.md. No hex or font-family string may appear below;
+# everything routes through skin.* so this window re-themes from one place.
+VOID, SURFACE, LINE = skin.VOID, skin.SURFACE, skin.LINE
+TXT, MUTED, INFO, EMBER = skin.TXT, skin.MUTED, skin.INFO, skin.EMBER
+BODY = skin.BODY
 RAW_URL = "https://raw.githubusercontent.com/bobbyroylee/smiteless/main/CHANGELOG.md"
 _k32 = ctypes.windll.kernel32
 
@@ -73,7 +76,7 @@ def main():
 
     root = tk.Tk()
     root.title("Smiteless — Patch Notes")
-    root.configure(bg=BG)
+    root.configure(bg=VOID)
     skin.dark_titlebar(root)
     root.geometry("560x680")
     try:
@@ -85,22 +88,25 @@ def main():
     except Exception:
         pass
 
-    tk.Label(root, text="SMITELESS — PATCH NOTES", bg=BG, fg=GOLD,
-             font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=16, pady=(14, 6))
-    frame = tk.Frame(root, bg=BG)
-    frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    _hdr = tk.Frame(root, bg=VOID)
+    _hdr.pack(anchor="w", padx=16, pady=(14, 6))
+    skin.brand_row(_hdr, "patch notes", bg=VOID).pack(side="left")
+
+    card = skin.card(root, rail=LINE)
+    card.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    frame = card.body
     vbar = tk.Scrollbar(frame)
     vbar.pack(side="right", fill="y")
-    txt = tk.Text(frame, bg=PANEL, fg=TXT, relief="flat", bd=0, wrap="word", padx=14, pady=10,
-                  yscrollcommand=vbar.set, font=("Segoe UI", 10), highlightthickness=0,
+    txt = tk.Text(frame, bg=SURFACE, fg=TXT, relief="flat", bd=0, wrap="word", padx=14, pady=10,
+                  yscrollcommand=vbar.set, font=skin.body(BODY), highlightthickness=0,
                   spacing1=1, spacing3=3, cursor="arrow")
     txt.pack(side="left", fill="both", expand=True)
     vbar.config(command=txt.yview)
-    txt.tag_config("h1", foreground=GOLD, font=("Segoe UI", 14, "bold"), spacing3=8)
-    txt.tag_config("ver", foreground=GOLD, font=("Segoe UI", 12, "bold"), spacing1=14, spacing3=4)
+    txt.tag_config("h1", foreground=EMBER, font=skin.display(15), spacing3=8)
+    txt.tag_config("ver", foreground=EMBER, font=skin.display(13), spacing1=14, spacing3=4)
     txt.tag_config("bul", lmargin1=14, lmargin2=28, spacing3=5)
-    txt.tag_config("b", font=("Segoe UI", 10, "bold"), foreground=BOLD)
-    txt.tag_config("dot", foreground=BULLET, font=("Segoe UI", 10, "bold"))
+    txt.tag_config("b", font=skin.body(BODY, bold=True), foreground=TXT)
+    txt.tag_config("dot", foreground=INFO, font=skin.body(BODY, bold=True))
 
     def _inline(s, base):
         """Insert a line, honoring **bold** segments; `base` is an extra tag on every run."""
