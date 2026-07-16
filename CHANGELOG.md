@@ -1,6 +1,6 @@
 # Smiteless — Patch Notes
 
-## v1.0.0
+## v0.9.3
 - **DUSKFALL — the whole UI, redesigned from scratch.** v0.9.1 unified the palette but kept its colors, so every window still looked like it always had. This time the things your eye actually keys on changed: the ground is now **violet ink** instead of blue-grey, the accent is a **hot ember amber** instead of muted gold, and a new **arcane cyan** owns everything live — timers, win%, sparklines — so identity and telemetry never fight over one color again. Full spec: `docs/UIDESIGN.md`.
 - **Numbers finally look like instruments.** Every header, champ name, score, timer, win rate and KDA is now set in Bahnschrift (the DIN-style face that ships with Windows 10/11) — the HUD reads like a cockpit, not a spreadsheet. Body text also grew from 8–9pt to 10pt.
 - **Railed cards everywhere.** Flat rectangles are gone: every surface is a rounded card carrying a 3px state rail — cyan for your team, red for the enemy, ember for *you*, green/red for results, amber-warning on the Riot-key bar. Grade badges (S–F), AUTO chips and rune tabs are pills; import is the one ember button in champ select.
