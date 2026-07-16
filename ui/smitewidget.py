@@ -31,10 +31,11 @@ from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
 INGAME_PHASES = ("GameStart", "InProgress", "Reconnect")   # widget belongs on screen only here
 
 import smiteskin as skin
-BG = skin.BG; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
-RED = skin.RED; PURPLE = skin.PURPLE; BLUE = skin.BLUE; GREEN = skin.GREEN; TEAL = skin.TEAL
-PANEL = skin.PANEL; SEP = skin.SEP   # (PANEL was a drifted #151823, MUTED a darker grey - unified)
-KIND_COLOR = {"core": TXT, "insert": GOLD, "counter": RED, "antiheal": PURPLE, "build": GOLD, "boots": BLUE}
+VOID = skin.VOID; SURFACE = skin.SURFACE; LINE_SOFT = skin.LINE_SOFT
+TXT = skin.TXT; MUTED = skin.MUTED; FAINT = skin.FAINT
+EMBER = skin.EMBER; ARC = skin.ARC; GOOD = skin.GOOD; BAD = skin.BAD; WARN = skin.WARN
+INFO = skin.INFO; MYSTIC = skin.MYSTIC   # Duskfall tokens (docs/UIDESIGN.md); no more v0.9.1 aliases
+KIND_COLOR = {"core": TXT, "insert": EMBER, "counter": BAD, "antiheal": MYSTIC, "build": EMBER, "boots": INFO}
 KIND_TAG = {"core": "", "insert": "⚑", "counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 1                                                  # seconds between live reads (all local)
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
@@ -356,6 +357,20 @@ def _wfont(sz, bold=False):
     return _WFONTS[key]
 
 
+def _dfont(sz, bold=False):
+    """Bahnschrift - the Duskfall display face, drawn straight from skin.FONT_DISPLAY_TTF for
+    every number/verdict the widget's whole job is to show. Falls back to the same Segoe UI
+    Semibold substitution smiteskin.display() makes for Tk if the font file isn't installed."""
+    from PIL import ImageFont
+    key = (sz, "display")
+    if key not in _WFONTS:
+        try:
+            _WFONTS[key] = ImageFont.truetype(skin.FONT_DISPLAY_TTF, sz)
+        except Exception:
+            _WFONTS[key] = _wfont(sz, True)
+    return _WFONTS[key]
+
+
 _SYM_CHARS = set("⌖◎⚠⌂⚑✓✗⟳✦◆★●▸")
 
 
@@ -374,13 +389,20 @@ def _tfont(text, sz, bold=False):
     return _wfont(sz, bold)
 
 
-C_BG = (17, 19, 26); C_CARD = (23, 26, 38); C_SEP = (39, 44, 60); C_GOLD = (200, 170, 110)
-C_TXT = (216, 214, 207); C_MUT = (155, 152, 142); C_RED = (224, 100, 108)   # C_MUT matches the board's MUTED - the old darker grey was illegible at the widget's 0.84 ghost alpha
-C_GRN = (95, 196, 122); C_TEAL = (76, 192, 176); C_BLUE = (127, 168, 224); C_PUR = (201, 139, 219)
-_PHASE_C = {"FREE": C_TEAL, "TAKE": C_GRN, "FORCE": C_GRN, "GIVE": C_RED, "EVEN": C_GOLD,
-            "BASE": C_GOLD, "MOVE": C_TEAL, "PUSH": C_GOLD, "FARM": C_MUT}
-_KIND_C = {"core": C_TXT, "insert": C_GOLD, "counter": C_RED, "antiheal": C_PUR,
-           "build": C_GOLD, "boots": C_BLUE}
+# Duskfall tokens rendered to PIL RGB via skin.rgb() - the drawn body used to carry its own
+# frozen v0.9.1 palette here; now it's derived from the same source of truth as the Tk chrome.
+C_VOID = skin.rgb(skin.VOID); C_SURFACE = skin.rgb(skin.SURFACE); C_LINE = skin.rgb(skin.LINE_SOFT)
+C_EMBER = skin.rgb(skin.EMBER)
+C_TXT = skin.rgb(skin.TXT); C_MUTED = skin.rgb(skin.MUTED); C_BAD = skin.rgb(skin.BAD)
+C_GOOD = skin.rgb(skin.GOOD); C_ARC = skin.rgb(skin.ARC); C_INFO = skin.rgb(skin.INFO)
+C_MYSTIC = skin.rgb(skin.MYSTIC); C_WARN = skin.rgb(skin.WARN)
+# Verdict/phase colors: TAKE/FORCE win a fight -> GOOD, GIVE lose it -> BAD, EVEN is the
+# 50-50 verdict -> WARN (was gold before Duskfall gave 50-50 its own status color); BASE/PUSH
+# stay the action color (EMBER); FREE/MOVE are live reads (ARC); FARM is quiet (MUTED).
+_PHASE_C = {"FREE": C_ARC, "TAKE": C_GOOD, "FORCE": C_GOOD, "GIVE": C_BAD, "EVEN": C_WARN,
+            "BASE": C_EMBER, "MOVE": C_ARC, "PUSH": C_EMBER, "FARM": C_MUTED}
+_KIND_C = {"core": C_TXT, "insert": C_EMBER, "counter": C_BAD, "antiheal": C_MYSTIC,
+           "build": C_EMBER, "boots": C_INFO}
 
 
 def _wwrap(d, text, f, maxw):
@@ -405,30 +427,30 @@ def _chip(d, x, y, text, fg, bg, f):
     return w
 
 
-_TONE_C = {"go": C_TEAL, "hold": C_RED, "plan": C_GOLD}
+_TONE_C = {"go": C_ARC, "hold": C_BAD, "plan": C_EMBER}
 
 
 def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     """RESPAWN: the death-screen card. The grey screen is the only zero-cost reading
     window in a live game, so the ENTIRE widget collapses to one card: countdown, one
     directive for when you're back, and the buy (you're in the shop right now)."""
-    tone = _TONE_C.get(dead.get("tone"), C_GOLD)
+    tone = _TONE_C.get(dead.get("tone"), C_EMBER)
     secs = max(0, int(dead.get("secs") or 0))
-    d.text((x + 2, y), "RESPAWN", font=_wfont(12, 1), fill=C_MUT)
+    d.text((x + 2, y), "RESPAWN", font=_wfont(12, 1), fill=C_MUTED)
     t = f"back {secs // 60}:{secs % 60:02d}"
-    f = _wfont(15, 1)
-    # neutral white, never a tone color: a gold countdown next to a gold 'plan' directive
-    # made the one card that must be unambiguous carry two identical gold clocks
+    f = _dfont(17, bold=True)                    # a number - display face, +2pt over the old 15
+    # neutral white, never a tone color: an ember countdown next to an ember 'plan' directive
+    # made the one card that must be unambiguous carry two identical ember clocks
     d.text((W - x - 2 - d.textlength(t, font=f), y - 2), t, font=f, fill=C_TXT)
     y += 24
-    d.line([x, y, W - x, y], fill=C_SEP, width=1)
+    d.line([x, y, W - x, y], fill=C_LINE, width=1)
     y += 8
     lf = _wfont(12, 1)
     for ln in _wwrap(d, dead.get("line") or "", lf, wrapw - 4):
         d.text((x + 2, y), ln, font=lf, fill=tone)
         y += 17
     for ln in _wwrap(d, dead.get("sub") or "", _wfont(10), wrapw - 4):
-        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
     buy = next((t_ for k, t_ in (rec.get("lines") or []) if k in ("core", "build")), None) if rec else None
     if buy:
@@ -447,7 +469,7 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
     player is DEAD the whole body is replaced by the single RESPAWN card — being dead is
     the moment to reduce density, not add to it."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (W, 720), C_BG)
+    img = Image.new("RGB", (W, 720), C_VOID)
     d = ImageDraw.Draw(img)
     y, x = 6, 10
     wrapw = W - 2 * x
@@ -461,9 +483,9 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
     wp = pulse.get("winprob")
     if wp:
         t = f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%"
-        f = _wfont(11, 1)
+        f = _dfont(12, bold=True)                 # a number (win%) - display face, +1pt
         cw = int(d.textlength(t, font=f)) + 14
-        _chip(d, W - x - cw, y + 2, t, C_GRN if wp["ahead"] else C_RED, (28, 33, 46), f)
+        _chip(d, W - x - cw, y + 2, t, C_GOOD if wp["ahead"] else C_BAD, C_SURFACE, f)
     y += 26
 
     # ---- tempo directive card ----
@@ -472,13 +494,13 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
         # routine farm reminder: a plain quiet row - the bordered card is reserved for
         # phases that are actually a decision (v0.2.93: farm lines stand alone)
         for ln in _wwrap(d, tempo["line"], _wfont(11), wrapw - 4):
-            d.text((x + 2, y), ln, font=_wfont(11), fill=C_MUT)
+            d.text((x + 2, y), ln, font=_wfont(11), fill=C_MUTED)
             y += 15
         y += 5
     elif tempo:
         pc = _PHASE_C.get(tempo["phase"], C_TXT)
-        tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_BG, pc))
-        lf = _wfont(12, 1)
+        tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_VOID, pc))
+        lf = _dfont(12, bold=True)                # verdict text: bold display face (TAKE/GIVE/50-50 etc.)
         lines = _wwrap(d, tempo["line"], lf, wrapw - 20)
         subs = []
         if tempo.get("sub") and tempo["phase"] in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH"):
@@ -491,21 +513,21 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
             yy += 17
         yy += 3
         for ln in subs:
-            d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUT)
+            d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUTED)
             yy += 14
         y += ch + 7
 
     # ---- GHOST pace row: you vs your best game on this champ (speedrun-timer style).
-    # One ambient line: glows gold while ahead, dims to a whisper when behind (a timer,
+    # One ambient line: glows ember while ahead, dims to a whisper when behind (a timer,
     # not a nag); a crossed split briefly replaces it with the split result.
     if ghost:
         if ghost.get("split"):
             txt, ok = ghost["split"]
-            gcol, gtxt = (C_GRN if ok else C_RED), f"★ {txt}"
+            gcol, gtxt = (C_GOOD if ok else C_BAD), f"★ {txt}"
         elif ghost["status"] == "first":
-            gcol, gtxt = C_MUT, "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
+            gcol, gtxt = C_MUTED, "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
         else:
-            gcol = C_GOLD if ghost["status"] == "ahead" else C_MUT
+            gcol = C_EMBER if ghost["status"] == "ahead" else C_MUTED
             gtxt = "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
         d.text((x + 2, y), gtxt, font=_tfont(gtxt, 10, ghost["status"] == "ahead"), fill=gcol)
         y += 17
@@ -517,12 +539,12 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
         objs = [o for o in objs if o.get("label") != tempo["obj"]]
     if objs:
         cx = x
-        f = _wfont(10, 1)
+        f = _dfont(11, bold=True)                  # timers - display face, +1pt over the old 10
         for o in objs[:3]:
             up = o["secs"] <= 0
             t = f"{o['label']} UP" if up else f"{o['label']} {o['secs'] // 60}:{o['secs'] % 60:02d}"
-            fg = C_GOLD if up or o.get("urgent") else (C_TEAL if o.get("setup") else C_MUT)
-            cx += _chip(d, cx, y, t, fg, C_CARD, f) + 6
+            fg = C_EMBER if up or o.get("urgent") else (C_ARC if o.get("setup") else C_MUTED)
+            cx += _chip(d, cx, y, t, fg, C_SURFACE, f) + 6
         y += 24
 
     # ---- intel rows (one font, one glyph column) ----
@@ -538,20 +560,20 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
         s = jg.get("state")
         if s == "dead":
             r = jg.get("respawn") or 0
-            rows.append(("⌖", f"{jg['champ']} DEAD{f' — back {r}s' if r else ''} · free map", C_GRN, 1))
+            rows.append(("⌖", f"{jg['champ']} DEAD{f' — back {r}s' if r else ''} · free map", C_GOOD, 1))
         elif s == "seen":
-            rows.append(("⌖", f"{jg['champ']} seen {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago", C_TEAL, 1))
+            rows.append(("⌖", f"{jg['champ']} seen {str(jg['side']).upper()} · {jg['what']} {jg['ago']}s ago", C_ARC, 1))
         elif s == "nosign":
-            rows.append(("⌖", f"{jg['champ']} NO SIGN {jg['idle']}s — respect the gank", C_RED, 1))
+            rows.append(("⌖", f"{jg['champ']} NO SIGN {jg['idle']}s — respect the gank", C_BAD, 1))
         elif s == "moving":
-            rows.append(("⌖", f"{jg['champ']} on the move ({jg.get('idle', 0)}s quiet)", C_GOLD, 0))
+            rows.append(("⌖", f"{jg['champ']} on the move ({jg.get('idle', 0)}s quiet)", C_EMBER, 0))
         elif s == "farming":
-            rows.append(("⌖", f"{jg['champ']} farm registered", C_MUT, 0))
+            rows.append(("⌖", f"{jg['champ']} farm registered", C_MUTED, 0))
     gk = pulse.get("gank")
     if gk:
-        rows.append(("◎", f"gank {gk['lane'].lower()} — {gk['champ']} {gk['lvl']} vs {gk['vs_lvl']}", C_GRN, 1))
+        rows.append(("◎", f"gank {gk['lane'].lower()} — {gk['champ']} {gk['lvl']} vs {gk['vs_lvl']}", C_GOOD, 1))
     if sp:
-        rows.append(("⚠", f"{sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}", C_RED, 0))
+        rows.append(("⚠", f"{sp['name']} spiked · {sp['items']} items · {sp['k']}/{sp['d']}", C_BAD, 0))
     for glyph, text, col, bold in rows:
         d.text((x + 2, y), glyph, font=_tfont(glyph, 10), fill=col)
         for ln in _wwrap(d, text, _wfont(10, bold), wrapw - 20):
@@ -562,11 +584,11 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
 
     # ---- items (reference block, visually quieter) ----
     if recall or rec_lines:
-        d.line([x, y, W - x, y], fill=C_SEP, width=1)
+        d.line([x, y, W - x, y], fill=C_LINE, width=1)
         y += 7
     if recall:
         g = recall.get("gap", 0)
-        rc = C_GOLD if g == 0 else (C_TEAL if g <= 350 else C_MUT)
+        rc = C_EMBER if g == 0 else (C_ARC if g <= 350 else C_MUTED)
         t = "⌂ " + recall["text"]
         for ln in _wwrap(d, t, _tfont(t, 10, 1), wrapw):
             d.text((x, y), ln, font=_tfont(ln, 10, 1), fill=rc)
@@ -598,11 +620,11 @@ _LEGEND_PHASES = (
     ("FARM",  "nothing live yet — farm to the deadline"),
 )
 _LEGEND_GLYPHS = (
-    ("⌖", C_TEAL, "enemy jungler tracker — seen / no sign / dead"),
-    ("◎", C_GRN,  "gank window — a lane is killable right now"),
-    ("⚠", C_RED,  "power spike — an enemy just completed items"),
-    ("⌂", C_GOLD, "recall read — your next buy is ready"),
-    ("★", C_GOLD, "GHOST — pace vs your best game on this champ (gold = ahead)"),
+    ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
+    ("◎", C_GOOD,  "gank window — a lane is killable right now"),
+    ("⚠", C_BAD,  "power spike — an enemy just completed items"),
+    ("⌂", C_EMBER, "recall read — your next buy is ready"),
+    ("★", C_EMBER, "GHOST — pace vs your best game on this champ (amber = ahead)"),
 )
 _LEGEND_ITEMS = (
     ("core",     "core — your main build path"),
@@ -615,7 +637,7 @@ _LEGEND_ITEMS = (
 
 def _render_legend(W=330):
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (W, 1200), C_BG)
+    img = Image.new("RGB", (W, 1200), C_VOID)
     d = ImageDraw.Draw(img)
     x, y = 10, 8
     wrapw = W - 2 * x
@@ -624,38 +646,39 @@ def _render_legend(W=330):
         nonlocal y
         if y > 12:
             y += 5
-            d.line([x, y, W - x, y], fill=C_SEP, width=1)
+            d.line([x, y, W - x, y], fill=C_LINE, width=1)
             y += 8
-        d.text((x, y), title, font=_wfont(9, 1), fill=C_GOLD)
+        d.text((x, y), title, font=_wfont(9, 1), fill=C_EMBER)
         y += 17
 
-    def row(tag, tagcol, text, tagw, bold=True):
+    def row(tag, tagcol, text, tagw, bold=True, dfont=False):
         nonlocal y
-        d.text((x + 2, y), tag, font=_tfont(tag, 10, bold), fill=tagcol)
+        tf = _dfont(11, bold=True) if dfont else _tfont(tag, 10, bold)   # verdicts: display face
+        d.text((x + 2, y), tag, font=tf, fill=tagcol)
         for ln in _wwrap(d, text, _wfont(10), wrapw - tagw - 4):
-            d.text((x + 2 + tagw, y), ln, font=_wfont(10), fill=C_MUT)
+            d.text((x + 2 + tagw, y), ln, font=_wfont(10), fill=C_MUTED)
             y += 14
         y += 3
 
     section("TEMPO — THE CARD'S COLOR IS THE CALL")
     for ph, txt in _LEGEND_PHASES:
-        row(ph, _PHASE_C.get(ph, C_TXT), txt, 46)
+        row(ph, _PHASE_C.get(ph, C_TXT), txt, 46, dfont=True)
 
     section("INTEL")
     for g, col, txt in _LEGEND_GLYPHS:
         row(g, col, txt, 20)
 
     section("CHIPS")
-    f = _wfont(10, 1)
+    f = _dfont(11, bold=True)
     cx = x
-    cx += _chip(d, cx, y, "WIN 61%", C_GRN, (28, 33, 46), f) + 6
-    cx += _chip(d, cx, y, "Drake 1:20", C_MUT, C_CARD, f) + 6
-    _chip(d, cx, y, "Drake UP", C_GOLD, C_CARD, f)
+    cx += _chip(d, cx, y, "WIN 61%", C_GOOD, C_SURFACE, f) + 6
+    cx += _chip(d, cx, y, "Drake 1:20", C_MUTED, C_SURFACE, f) + 6
+    _chip(d, cx, y, "Drake UP", C_EMBER, C_SURFACE, f)
     y += 25
     for txt in ("WIN / BEHIND — live power read from gold + XP + drakes; never rank or winrate.",
-                "objective timers — gold = UP or urgent · teal = your setup window."):
+                "objective timers — amber = UP or urgent · cyan = your setup window."):
         for ln in _wwrap(d, txt, _wfont(10), wrapw - 4):
-            d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+            d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
             y += 14
         y += 3
 
@@ -667,7 +690,7 @@ def _render_legend(W=330):
     section("RESPAWN")
     for ln in _wwrap(d, "while dead, everything collapses to one card: your respawn countdown, "
                         "the play for when you're back, and the buy.", _wfont(10), wrapw - 4):
-        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
     return img.crop((0, 0, W, y + 10))
 
@@ -724,39 +747,48 @@ def main():
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.attributes("-alpha", 0.96)
-    root.configure(bg=SEP)                               # 1px edge via padding
-    outer = tk.Frame(root, bg=BG)
+    root.configure(bg=LINE_SOFT)                         # 1px edge via padding
+    outer = tk.Frame(root, bg=VOID)
     outer.pack(padx=1, pady=1, fill="both", expand=True)
 
-    hdr = tk.Frame(outer, bg=PANEL)                      # header strip
+    hdr = tk.Frame(outer, bg=SURFACE)                     # header strip
     hdr.pack(fill="x")
-    # Header restyle (v0.9.1 council): the strip stays — it's the drag handle plus live
-    # controls — but it stops dressing like a title bar. One gold ◆ carries the identity;
-    # the wordmark and every control rest at MUTED and only brighten under the cursor.
-    tk.Label(hdr, text=" ◆", font=("Segoe UI", 8), fg=GOLD, bg=PANEL).pack(side="left")
-    tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=MUTED, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
-    close = tk.Label(hdr, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+    # Header (Duskfall, docs/UIDESIGN.md §5.3): the strip stays — it's the drag handle plus
+    # live controls — but now carries the '✦ SMITELESS TEMPO' brand row instead of a bare
+    # glyph. Every control still rests at MUTED and only brightens under the cursor.
+    tk.Label(hdr, text=" " + skin.BRAND_MARK, font=skin.display(skin.SMALL, bold=True),
+             fg=EMBER, bg=SURFACE).pack(side="left")
+    tk.Label(hdr, text=" SMITELESS", font=skin.display(skin.SMALL, bold=True), fg=TXT,
+             bg=SURFACE).pack(side="left")
+    tk.Label(hdr, text=" TEMPO", font=skin.display(skin.SMALL), fg=MUTED,
+             bg=SURFACE).pack(side="left")
+    # Live dot: ARC while a live game is actually being polled, FAINT the rest of the time
+    # (waiting for a live game). Wired in render() below - that's the one place the widget
+    # already knows which state it's in.
+    live_dot = tk.Label(hdr, text="●", font=skin.body(8), fg=FAINT, bg=SURFACE)
+    live_dot.pack(side="left", padx=(4, 0))
+    close = tk.Label(hdr, text="✕ ", font=skin.body(9, bold=True), fg=MUTED, bg=SURFACE, cursor="hand2")
     close.pack(side="right")
     close.bind("<Enter>", lambda e: close.config(fg=TXT))
     close.bind("<Leave>", lambda e: close.config(fg=MUTED))
     # LEGEND — the one "?" this HUD is allowed. Click: a reference card opens beside the
     # widget decoding every phase color, glyph, chip and item tag; click again to dismiss.
     # Auto-opens ONCE on first run (see render's waiting branch), then it's pull-only.
-    helpb = tk.Label(hdr, text="?", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+    helpb = tk.Label(hdr, text="?", font=skin.body(9, bold=True), fg=MUTED, bg=SURFACE, cursor="hand2")
     helpb.pack(side="right", padx=(0, 4))
     # Drake chime mute — click to silence the 45/30/15 drake cues for THIS game (resets next
-    # game). Struck-through red note = muted; gold note = alerts on. (Settings has a permanent off.)
-    mute = tk.Label(hdr, text="♪", font=("Segoe UI", 10, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+    # game). Struck-through red note = muted; ember note = alerts on. (Settings has a permanent off.)
+    mute = tk.Label(hdr, text="♪", font=skin.body(10, bold=True), fg=MUTED, bg=SURFACE, cursor="hand2")
     mute.pack(side="right", padx=(0, 2))
 
     def _toggle_mute(*_):
         st["muted"] = not st.get("muted", False)
         if st["muted"]:
-            mute.config(fg=RED, font=("Segoe UI", 10, "bold", "overstrike"))
+            mute.config(fg=BAD, font=(skin.FONT_BODY, 10, "bold", "overstrike"))
         else:
-            mute.config(fg=MUTED, font=("Segoe UI", 10, "bold"))
+            mute.config(fg=MUTED, font=skin.body(10, bold=True))
     mute.bind("<Button-1>", _toggle_mute)
-    mute.bind("<Enter>", lambda e: st.get("muted") or mute.config(fg=GOLD))
+    mute.bind("<Enter>", lambda e: st.get("muted") or mute.config(fg=EMBER))
     mute.bind("<Leave>", lambda e: st.get("muted") or mute.config(fg=MUTED))
 
     # Volume slider — live control for the voice callouts + drake chime (0 = silent).
@@ -766,8 +798,8 @@ def main():
         st["vol"] = int(float(v))
 
     vol = tk.Scale(hdr, from_=0, to=100, orient="horizontal", showvalue=0, length=62,
-                   width=7, sliderlength=12, bd=0, highlightthickness=0, bg=PANEL,
-                   troughcolor=SEP, activebackground=GOLD, cursor="hand2", command=_on_vol)
+                   width=7, sliderlength=12, bd=0, highlightthickness=0, bg=SURFACE,
+                   troughcolor=LINE_SOFT, activebackground=EMBER, cursor="hand2", command=_on_vol)
     vol.set(st["vol"])
     # the slider is the noisiest header element — it appears only while the cursor is
     # over the widget (the pump's pointer check below packs/unpacks it)
@@ -784,12 +816,13 @@ def main():
 
     # the body is ONE drawn image (see _render_body) — a HUD, not a stack of text labels.
     from PIL import Image, ImageTk
-    champ = tk.Label(outer, text="waiting for a live game…", font=("Segoe UI Semibold", 11),
-                     fg=MUTED, bg=BG, anchor="w")
+    champ = tk.Label(outer, text="waiting for a live game…", font=skin.body(11, bold=True),
+                     fg=MUTED, bg=VOID, anchor="w")
     champ.pack(fill="x", padx=10, pady=(6, 7))
-    shot = tk.Label(outer, bg=BG, bd=0)
+    shot = tk.Label(outer, bg=VOID, bd=0)
 
     def render(rec, pulse=None, recall=None, ghost=None, dead=None):
+        live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
             shot.pack_forget()
             champ.config(text="waiting for a live game…", fg=MUTED)
@@ -880,18 +913,20 @@ def main():
         lg.overrideredirect(True)
         lg.attributes("-topmost", True)
         lg.attributes("-alpha", 0.96)
-        lg.configure(bg=SEP)
-        lo = tk.Frame(lg, bg=BG)
+        lg.configure(bg=LINE_SOFT)
+        lo = tk.Frame(lg, bg=VOID)
         lo.pack(padx=1, pady=1, fill="both", expand=True)
-        lh = tk.Frame(lo, bg=PANEL)
+        lh = tk.Frame(lo, bg=SURFACE)
         lh.pack(fill="x")
-        tk.Label(lh, text=" ◆", font=("Segoe UI", 8), fg=GOLD, bg=PANEL).pack(side="left")
-        tk.Label(lh, text="LEGEND", font=("Segoe UI Semibold", 8), fg=GOLD,
-                 bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
-        lx = tk.Label(lh, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+        # same '✦ SMITELESS <SUFFIX>' brand treatment as the main header (§4/§5.3), suffix LEGEND
+        tk.Label(lh, text=" " + skin.BRAND_MARK, font=skin.display(skin.SMALL, bold=True),
+                 fg=EMBER, bg=SURFACE).pack(side="left")
+        tk.Label(lh, text=" LEGEND", font=skin.display(skin.SMALL, bold=True), fg=EMBER,
+                 bg=SURFACE).pack(side="left", padx=(0, 3), pady=3)
+        lx = tk.Label(lh, text="✕ ", font=skin.body(9, bold=True), fg=MUTED, bg=SURFACE, cursor="hand2")
         lx.pack(side="right")
         lx.bind("<Button-1>", toggle_legend)
-        body = tk.Label(lo, bg=BG, bd=0)
+        body = tk.Label(lo, bg=VOID, bd=0)
         lim = _render_legend()
         ls = _wscale(root)                               # legend follows the widget's scale
         if ls < 0.999:
@@ -913,7 +948,7 @@ def main():
             w.bind("<Button-1>", lpress)
             w.bind("<B1-Motion>", lmove)
         st["legend"] = lg
-        helpb.config(fg=GOLD)
+        helpb.config(fg=EMBER)
         # place beside the widget: right of it, flipping left / clamping on-screen
         lg.update_idletasks()
         lw, lht = lg.winfo_reqwidth(), lg.winfo_reqheight()
@@ -930,8 +965,8 @@ def main():
         show_no_activate(hw)
 
     helpb.bind("<Button-1>", toggle_legend)
-    helpb.bind("<Enter>", lambda e: helpb.config(fg=GOLD))
-    helpb.bind("<Leave>", lambda e: helpb.config(fg=GOLD if _legend_open() else MUTED))
+    helpb.bind("<Enter>", lambda e: helpb.config(fg=EMBER))
+    helpb.bind("<Leave>", lambda e: helpb.config(fg=EMBER if _legend_open() else MUTED))
 
     # --- live polling off the UI thread ---
     q = queue.Queue()
