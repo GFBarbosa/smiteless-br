@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.2
+- **Your profile now opens without the League client running.** The client was only ever needed for one thing: asking the LCU who you are. Smiteless now remembers that answer whenever the client is open, so from then on the Profile window works entirely off the Riot Web API — rank, match history, grades, session read, everything — game closed. Just open Profile from the tray whenever you feel like looking. (One-time note: it learns who you are the next time the client is open; after that, never again. If you ever log into a different account, it re-learns on the next client sighting.)
+
 ## v0.9.1
 - **One skin, every window (council pick: the Naturalist, 27/70 Borda points from 14 ballots).** Smiteless's five windows had five hand-copied palettes that quietly drifted apart — Profile's background was a different black, Settings had its own red, the widget's header its own panel tone. All colors now live in one module (`core/smiteskin.py`) and every window draws from it, so the app finally reads as one product — and can never drift again.
 - **The white title bars are gone.** Profile, Settings, and Patch Notes keep their real Windows title bars (drag/snap/minimize all intact) but Windows 11 now paints them Smiteless-black with a matching border — the single biggest "why does this look off" fix, done natively with zero custom chrome.

@@ -196,7 +196,9 @@ def main():
                        "ARAM/Arena don't show here. If that seems wrong, your Riot key may "
                        "have expired (Settings → Riot API Key).")
             else:
-                msg = "couldn't read your profile — is the League client open, with a Riot key set?"
+                msg = ("couldn't tell who you are yet — open the League client once (Smiteless "
+                       "remembers you after that, so the profile works with the client closed) "
+                       "and check the Riot key in Settings.")
             canvas.create_text(sc.PW // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.PW - 100)
             return
         st["prof"] = prof

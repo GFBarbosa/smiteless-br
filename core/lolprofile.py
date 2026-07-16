@@ -164,21 +164,51 @@ def _coach(champs):
     return out or None
 
 
-def current_riot_id():
-    """'GameName#TAG' of the logged-in summoner via the LCU, or None if the client is closed."""
-    lf = phasecheck._lockfile()
-    if not lf:
-        return None
+# The one thing the League client was ever needed for here is telling us WHO you are.
+# Remember that answer, and the whole profile works with the client closed - everything
+# else (rank, matches, grades) is pure Riot Web API.
+_RID_FILE = os.path.expanduser("~/.claude/smiteless_last_riot_id.txt")
+
+
+def _remember_rid(rid):
     try:
-        _n, _p, port, pw, _proto = open(lf).read().split(":")
-        auth = base64.b64encode(f"riot:{pw}".encode()).decode()
-        req = urllib.request.Request(
-            f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
-            headers={"Authorization": f"Basic {auth}", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=4, context=_ctx) as r:
-            d = json.load(r)
-        gn, tl = d.get("gameName"), d.get("tagLine")
-        return f"{gn}#{tl}" if gn and tl else None
+        os.makedirs(os.path.dirname(_RID_FILE), exist_ok=True)
+        with open(_RID_FILE, encoding="utf-8") as f:
+            if f.read().strip() == rid:
+                return
+    except Exception:
+        pass
+    try:
+        with open(_RID_FILE, "w", encoding="utf-8") as f:
+            f.write(rid)
+    except Exception:
+        pass
+
+
+def current_riot_id():
+    """'GameName#TAG' of the logged-in summoner via the LCU when the client is open —
+    remembered to disk, so with the client CLOSED the last-known identity answers instead.
+    None only on a fresh install that has never seen the client."""
+    lf = phasecheck._lockfile()
+    if lf:
+        try:
+            _n, _p, port, pw, _proto = open(lf).read().split(":")
+            auth = base64.b64encode(f"riot:{pw}".encode()).decode()
+            req = urllib.request.Request(
+                f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
+                headers={"Authorization": f"Basic {auth}", "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=4, context=_ctx) as r:
+                d = json.load(r)
+            gn, tl = d.get("gameName"), d.get("tagLine")
+            if gn and tl:
+                rid = f"{gn}#{tl}"
+                _remember_rid(rid)
+                return rid
+        except Exception:
+            pass
+    try:                                          # client closed / mid-restart -> last known you
+        rid = open(_RID_FILE, encoding="utf-8").read().strip()
+        return rid if "#" in rid else None
     except Exception:
         return None
 
@@ -527,7 +557,8 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,
     LP trend and the tilt nudge are self-only (they come from the local snapshot history).
-    None if we can't tell who you are (client closed)."""
+    Works with the client closed (identity is remembered from the last client sighting);
+    None only if we've NEVER been able to tell who you are (fresh install, client closed)."""
     key = key or ls.read_key()
     if not key:
         return {"error": "no Riot API key — add one in Settings"}
