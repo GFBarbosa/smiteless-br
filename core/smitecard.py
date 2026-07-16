@@ -350,9 +350,9 @@ def get_splash(dd, cid, size):
                 continue
         if base is None:
             return None
-        if len(_SPLASH_RAW) >= 4:       # full splashes are ~2.6MB each; keep only a handful
-            _SPLASH_RAW.clear()
-        if len(_SPLASH) >= 12:          # cropped variants too (a few hundred KB each)
+        if len(_SPLASH_RAW) >= 10:      # full splashes are ~2.6MB each; the profile hero +
+            _SPLASH_RAW.clear()         # six pool cards live here, so keep a real working set
+        if len(_SPLASH) >= 28:          # cropped variants too (a few hundred KB each)
             _SPLASH.clear()
         _SPLASH_RAW[cid] = base
     try:
@@ -1014,198 +1014,323 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
     return {"review": (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), "players": player_hits}
 
 
+def _mix(c1, c2, f):
+    """Blend c1 toward c2 by f (0..1)."""
+    return tuple(int(a + (b - a) * f) for a, b in zip(c1, c2))
+
+
+def _vshade(img, box, color, a0, a1):
+    """Vertical alpha ramp of a solid color over box: a0 opacity at the top edge -> a1 at
+    the bottom (0-255). The cheap PIL way to art-direct splash art into a background."""
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return
+    ramp = Image.new("L", (1, h))
+    ramp.putdata([int(a0 + (a1 - a0) * (i / max(1, h - 1))) for i in range(h)])
+    img.paste(color, (x0, y0, x1, y1), ramp.resize((w, h)))
+
+
+def _hshade(img, box, color, a0, a1):
+    """Horizontal twin of _vshade: a0 opacity at the left edge -> a1 at the right."""
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return
+    ramp = Image.new("L", (w, 1))
+    ramp.putdata([int(a0 + (a1 - a0) * (i / max(1, w - 1))) for i in range(w)])
+    img.paste(color, (x0, y0, x1, y1), ramp.resize((w, h)))
+
+
+def _area_spark(d, x0, y0, w, h, vals, col):
+    """Filled area sparkline (line + soft fill + endpoint dot) - the stat tiles' pulse."""
+    if not vals or len(vals) < 2:
+        return
+    lo, hi = min(vals), max(vals)
+    rng = max(1e-6, float(hi - lo))
+    n = len(vals)
+    pts = [(x0 + i / (n - 1) * w, y0 + h - 1 - (v - lo) / rng * (h - 4)) for i, v in enumerate(vals)]
+    d.polygon([(x0, y0 + h)] + pts + [(x0 + w, y0 + h)], fill=_dim(col, 0.24))
+    try:
+        d.line(pts, fill=_dim(col, 0.9), width=2, joint="curve")
+    except Exception:
+        d.line(pts, fill=_dim(col, 0.9), width=2)
+    ex, ey = pts[-1]
+    d.ellipse((ex - 2.5, ey - 2.5, ex + 2.5, ey + 2.5), fill=col)
+
+
+def _ring(d, cx, cy, r, frac, col, width=8):
+    """Progress ring: full track in SUNKEN, then the arc from 12 o'clock."""
+    box = (cx - r, cy - r, cx + r, cy + r)
+    try:
+        d.arc(box, 0, 360, fill=_mix(SUNKEN, MUTED, 0.18), width=width)
+        if frac > 0:
+            d.arc(box, -90, -90 + 360 * min(1.0, frac), fill=col, width=width)
+    except Exception:
+        pass
+
+
+def _grade_of(avg):
+    """(letter, color) for an average game score, same bands as per-game letters."""
+    for lo, letter in ((115, "S+"), (100, "S"), (85, "A"), (70, "B"), (55, "C")):
+        if avg >= lo:
+            return letter, GRADE_COLOR[letter]
+    return "D", GRADE_COLOR["D"]
+
+
 def render_profile(dd, p, expanded=None, details=None):
-    """The home page: rank, recent form, champ win rates, and per-game scores graded vs the
-    lobby. Carded; games in `expanded` (indices) show the 10-player breakdown from `details`
-    (mid -> parts). Sets img.hit_games = [(y0, y1, index)] for click-to-expand."""
+    """The home page, Duskfall hero edition: a full-bleed splash hero (name, rank, score
+    ring, form bars), five sparkline stat tiles, the PATTERNS + PERSONAL BESTS panels, a
+    splash-art champion pool, and the graded match list with item builds. Games in
+    `expanded` (indices) show the 10-player breakdown from `details` (mid -> parts).
+    Sets img.hit_games = [(y0, y1, index)] for click-to-expand."""
     W = PW                                        # landscape layout: everything below uses the wide width
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
-    HEAD, CHAMPS, BAND, STATS = 132, 96, 30, 26
-    games_top = HEAD + BAND + STATS + CHAMPS + 34
+
+    # ---- vertical plan (top to bottom) ----
+    HERO = 292
+    sess_y = HERO + 12                            # session/coach strip
+    tiles_y = sess_y + 30                         # five stat tiles
+    tile_h = 100
+    panels_y = tiles_y + tile_h + 16              # PATTERNS + PERSONAL BESTS
+    panel_h = 186
+    pool_y = panels_y + panel_h + 18              # champion pool rule
+    pool_h = 168
+    games_rule = pool_y + 26 + pool_h + 20        # RECENT GAMES rule
+    games_top = games_rule + 26
     H = games_top + 16
     for i in range(len(games)):
-        H += 50 + (DETAIL_H + 8 if i in expanded else 0)
+        H += 56 + (DETAIL_H + 8 if i in expanded else 0)
+    H += 52                                        # in-image Load more
     H = max(H, games_top + 60)
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
-    # ---- header card ----
-    hx0, hy0, hx1, hy1 = 14, 12, W - 14, 122
-    _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=PCARD, outline=None, width=1)
-    best = (p.get("champs") or [{}])[0].get("champ")
-    if not best:
-        best = (p.get("games") or [{}])[0].get("champ")
+    # ============================ HERO ============================
+    best = (p.get("champs") or [{}])[0].get("champ") or (games or [{}])[0].get("champ")
     best_cid = _champ_id_from_name(dd, best)
-    if best_cid:
-        bw, bh = (hx1 - hx0), (hy1 - hy0)
-        splash = get_splash(dd, best_cid, (bw, bh))
-        if not splash:
-            # Hard fallback: use champion square art stretched into the banner so it never renders flat/black.
-            fic = get_icon(dd, best_cid, 512)
-            if fic:
-                splash = fic.convert("RGB").resize((bw, bh), Image.LANCZOS)
-        if splash:
-            mask = Image.new("L", (bw, bh), 0)
-            md = ImageDraw.Draw(mask)
-            try:
-                md.rounded_rectangle((0, 0, bw, bh), radius=14, fill=255)
-            except Exception:
-                md.rectangle((0, 0, bw, bh), fill=255)
-            img.paste(splash, (hx0, hy0), mask)
-            shade_mask = mask.point(lambda v: int(v * 0.33))
-            img.paste(BG, (hx0, hy0, hx1, hy1), shade_mask)   # VOID -> transparent gradient (UIDESIGN §5.4)
-            # bottom gradient so the headline/sparkline sit on a readable base
-            gh = 46
-            grad = Image.new("L", (bw, gh), 0)
-            gd = ImageDraw.Draw(grad)
-            for yy_ in range(gh):
-                gd.line([(0, yy_), (bw, yy_)], fill=int(200 * (yy_ / gh)))
-            img.paste(BG, (hx0, hy1 - gh, hx1, hy1), grad)
-        else:
-            # Fallback: enlarge champ icon so the header never appears blank.
-            fic = get_icon(dd, best_cid, hy1 - hy0 - 8)
-            if fic:
-                img.paste(fic, (hx0 + 10, hy0 + 4), fic)
-    _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=None, outline=PEDGE, width=1)
-    name = p.get("riot_id", "?").split("#")[0]
-    d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
-    # rank as a tier-colored chip — rank + LP in Bahnschrift (UIDESIGN §5.4)
+    splash = get_splash(dd, best_cid, (W, HERO)) if best_cid else None
+    if splash:
+        img.paste(splash, (0, 0))
+        img.paste(BG, (0, 0, W, HERO), Image.new("L", (W, HERO), 66))   # global veil
+        _vshade(img, (0, 0, W, 90), BG, 150, 0)                          # settle the top edge
+        _vshade(img, (0, HERO - 190, W, HERO), BG, 0, 244)               # readable base
+        _hshade(img, (0, 0, 560, HERO), BG, 165, 0)                      # name block ground
+    else:
+        _vshade(img, (0, 0, W, HERO), RAISED, 255, 0)
+    d.line([(0, HERO - 1), (W, HERO - 1)], fill=_dim(GOLD, 0.55), width=1)
+
+    name, _, tag = (p.get("riot_id") or "?").partition("#")
+    nf = name_font(40, name)
+    if d.textlength(name, font=nf) > 470:
+        nf = name_font(28, name)
+    d.text((36, 178), name, font=nf, fill=TEXT, anchor="ls")
+    if tag:
+        d.text((40 + d.textlength(name, font=nf), 178), f"#{tag}",
+               font=display_font(15, True), fill=MUTED, anchor="ls")
+    if best:
+        d.text((37, 108), f"✦ {best} MAIN" if (p.get("champs") or [{}])[0].get("g", 0) >= 3 else "✦ SMITELESS",
+               font=font(10, 1, "✦"), fill=_dim(GOLD, 0.95))
+    # chip row: rank / record / KDA
+    cy_, cx_ = 196, 36
     rs, rc = rank_str(p.get("rank"))
-    rf = display_font(16, True)
-    rw = d.textlength(rs, font=rf)
-    _rrect(d, (28, 54, 28 + rw + 18, 80), 10, fill=_dim(rc, 0.22), outline=_dim(rc, 0.6), width=1)
-    d.text((37, 58), rs, font=rf, fill=rc)
-    # avg KDA chip next to the rank (from the loaded games)
+    chips = [(rs, rc, _dim(rc, 0.20), _dim(rc, 0.6))]
+    chips.append((f"{p['wins']}W {p['losses']}L · {p['wr']}%",
+                  GREEN if p["wr"] >= 50 else REDWR, RAISED, PEDGE))
     av = p.get("avgs") or {}
     if av.get("kda") is not None:
-        kf = display_font(13, True)
-        ktxt = f"{av['kda']} KDA"
-        kw = d.textlength(ktxt, font=kf)
-        kx = 28 + rw + 28
-        _rrect(d, (kx, 56, kx + kw + 18, 78), 8, fill=RAISED, outline=PEDGE, width=1)
-        d.text((kx + 9, 59), ktxt, font=kf, fill=TAN)
-    # win bar + record
-    bx, by, bw2 = 30, 82, 230
-    _rrect(d, (bx, by, bx + bw2, by + 8), 4, fill=SUNKEN)
-    if p["wr"] > 0:
-        _rrect(d, (bx, by, bx + int(bw2 * min(1.0, p["wr"] / 100.0)), by + 8), 4,
-               fill=GREEN if p["wr"] >= 50 else REDWR)
-    d.text((bx + bw2 + 14, by - 4), f"{p['wins']}W {p['losses']}L  ·  {p['wr']}%  ·  last {p['n']}",
-           font=display_font(12, True), fill=TEXT)
-    # top-right avg score (color-only, no icon)
+        chips.append((f"{av['kda']} KDA", TAN, RAISED, PEDGE))
+    roles = p.get("roles") or {}
+    if roles:
+        pos, cnt = max(roles.items(), key=lambda kv: kv[1])
+        chips.append((f"{_POS_ABBR.get(pos, pos[:3])} {round(cnt / max(1, sum(roles.values())) * 100)}%",
+                      MUTED, RAISED, PEDGE))
+    cf = display_font(13, True)
+    for txt, fg, bgc, oc in chips:
+        cw_ = d.textlength(txt, font=cf)
+        _rrect(d, (cx_, cy_, cx_ + cw_ + 20, cy_ + 26), 13, fill=bgc, outline=oc, width=1)
+        d.text((cx_ + 10, cy_ + 4), txt, font=cf, fill=fg)
+        cx_ += cw_ + 30
+    # headline (coach's one-liner) on the hero's readable base
+    for ln in _wrap(_profile_headline(p), font(12), W - 640)[:2]:
+        d.text((36, cy_ + 42), ln, font=font(12), fill=TAN)
+        cy_ += 17
+
+    # right cluster: score ring + form bars + LP spark
     avg = int(p.get("avg_score", 0) or 0)
-    if avg >= 115:
-        sc_col = GRADE_COLOR["S+"]
-    elif avg >= 100:
-        sc_col = GRADE_COLOR["S"]
-    elif avg >= 85:
-        sc_col = GRADE_COLOR["A"]
-    elif avg >= 70:
-        sc_col = GRADE_COLOR["B"]
-    elif avg >= 55:
-        sc_col = GRADE_COLOR["C"]
-    else:
-        sc_col = GRADE_COLOR["D"]
-    d.text((W - 30, 30), str(p["avg_score"]), font=display_font(34, True), fill=sc_col, anchor="ra")
-    d.text((W - 30, 74), "AVG GAME SCORE", font=display_font(9, True), fill=MUTED, anchor="ra")
-    # headline
-    for ln in _wrap(_profile_headline(p), font(12), W - 360)[:1]:
-        d.text((30, 98), ln, font=font(12), fill=TAN)
-    # LP trend sparkline (bottom-right of the header card)
+    letter, sc_col = _grade_of(avg)
+    rcx, rcy, rr = W - 110, 128, 54
+    _ring(d, rcx, rcy, rr, avg / 120.0, sc_col, width=9)
+    d.text((rcx, rcy - 9), str(avg), font=display_font(30, True), fill=sc_col, anchor="mm")
+    d.text((rcx, rcy + 18), letter, font=display_font(13, True), fill=_dim(sc_col, 0.85), anchor="mm")
+    d.text((rcx, rcy + rr + 16), "AVG GAME SCORE", font=display_font(9, True), fill=MUTED, anchor="mm")
+    form = games[:10][::-1]                        # oldest -> newest, last ten
+    if form:
+        fx, fw, fgap, fbase = W - 350, 12, 5, 208
+        d.text((fx, fbase - 62), "FORM", font=display_font(9, True), fill=MUTED)
+        for g in form:
+            fh = 10 + int(36 * min(1.0, (g.get("score") or 0) / 110.0))
+            col = GREEN if g["win"] else RED
+            _rrect(d, (fx, fbase - fh, fx + fw, fbase), 3, fill=_dim(col, 0.9))
+            fx += fw + fgap
     trend = p.get("lp_trend") or []
     if len(trend) >= 2:
-        spw, sph, sy = 150, 18, 94
-        sx = W - 30 - spw
-        d.text((W - 30, sy - 12), "LP TREND", font=display_font(8, True), fill=MUTED, anchor="ra")
-        _sparkline(d, sx, sy, spw, sph, trend)
         net = trend[-1] - trend[0]
-        d.text((sx - 8, sy + sph // 2), f"{net:+d}", font=display_font(11, True),
-               fill=GREEN if net >= 0 else REDWR, anchor="rm")
+        d.text((W - 350, 232), "LP", font=display_font(9, True), fill=MUTED)
+        d.text((W - 36, 232), f"{net:+d}", font=display_font(11, True),
+               fill=GREEN if net >= 0 else REDWR, anchor="ra")
+        _area_spark(d, W - 350, 246, 314, 26, trend, ARC)
 
-    # ---- session + pool-coach band ----
-    _draw_session_coach(d, p, HEAD - 2)
+    # ============================ SESSION STRIP ============================
+    _draw_session_coach(d, p, sess_y)
 
-    # ---- averages strip: your numbers across the loaded games + role split ----
-    ay = HEAD + BAND - 2
-    av = p.get("avgs") or {}
-    if av:
-        f11 = display_font(11, True)              # the averages themselves are all numerals
-        d.text((20, ay), "AVG", font=display_font(11, True), fill=GOLD)
-        x = 58
-        for lab, val, col in (("KDA", f"{av.get('k', 0)}/{av.get('d', 0)}/{av.get('a', 0)}", TEXT),
-                              ("KP", f"{av.get('kp', 0)}%", TEXT),
-                              ("CS/M", f"{av.get('csm', 0)}", TEXT),
-                              ("DMG", f"{av.get('dmg_share', 0)}%", TEXT)):
-            d.text((x, ay), lab, font=font(10, 1), fill=MUTED)
-            x += d.textlength(lab, font=font(10, 1)) + 6
-            d.text((x, ay), val, font=f11, fill=col)
-            x += d.textlength(val, font=f11) + 22
-        roles = p.get("roles") or {}
-        if roles:
-            rx = W - 22
-            total = max(1, sum(roles.values()))
-            for pos, cnt in sorted(roles.items(), key=lambda kv: -kv[1])[:3]:
-                txt = f"{_POS_ABBR.get(pos, pos[:3])} {round(cnt / total * 100)}%"
-                d.text((rx, ay), txt, font=display_font(10, True), fill=MUTED, anchor="ra")
-                rx -= d.textlength(txt, font=display_font(10, True)) + 16
+    # ============================ STAT TILES ============================
+    seq = games[:20][::-1]                         # oldest -> newest for every tile spark
+    roll = []
+    for j in range(len(seq)):                      # rolling 5-game winrate
+        win5 = seq[max(0, j - 4):j + 1]
+        roll.append(sum(1 for g in win5 if g["win"]) / len(win5) * 100)
+    tiles = [
+        ("WINRATE", f"{p['wr']}%", (GREEN if p["wr"] >= 50 else REDWR), roll),
+        ("KDA", f"{av.get('kda', '—')}", TEXT,
+         [min(12.0, (g["k"] + g["a"]) / max(1, g["d"])) for g in seq]),
+        ("KILL PART.", f"{av.get('kp', '—')}%", TEXT, [g.get("kp") or 0 for g in seq]),
+        ("CS / MIN", f"{av.get('csm', '—')}", TEXT, [g.get("csm") or 0 for g in seq]),
+        ("DMG SHARE", f"{av.get('dmg_share', '—')}%", TEXT, [g.get("dmg_share") or 0 for g in seq]),
+    ]
+    tw = (W - 28 - 4 * 10) // 5
+    tx = 14
+    for lab, val, vcol, series in tiles:
+        _rrect(d, (tx, tiles_y, tx + tw, tiles_y + tile_h), 10, fill=PCARD, outline=PEDGE, width=1)
+        d.text((tx + 14, tiles_y + 11), lab, font=display_font(9, True), fill=MUTED)
+        d.text((tx + 14, tiles_y + 26), str(val), font=display_font(24, True), fill=vcol)
+        if len(series) >= 2:
+            _area_spark(d, tx + 14, tiles_y + tile_h - 32, tw - 28, 22, series, ARC)
+        tx += tw + 10
 
-    # ---- top champions ----
-    cy = HEAD + BAND + STATS + 6
-    ch_label = "TOP CHAMPIONS · THIS SEASON" if p.get("season_champs") else "TOP CHAMPIONS · RECENT"
+    # ============================ PATTERNS + PERSONAL BESTS ============================
+    lx0, lx1 = 14, 714
+    _rrect(d, (lx0, panels_y, lx1, panels_y + panel_h), 10, fill=PCARD, outline=PEDGE, width=1)
+    d.text((lx0 + 16, panels_y + 12), "PATTERNS", font=display_font(11, True), fill=GOLD)
+    d.text((lx0 + 16 + d.textlength("PATTERNS", font=display_font(11, True)) + 10, panels_y + 14),
+           "when you win, from your own history", font=font(9), fill=FAINT)
+    ins = p.get("insights") or []
+    if ins:
+        iy = panels_y + 40
+        for it in ins[:4]:
+            dot = GREEN if it.get("good") else RED
+            d.ellipse((lx0 + 18, iy + 5, lx0 + 26, iy + 13), fill=dot)
+            txt = _wrap(it["text"], font(11), lx1 - lx0 - 150)
+            d.text((lx0 + 36, iy), (txt[0] if txt else it["text"]), font=font(11), fill=TEXT)
+            d.text((lx1 - 16, iy), f"{it['wr']}% · {it['g']}g", font=display_font(11, True),
+                   fill=dot, anchor="ra")
+            iy += 35
+    else:
+        d.text((lx0 + 16, panels_y + 46),
+               "Patterns unlock as your timestamped history loads (about 10 games in).",
+               font=font(11), fill=MUTED)
+        d.text((lx0 + 16, panels_y + 66),
+               "They'll find things like: your late-night winrate, whether you tilt-queue, "
+               "and if you", font=font(10), fill=FAINT)
+        d.text((lx0 + 16, panels_y + 82),
+               "win the long games — measured, never guessed.", font=font(10), fill=FAINT)
+    rx0 = lx1 + 14
+    _rrect(d, (rx0, panels_y, W - 14, panels_y + panel_h), 10, fill=PCARD, outline=PEDGE, width=1)
+    d.text((rx0 + 16, panels_y + 12), "PERSONAL BESTS", font=display_font(11, True), fill=GOLD)
+    ry = panels_y + 38
+    for rec in (p.get("records") or [])[:5]:
+        rcid = dd["name2id"].get(dd["norm"](rec.get("champ") or ""))
+        ric = get_icon(dd, rcid, 22)
+        if ric:
+            img.paste(ric, (rx0 + 16, ry + 3), ric)
+        d.text((rx0 + 48, ry), rec["label"], font=display_font(10, True), fill=MUTED)
+        d.text((rx0 + 48, ry + 14), rec.get("sub", ""), font=font(9), fill=FAINT)
+        d.text((W - 30, ry + 4), rec["value"], font=display_font(14, True), fill=GOLD, anchor="ra")
+        ry += 29
+
+    # ============================ CHAMPION POOL ============================
+    ch_label = "CHAMPION POOL · THIS SEASON" if p.get("season_champs") else "CHAMPION POOL · RECENT"
     chf = display_font(13, True)
-    d.text((20, cy), ch_label, font=chf, fill=GOLD)
-    d.line([40 + int(d.textlength(ch_label, font=chf)), cy + 7, W - 20, cy + 7],
+    d.text((20, pool_y), ch_label, font=chf, fill=GOLD)
+    d.line([34 + int(d.textlength(ch_label, font=chf)), pool_y + 8, W - 20, pool_y + 8],
            fill=LINE_SOFT, width=1)
-    nch = max(1, min(6, len(p.get("champs", [])) or 1))
-    cw = min(186, (W - 28) // nch)               # wider cards in the landscape layout
-    x = 14
-    for c in p.get("champs", [])[:6]:
-        cid = dd["name2id"].get(dd["norm"](c["champ"]))
-        _rrect(d, (x, cy + 18, x + cw - 8, cy + 66), 10, fill=PCARD, outline=PEDGE, width=1)
-        ic = get_icon(dd, cid, 36)
-        if ic:
-            img.paste(ic, (x + 10, cy + 24), ic)
-        d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=display_font(12, True), fill=TEXT)
-        wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
-        d.text((x + 54, cy + 42), f"{c['wr']}%", font=display_font(13, True), fill=wcol)
-        d.text((x + 92, cy + 44), f"{c['g']}g", font=display_font(10, True), fill=MUTED)
-        # mini win-rate bar along the card bottom
-        bw_ = cw - 28
-        _rrect(d, (x + 10, cy + 60, x + 10 + bw_, cy + 62), 1, fill=SUNKEN)
-        _rrect(d, (x + 10, cy + 60, x + 10 + int(bw_ * min(1.0, c["wr"] / 100.0)), cy + 62), 1, fill=_dim(wcol, 0.9))
-        if c.get("avg") is not None:
-            gcol = GRADE_COLOR["A"] if c["avg"] >= 85 else (GRADE_COLOR["B"] if c["avg"] >= 70 else MUTED)
-            d.text((x + cw - 16, cy + 25), str(c["avg"]), font=display_font(11, True), fill=gcol, anchor="ra")
-            d.text((x + cw - 16, cy + 40), "avg", font=font(8), fill=MUTED, anchor="ra")
-        x += cw
+    cards_y = pool_y + 26
+    pool = p.get("champs", [])[:6]
+    if pool:
+        cw = (W - 28 - (len(pool) - 1) * 10) // len(pool)
+        cw = min(cw, 220)
+        x = 14
+        for c in pool:
+            cid = dd["name2id"].get(dd["norm"](c["champ"]))
+            card_box = (x, cards_y, x + cw, cards_y + pool_h)
+            art = get_splash(dd, cid, (cw, pool_h)) if cid else None
+            if art:
+                mask = Image.new("L", (cw, pool_h), 0)
+                ImageDraw.Draw(mask).rounded_rectangle((0, 0, cw, pool_h), radius=12, fill=255)
+                img.paste(art, (x, cards_y), mask)
+                grad = Image.new("L", (1, pool_h))
+                grad.putdata([int(max(0, (i - pool_h * 0.30) / (pool_h * 0.70)) * 235) for i in range(pool_h)])
+                img.paste(BG, (x, cards_y, x + cw, cards_y + pool_h),
+                          Image.composite(grad.resize((cw, pool_h)), Image.new("L", (cw, pool_h), 0), mask))
+            else:
+                _rrect(d, card_box, 12, fill=PCARD2)
+            _rrect(d, card_box, 12, fill=None, outline=PEDGE, width=1)
+            nm = dd["id2name"].get(cid, c["champ"])
+            d.text((x + 13, cards_y + pool_h - 58), nm[:13], font=display_font(13, True), fill=TEXT)
+            wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
+            d.text((x + 13, cards_y + pool_h - 40), f"{c['wr']}%", font=display_font(19, True), fill=wcol)
+            d.text((x + cw - 12, cards_y + pool_h - 36), f"{c['g']}g", font=display_font(11, True),
+                   fill=MUTED, anchor="ra")
+            if c.get("avg") is not None:
+                gcol = GRADE_COLOR["A"] if c["avg"] >= 85 else (GRADE_COLOR["B"] if c["avg"] >= 70 else MUTED)
+                d.text((x + cw - 12, cards_y + pool_h - 52), f"{c['avg']} avg",
+                       font=display_font(10, True), fill=gcol, anchor="ra")
+            bw_ = cw - 26
+            _rrect(d, (x + 13, cards_y + pool_h - 13, x + 13 + bw_, cards_y + pool_h - 10), 1, fill=SUNKEN)
+            _rrect(d, (x + 13, cards_y + pool_h - 13,
+                       x + 13 + int(bw_ * min(1.0, c["wr"] / 100.0)), cards_y + pool_h - 10), 1,
+                   fill=_dim(wcol, 0.95))
+            x += cw + 10
+    else:
+        d.text((20, cards_y + 20), "play a few games and your pool shows up here",
+               font=font(11), fill=MUTED)
 
-    # ---- recent games ----
+    # ============================ RECENT GAMES ============================
     rg_f = display_font(13, True)
-    d.text((20, games_top - 22), "RECENT GAMES", font=rg_f, fill=GOLD)
-    rg_line_x = max(124, 30 + int(d.textlength("RECENT GAMES", font=rg_f)))
-    d.line([rg_line_x, games_top - 15, W - 350, games_top - 15], fill=LINE_SOFT, width=1)
-    d.text((W - 20, games_top - 21), "click a game to expand  ·  score = vs your role's goals",
+    d.text((20, games_rule), "RECENT GAMES", font=rg_f, fill=GOLD)
+    d.line([34 + int(d.textlength("RECENT GAMES", font=rg_f)), games_rule + 8, W - 350, games_rule + 8],
+           fill=LINE_SOFT, width=1)
+    d.text((W - 20, games_rule + 1), "click a game to expand  ·  score = vs your role's goals",
            font=font(10), fill=FAINT, anchor="ra")
     hit_games, hit_reviews, hit_players, yy = [], [], [], games_top
     for i, g in enumerate(games):
         acc = GREEN if g["win"] else RED
-        # railed card, not a flat zebra row (UIDESIGN §5.4): rail + card fill both carry result.
-        _railed_card(d, (14, yy, W - 14, yy + 44), acc, fill=SURFACE, outline=PEDGE, width=1, r=10)
+        # railed card with a whisper of the result color in the fill itself
+        _railed_card(d, (14, yy, W - 14, yy + 48), acc, fill=_mix(SURFACE, acc, 0.05),
+                     outline=PEDGE, width=1, r=10)
         cid = dd["name2id"].get(dd["norm"](g["champ"]))
-        ic = get_icon(dd, cid, 32)
+        ic = get_icon(dd, cid, 36)
         if ic:
-            img.paste(ic, (30, yy + 6), ic)
-        d.text((70, yy + 13), "W" if g["win"] else "L", font=display_font(15, True), fill=acc)
-        d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=display_font(13, True), fill=TEXT)
-        d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=display_font(11, True), fill=MUTED)
+            img.paste(ic, (28, yy + 6), ic)
+        d.text((76, yy + 7), dd["id2name"].get(cid, g["champ"])[:14], font=display_font(13, True), fill=TEXT)
+        d.text((76, yy + 27), f"{g['k']}/{g['d']}/{g['a']}", font=display_font(11, True), fill=MUTED)
+        kx = 80 + d.textlength(f"{g['k']}/{g['d']}/{g['a']}", font=display_font(11, True))
+        d.text((kx + 4, yy + 28), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(9, 1), fill=FAINT)
         gc = GRADE_COLOR.get(g["letter"], TAN)
-        _rrect(d, (330, yy + 9, 396, yy + 35), 13, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)  # pill
-        d.text((342, yy + 14), g["letter"], font=display_font(14, True), fill=gc)
-        d.text((371, yy + 16), str(g["score"]), font=display_font(12, True), fill=gc)
-        d.text((436, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
-        d.text((510, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        _rrect(d, (250, yy + 11, 318, yy + 37), 13, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
+        d.text((262, yy + 16), g["letter"], font=display_font(14, True), fill=gc)
+        d.text((291, yy + 18), str(g["score"]), font=display_font(12, True), fill=gc)
+        d.text((338, yy + 17), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
+        # the item build, right there on the row (op.gg-grade glanceability)
+        ix = 560
+        for iid in (g.get("items") or [])[:6]:
+            iic = get_item_icon(dd, iid, 24)
+            if iic:
+                _rrect(d, (ix - 1, yy + 11, ix + 24, yy + 36), 4, fill=SUNKEN)
+                img.paste(iic, (ix, yy + 12), iic)
+            ix += 27
         extra = []
         if (g.get("pos") or "").upper() == "UTILITY":     # a support's cs/min is noise: show vision
             if g.get("vision") and g.get("dur"):
@@ -1217,10 +1342,10 @@ def render_profile(dd, p, expanded=None, details=None):
         if g.get("dur"):
             extra.append(f"{int(g['dur'] // 60)}m")
         if extra:
-            d.text((W - 46, yy + 16), "  ·  ".join(extra), font=display_font(10, True), fill=FAINT, anchor="ra")
-        d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13, text="▾"), fill=MUTED, anchor="ra")
-        hit_games.append((yy, yy + 44, i))
-        yy += 50
+            d.text((W - 46, yy + 18), "  ·  ".join(extra), font=display_font(10, True), fill=FAINT, anchor="ra")
+        d.text((W - 26, yy + 17), "▾" if i in expanded else "▸", font=font(13, text="▾"), fill=MUTED, anchor="ra")
+        hit_games.append((yy, yy + 48, i))
+        yy += 56
         if i in expanded:
             det = details.get(g.get("mid")) or {}
             parts = det.get("parts")
@@ -1252,7 +1377,7 @@ def render_profile(dd, p, expanded=None, details=None):
     img.hit_reviews = hit_reviews
     img.hit_players = hit_players
     img.hitmap = []
-    img.profile_split_y = max(120, games_top - 30)   # top card stays fixed; games section scrolls
+    img.profile_split_y = HERO                    # the hero stays fixed; everything else scrolls
     return img
 
 

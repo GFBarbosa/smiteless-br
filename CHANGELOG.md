@@ -1,5 +1,14 @@
 # Smiteless — Patch Notes
 
+## v0.9.4
+- **The Profile is a whole new page.** Not a re-skin this time — a new board, drawn from scratch: a full-bleed splash of your main behind your name in real display type, your rank / record / KDA as chips, the average-score ring wearing its letter grade, your last ten games as form bars, and the LP trend as a live spark. The old cramped header card is gone entirely.
+- **PATTERNS — Smiteless now tells you WHEN you win.** A new out-of-game brain mines your own match timestamps for the habits behind your winrate: whether the queue after 11pm is robbing you, whether you tilt-queue straight after a loss, whether marathon sittings turn on you after game 2, whether you win the long games or the fast ones. It only speaks with a real sample (5+ games on the split) and a real gap (12+ points off your overall winrate), and every claim carries its receipt (`wr% · games`) right on the row. Nothing is guessed; if your history doesn't prove it, the panel stays quiet.
+- **PERSONAL BESTS.** Your records from the loaded games, each with the game as proof: best game (score + grade), best KDA (a deathless game reads PERFECT), most kills, longest win streak, fastest win.
+- **Stat tiles with a pulse.** Winrate, KDA, kill participation, CS/min and damage share each get a tile with a big Bahnschrift numeral and a per-game sparkline underneath — you can see a stat trending before you could ever feel it.
+- **Your champion pool is splash art now.** Six portrait cards with face-centered art, winrate in large type, games and average score on the card, a winrate bar along the base.
+- **Match rows show your item build.** Every recent game now carries its full six-slot build as icons on the row, op.gg-style, next to grade, role, verdict and pace stats. Rows got taller and calmer; wins and losses tint their own cards.
+- Match data now remembers when each game was played (needed for PATTERNS) — the first profile open after this update refetches your recent games once, so give it a few extra seconds.
+
 ## v0.9.3
 - **DUSKFALL — the whole UI, redesigned from scratch.** v0.9.1 unified the palette but kept its colors, so every window still looked like it always had. This time the things your eye actually keys on changed: the ground is now **violet ink** instead of blue-grey, the accent is a **hot ember amber** instead of muted gold, and a new **arcane cyan** owns everything live — timers, win%, sparklines — so identity and telemetry never fight over one color again. Full spec: `docs/UIDESIGN.md`.
 - **Numbers finally look like instruments.** Every header, champ name, score, timer, win rate and KDA is now set in Bahnschrift (the DIN-style face that ships with Windows 10/11) — the HUD reads like a cockpit, not a spreadsheet. Body text also grew from 8–9pt to 10pt.

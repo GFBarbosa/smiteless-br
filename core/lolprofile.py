@@ -6,6 +6,7 @@ lobby (how hard did you carry?). Pure Riot API via lolscout's rate-limited clien
 import os
 import time
 import json
+import datetime
 import ssl
 import math
 import base64
@@ -219,9 +220,12 @@ def match_detail(mid, key):
     if os.path.exists(fp):
         try:
             cached = json.load(open(fp))
+            if isinstance(cached, dict) and cached.get("skip"):
+                return cached                    # ARAM/remake verdicts are final - never refetch
             parts = cached.get("parts") if isinstance(cached, dict) else None
-            if not parts or any(("obj" not in p or "name" not in p) for p in parts):
-                cached = None  # old cache format (pre-objective / pre-name+items) -> refresh once
+            if (not parts or "ts" not in cached
+                    or any(("obj" not in p or "name" not in p) for p in parts)):
+                cached = None  # old cache format (pre-objective/name/timestamp) -> refresh once
             if cached is not None:
                 return cached
         except Exception:
@@ -260,7 +264,8 @@ def match_detail(mid, key):
             "items": [i for i in items if i],
             "pos": (p.get("teamPosition") or "").upper(),
         })
-    out = {"dur": info.get("gameDuration", 0), "parts": parts}
+    out = {"dur": info.get("gameDuration", 0), "parts": parts,
+           "ts": int(info.get("gameStartTimestamp") or info.get("gameCreation") or 0)}
     try:
         json.dump(out, open(fp, "w"))
     except Exception:
@@ -619,6 +624,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         games.append({"champ": mine["champ"], "win": mine["win"], "k": mine["k"], "d": mine["d"],
                       "a": mine["a"], "score": score, "letter": letter, "label": label,
                       "pos": mine["pos"], "mid": mid,
+                      "ts": d.get("ts", 0), "items": mine.get("items") or [],
                       "dur": d.get("dur", 0), "review": tips,
                       "review_kind": review.get("kind", "improve"),
                       "cs": mine.get("cs", 0), "csm": round(mine.get("cs", 0) / mins, 1),
@@ -679,7 +685,122 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
             "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
             "session": (None if other else _session(hist, games)),
-            "coach": _coach(champs), "lp_trend": trend, "climb": climb}
+            "coach": _coach(champs), "lp_trend": trend, "climb": climb,
+            "insights": _insights(games), "records": _records(games)}
+
+
+SESSION_SPLIT = 45 * 60 * 1000       # >45 min between games = a new sitting (ms, matches ts)
+
+
+def _insights(games):
+    """PATTERNS: honest reads mined from the loaded games' timestamps and outcomes - WHEN
+    this player wins, not how. Each insight needs a real sample (>=5 games on both sides of
+    a split) and a real gap (>=12 points off their overall wr) or it stays silent; the
+    strongest four are returned, biggest gap first. [{text, wr, g, good}]."""
+    gs = sorted((g for g in games if g.get("ts")), key=lambda g: g["ts"])
+    n = len(gs)
+    if n < 10:
+        return []
+    wr_all = sum(1 for g in gs if g["win"]) / n * 100
+
+    def wr(sub):
+        return round(sum(1 for g in sub if g["win"]) / len(sub) * 100)
+
+    found = []
+
+    def consider(sub, good_text, bad_text, min_n=5, min_gap=12):
+        # the sentence is the insight; the {wr}% · {g}g chip drawn beside it is the receipt
+        if len(sub) < min_n:
+            return
+        w = wr(sub)
+        gap = w - wr_all
+        if abs(gap) < min_gap:
+            return
+        found.append({"text": good_text if gap > 0 else bad_text,
+                      "wr": w, "g": len(sub), "good": gap > 0, "gap": abs(gap)})
+
+    # -- time of day (local clock) --
+    def bucket(g):
+        h = datetime.datetime.fromtimestamp(g["ts"] / 1000).hour
+        if 5 <= h < 12:
+            return "morning"
+        if 12 <= h < 17:
+            return "afternoon"
+        if 17 <= h < 23:
+            return "evening"
+        return "late night"
+    for name in ("morning", "afternoon", "evening", "late night"):
+        sub = [g for g in gs if bucket(g) == name]
+        consider(sub,
+                 name.capitalize() + " games are your window - queue then",
+                 ("The queue after 11pm isn't your friend - log off, keep the LP" if name == "late night"
+                  else name.capitalize() + " games run cold for you"))
+
+    # -- queueing straight after a loss (tilt read) --
+    after_loss = [b for a, b in zip(gs, gs[1:])
+                  if not a["win"] and 0 < b["ts"] - a["ts"] < 2 * 3600 * 1000]
+    consider(after_loss,
+             "You reset well - the game right after a loss goes fine",
+             "Queueing straight after a loss bleeds - a 10-minute break is free LP")
+
+    # -- deep-session games (3rd+ of a sitting) --
+    deep, idx = [], 0
+    for a, b in zip([None] + gs, gs):
+        idx = idx + 1 if (a and b["ts"] - a["ts"] < SESSION_SPLIT) else 1
+        if idx >= 3:
+            deep.append(b)
+    consider(deep,
+             "You warm up - game 3+ of a sitting is where you win",
+             "Marathon sittings turn on you after game 2 - your first two are your best")
+
+    # -- game length (scaling vs snowball identity) --
+    consider([g for g in gs if (g.get("dur") or 0) >= 32 * 60],
+             "You win the long games - you scale, so don't force early",
+             "Long games slip away from you - look to close earlier")
+    consider([g for g in gs if 0 < (g.get("dur") or 0) <= 27 * 60],
+             "You win the fast games - the snowball is real, press it",
+             "Fast games go badly - stabilize instead of coinflipping")
+
+    found.sort(key=lambda i: -i["gap"])
+    return found[:4]
+
+
+def _records(games):
+    """PERSONAL BESTS from the loaded games - each one a receipt, not a rating.
+    [{label, value, sub, champ}]."""
+    if not games:
+        return []
+    recs = []
+    best = max(games, key=lambda g: g["score"])
+    recs.append({"label": "BEST GAME", "value": f"{best['score']} · {best['letter']}",
+                 "sub": f"{best['champ']}  {best['k']}/{best['d']}/{best['a']}",
+                 "champ": best["champ"]})
+    kda = max(games, key=lambda g: (g["k"] + g["a"]) / max(1, g["d"]))
+    kv = (kda["k"] + kda["a"]) / max(1, kda["d"])
+    recs.append({"label": "BEST KDA", "value": ("PERFECT" if kda["d"] == 0 else f"{kv:.1f}"),
+                 "sub": f"{kda['champ']}  {kda['k']}/{kda['d']}/{kda['a']}",
+                 "champ": kda["champ"]})
+    kills = max(games, key=lambda g: g["k"])
+    recs.append({"label": "MOST KILLS", "value": str(kills["k"]),
+                 "sub": f"{kills['champ']}  {kills['k']}/{kills['d']}/{kills['a']}",
+                 "champ": kills["champ"]})
+    ordered = sorted((g for g in games if g.get("ts")), key=lambda g: g["ts"]) or list(reversed(games))
+    run = best_run = 0
+    run_end = None
+    for g in ordered:
+        run = run + 1 if g["win"] else 0
+        if run > best_run:
+            best_run, run_end = run, g
+    if best_run >= 2 and run_end is not None:
+        recs.append({"label": "WIN STREAK", "value": f"{best_run} in a row",
+                     "sub": f"ended on {run_end['champ']}", "champ": run_end["champ"]})
+    wins = [g for g in games if g["win"] and (g.get("dur") or 0) > 0]
+    if wins:
+        fast = min(wins, key=lambda g: g["dur"])
+        recs.append({"label": "FASTEST WIN", "value": f"{int(fast['dur'] // 60)}:{int(fast['dur'] % 60):02d}",
+                     "sub": f"{fast['champ']}  {fast['k']}/{fast['d']}/{fast['a']}",
+                     "champ": fast["champ"]})
+    return recs[:5]
 
 
 SEASON_START = 1767225600   # 2026-01-01 UTC - season 16; update at the next season rollover
