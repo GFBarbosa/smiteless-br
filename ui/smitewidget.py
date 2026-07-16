@@ -580,6 +580,97 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
     return img.crop((0, 0, W, y + 8))
 
 
+# ---- LEGEND: the decoder card behind the header's "?" — every phase color, glyph, chip
+# and item tag the widget can show, drawn in the widget's own visual language so "teal =
+# FREE" is learned from the exact swatch that appears live. Meanings are one-liners of what
+# the engine actually computes (loltempo verdicts, lollive intel, lolrecords GHOST) — if a
+# phase or tag is added there, add its row here.
+_LEGEND_PHASES = (
+    ("FREE",  "their jungler provably can't contest — take it"),
+    ("TAKE",  "you win this fight — commit with vision"),
+    ("FORCE", "numbers up — force a play while they're down"),
+    ("EVEN",  "50/50 — only with a vision or smite edge"),
+    ("GIVE",  "you lose this fight — concede, trade elsewhere"),
+    ("MOVE",  "crash your wave, then rotate + ward early"),
+    ("BASE",  "recall window — buy now to arrive early"),
+    ("PUSH",  "you can't reach it — shove for the cross-trade"),
+    ("FARM",  "nothing live yet — farm to the deadline"),
+)
+_LEGEND_GLYPHS = (
+    ("⌖", C_TEAL, "enemy jungler tracker — seen / no sign / dead"),
+    ("◎", C_GRN,  "gank window — a lane is killable right now"),
+    ("⚠", C_RED,  "power spike — an enemy just completed items"),
+    ("⌂", C_GOLD, "recall read — your next buy is ready"),
+    ("★", C_GOLD, "GHOST — pace vs your best game on this champ (gold = ahead)"),
+)
+_LEGEND_ITEMS = (
+    ("core",     "core — your main build path"),
+    ("insert",   "insert — buy this next, a timed power spike"),
+    ("counter",  "counter — answers their biggest threat"),
+    ("antiheal", "antiheal — their healing crossed the line, cut it"),
+    ("boots",    "build / boots — the standard next step"),
+)
+
+
+def _render_legend(W=330):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W, 1200), C_BG)
+    d = ImageDraw.Draw(img)
+    x, y = 10, 8
+    wrapw = W - 2 * x
+
+    def section(title):
+        nonlocal y
+        if y > 12:
+            y += 5
+            d.line([x, y, W - x, y], fill=C_SEP, width=1)
+            y += 8
+        d.text((x, y), title, font=_wfont(9, 1), fill=C_GOLD)
+        y += 17
+
+    def row(tag, tagcol, text, tagw, bold=True):
+        nonlocal y
+        d.text((x + 2, y), tag, font=_tfont(tag, 10, bold), fill=tagcol)
+        for ln in _wwrap(d, text, _wfont(10), wrapw - tagw - 4):
+            d.text((x + 2 + tagw, y), ln, font=_wfont(10), fill=C_MUT)
+            y += 14
+        y += 3
+
+    section("TEMPO — THE CARD'S COLOR IS THE CALL")
+    for ph, txt in _LEGEND_PHASES:
+        row(ph, _PHASE_C.get(ph, C_TXT), txt, 46)
+
+    section("INTEL")
+    for g, col, txt in _LEGEND_GLYPHS:
+        row(g, col, txt, 20)
+
+    section("CHIPS")
+    f = _wfont(10, 1)
+    cx = x
+    cx += _chip(d, cx, y, "WIN 61%", C_GRN, (28, 33, 46), f) + 6
+    cx += _chip(d, cx, y, "Drake 1:20", C_MUT, C_CARD, f) + 6
+    _chip(d, cx, y, "Drake UP", C_GOLD, C_CARD, f)
+    y += 25
+    for txt in ("WIN / BEHIND — live power read from gold + XP + drakes; never rank or winrate.",
+                "objective timers — gold = UP or urgent · teal = your setup window."):
+        for ln in _wwrap(d, txt, _wfont(10), wrapw - 4):
+            d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+            y += 14
+        y += 3
+
+    section("ITEM LINES")
+    for kind, txt in _LEGEND_ITEMS:
+        tag = KIND_TAG.get(kind) or "·"
+        row(tag, _KIND_C.get(kind, C_TXT), txt, 20)
+
+    section("RESPAWN")
+    for ln in _wwrap(d, "while dead, everything collapses to one card: your respawn countdown, "
+                        "the play for when you're back, and the buy.", _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUT)
+        y += 14
+    return img.crop((0, 0, W, y + 10))
+
+
 def acquire_single_instance():
     _kernel32.CreateMutexW(None, False, "Global\\SmitelessWidget")
     return _kernel32.GetLastError() != 183                # ERROR_ALREADY_EXISTS
@@ -629,6 +720,11 @@ def main():
     tk.Label(hdr, text="SMITELESS", font=("Segoe UI Semibold", 8), fg=GOLD, bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
     close = tk.Label(hdr, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
     close.pack(side="right")
+    # LEGEND — the one "?" this HUD is allowed. Click: a reference card opens beside the
+    # widget decoding every phase color, glyph, chip and item tag; click again to dismiss.
+    # Auto-opens ONCE on first run (see render's waiting branch), then it's pull-only.
+    helpb = tk.Label(hdr, text="?", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+    helpb.pack(side="right", padx=(0, 4))
     # Drake chime mute — click to silence the 45/30/15 drake cues for THIS game (resets next
     # game). Struck-through red note = muted; gold note = alerts on. (Settings has a permanent off.)
     mute = tk.Label(hdr, text="♪", font=("Segoe UI", 10, "bold"), fg=GOLD, bg=PANEL, cursor="hand2")
@@ -677,6 +773,16 @@ def main():
             champ.config(text="waiting for a live game…", fg=MUTED)
             champ.pack(fill="x", padx=10, pady=(6, 7))
             st["hot"] = False
+            # very first run ever: open the LEGEND once beside "waiting…" so the vocabulary
+            # is learned before the first live game — push once, then pull-only via the ?.
+            if not st.get("legend_intro"):
+                st["legend_intro"] = True
+                if not cfg.load().get("legend_seen"):
+                    try:
+                        cfg.save({"legend_seen": True})
+                    except Exception:
+                        pass
+                    root.after(600, lambda: None if st.get("legend") else toggle_legend())
             return
         champ.pack_forget()
         tempo = (pulse or {}).get("tempo")
@@ -724,6 +830,77 @@ def main():
     # close too - in a game where right-click IS the move command, a click that drifted
     # onto the widget silently killed it. That was the original "it randomly disappears".
     close.bind("<Button-1>", lambda e: quit_("user closed (x button)"))
+
+    # --- LEGEND card: a separate no-activate Toplevel beside the widget. Its own window so
+    # the live body stays visible for side-by-side reading, and so it's untouched by the
+    # per-tick body re-render. Draggable; closed by its ✕ or the ? again; dies with root.
+    def _legend_open():
+        lg = st.get("legend")
+        try:
+            return bool(lg and lg.winfo_exists())
+        except Exception:
+            return False
+
+    def toggle_legend(*_):
+        if _legend_open():
+            try:
+                st["legend"].destroy()
+            except Exception:
+                pass
+            st["legend"] = None
+            helpb.config(fg=MUTED)
+            return
+        lg = tk.Toplevel(root)
+        lg.overrideredirect(True)
+        lg.attributes("-topmost", True)
+        lg.attributes("-alpha", 0.96)
+        lg.configure(bg=SEP)
+        lo = tk.Frame(lg, bg=BG)
+        lo.pack(padx=1, pady=1, fill="both", expand=True)
+        lh = tk.Frame(lo, bg=PANEL)
+        lh.pack(fill="x")
+        tk.Label(lh, text=" ◆", font=("Segoe UI", 8), fg=GOLD, bg=PANEL).pack(side="left")
+        tk.Label(lh, text="LEGEND", font=("Segoe UI Semibold", 8), fg=GOLD,
+                 bg=PANEL).pack(side="left", padx=(3, 0), pady=3)
+        lx = tk.Label(lh, text="✕ ", font=("Segoe UI", 9, "bold"), fg=MUTED, bg=PANEL, cursor="hand2")
+        lx.pack(side="right")
+        lx.bind("<Button-1>", toggle_legend)
+        body = tk.Label(lo, bg=BG, bd=0)
+        ph = ImageTk.PhotoImage(_render_legend())
+        body.configure(image=ph)
+        body.image = ph                                  # keep a reference or Tk drops it
+        body.pack(padx=1, pady=(0, 1))
+        ldrag = {"x": 0, "y": 0}
+
+        def lpress(e):
+            ldrag["x"], ldrag["y"] = e.x_root, e.y_root
+
+        def lmove(e):
+            lg.geometry(f"+{lg.winfo_x() + e.x_root - ldrag['x']}+{lg.winfo_y() + e.y_root - ldrag['y']}")
+            ldrag["x"], ldrag["y"] = e.x_root, e.y_root
+        for w in (lo, lh, body):
+            w.bind("<Button-1>", lpress)
+            w.bind("<B1-Motion>", lmove)
+        st["legend"] = lg
+        helpb.config(fg=GOLD)
+        # place beside the widget: right of it, flipping left / clamping on-screen
+        lg.update_idletasks()
+        lw, lht = lg.winfo_reqwidth(), lg.winfo_reqheight()
+        rx, ry = root.winfo_rootx(), root.winfo_rooty()
+        mons = monitors()
+        mon = next((m for m in mons if m[0] <= rx <= m[2] and m[1] <= ry <= m[3]), mons[0])
+        px = rx + root.winfo_width() + 10
+        if px + lw > mon[2]:
+            px = max(mon[0], rx - lw - 10)
+        py = min(max(mon[1], ry), max(mon[1], mon[3] - lht))
+        lg.geometry(f"+{px}+{py}")
+        hw = toplevel_hwnd(lg.winfo_id())
+        make_no_activate(hw)
+        show_no_activate(hw)
+
+    helpb.bind("<Button-1>", toggle_legend)
+    helpb.bind("<Enter>", lambda e: helpb.config(fg=GOLD))
+    helpb.bind("<Leave>", lambda e: helpb.config(fg=GOLD if _legend_open() else MUTED))
 
     # --- live polling off the UI thread ---
     q = queue.Queue()

@@ -39,7 +39,8 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "auto_import": False,    # import runes+summs AUTOMATICALLY when you lock a champ
          "auto_ban": False,       # champ select: auto-lock the top recommended ban on your ban turn
          "auto_accept": False,    # auto-accept queue ready checks
-         "flash_on_d": True}      # import puts Flash on D (off = put Flash on F)
+         "flash_on_d": True,      # import puts Flash on D (off = put Flash on F)
+         "legend_seen": False}    # widget: LEGEND card already auto-opened once (state, not a toggle)
 
 
 def load():
