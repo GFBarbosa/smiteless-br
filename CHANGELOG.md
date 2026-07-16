@@ -1,5 +1,12 @@
 # Smiteless — Patch Notes
 
+## v1.0.0
+- **DUSKFALL — the whole UI, redesigned from scratch.** v0.9.1 unified the palette but kept its colors, so every window still looked like it always had. This time the things your eye actually keys on changed: the ground is now **violet ink** instead of blue-grey, the accent is a **hot ember amber** instead of muted gold, and a new **arcane cyan** owns everything live — timers, win%, sparklines — so identity and telemetry never fight over one color again. Full spec: `docs/UIDESIGN.md`.
+- **Numbers finally look like instruments.** Every header, champ name, score, timer, win rate and KDA is now set in Bahnschrift (the DIN-style face that ships with Windows 10/11) — the HUD reads like a cockpit, not a spreadsheet. Body text also grew from 8–9pt to 10pt.
+- **Railed cards everywhere.** Flat rectangles are gone: every surface is a rounded card carrying a 3px state rail — cyan for your team, red for the enemy, ember for *you*, green/red for results, amber-warning on the Riot-key bar. Grade badges (S–F), AUTO chips and rune tabs are pills; import is the one ember button in champ select.
+- **One design system, enforced.** `core/smiteskin.py` is now a real token module (colors, type scale, spacing, shared widgets) and not a single window declares its own hex or font anymore — including the update dialog, and including a second frozen copy of the old palette we found hiding inside the widget's renderer. Drift is structurally dead.
+- Built by a four-seat council — the Illuminator (boards + champ select + profile card), the Machinist (tempo widget), the Archivist (settings + patch notes), the Chronicler (profile chrome + key bar) — on a shared spec, one surface each.
+
 ## v0.9.2
 - **Your profile now opens without the League client running.** The client was only ever needed for one thing: asking the LCU who you are. Smiteless now remembers that answer whenever the client is open, so from then on the Profile window works entirely off the Riot Web API — rank, match history, grades, session read, everything — game closed. Just open Profile from the tray whenever you feel like looking. (One-time note: it learns who you are the next time the client is open; after that, never again. If you ever log into a different account, it re-learns on the next client sighting.)
 

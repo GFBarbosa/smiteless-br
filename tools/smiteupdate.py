@@ -19,6 +19,29 @@ REPO = "bobbyroylee/smiteless"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 UA = "Smiteless-Updater"
 
+# Duskfall skin, guarded: the updater must never die over cosmetics. Frozen builds bundle
+# smiteskin; dev runs get core/ inserted here; if anything fails, a frozen fallback of the
+# same tokens keeps the dialogs correct.
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core"))
+    import smiteskin as skin
+except Exception:
+    class skin:
+        VOID = "#0c0a13"; TXT = "#e8e3f4"; MUTED = "#9a92b4"
+        EMBER = "#ffb454"; EMBER_DEEP = "#c77f2e"; RAISED = "#1e1930"; HOVER = "#2a2342"
+
+        @staticmethod
+        def display(size, bold=False):
+            return ("Bahnschrift", size, "bold") if bold else ("Bahnschrift", size)
+
+        @staticmethod
+        def body(size=10, bold=False):
+            return ("Segoe UI", size, "bold") if bold else ("Segoe UI", size)
+
+        @staticmethod
+        def dark_titlebar(root):
+            pass
+
 
 def install_root():
     """The folder that holds VERSION + Smiteless.exe. Frozen layout: <root>/app/SmitelessApp.exe."""
@@ -94,19 +117,20 @@ def _run_setup(cur, tag, url, with_progress=False):
             from tkinter import ttk
             prog = tk.Tk()
             prog.title("Smiteless update")
-            prog.configure(bg="#11131a")
+            prog.configure(bg=skin.VOID)
+            skin.dark_titlebar(prog)
             prog.resizable(False, False)
             try:
                 prog.attributes("-topmost", True)
             except Exception:
                 pass
-            frm = tk.Frame(prog, bg="#11131a")
+            frm = tk.Frame(prog, bg=skin.VOID)
             frm.pack(padx=18, pady=14)
-            tk.Label(frm, text=f"Updating to {tag}", fg="#c8aa6e", bg="#11131a",
-                     font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            tk.Label(frm, text=f"Updating to {tag}", fg=skin.EMBER, bg=skin.VOID,
+                     font=skin.display(11, bold=True)).pack(anchor="w")
             update_text = tk.StringVar(value="Preparing update...")
-            tk.Label(frm, textvariable=update_text, fg="#d8d6cf", bg="#11131a",
-                     font=("Segoe UI", 9)).pack(anchor="w", pady=(4, 8))
+            tk.Label(frm, textvariable=update_text, fg=skin.TXT, bg=skin.VOID,
+                     font=skin.body(9)).pack(anchor="w", pady=(4, 8))
             update_bar = ttk.Progressbar(frm, orient="horizontal", mode="determinate", length=320, maximum=100)
             update_bar.pack(fill="x")
             prog.update_idletasks()
@@ -166,19 +190,20 @@ def _dialog(cur, tag, url):
     import tkinter as tk
     root = tk.Tk()
     root.title("Smiteless update")
-    root.configure(bg="#11131a")
+    root.configure(bg=skin.VOID)
+    skin.dark_titlebar(root)
     root.resizable(False, False)
     try:
         root.attributes("-topmost", True)
     except Exception:
         pass
-    wrap = tk.Frame(root, bg="#11131a")
+    wrap = tk.Frame(root, bg=skin.VOID)
     wrap.pack(padx=18, pady=16)
     tk.Label(wrap, text="A new version of Smiteless is available",
-             font=("Segoe UI", 11, "bold"), fg="#c8aa6e", bg="#11131a").pack(anchor="w")
+             font=skin.display(12, bold=True), fg=skin.EMBER, bg=skin.VOID).pack(anchor="w")
     tk.Label(wrap, text=f"You have {cur}.  Latest is {tag}.",
-             font=("Segoe UI", 9), fg="#d8d6cf", bg="#11131a").pack(anchor="w", pady=(4, 12))
-    btns = tk.Frame(wrap, bg="#11131a")
+             font=skin.body(9), fg=skin.TXT, bg=skin.VOID).pack(anchor="w", pady=(4, 12))
+    btns = tk.Frame(wrap, bg=skin.VOID)
     btns.pack(anchor="e")
 
     def do_update():
@@ -196,12 +221,12 @@ def _dialog(cur, tag, url):
             _info("Update started. Smiteless will restart automatically when installation finishes.")
 
     later_btn = tk.Button(btns, text="Later", width=10, command=root.destroy,
-                          bg="#262b3b", fg="#d8d6cf", activebackground="#333a52",
-                          relief="flat", font=("Segoe UI", 9))
+                          bg=skin.RAISED, fg=skin.TXT, activebackground=skin.HOVER,
+                          relief="flat", font=skin.body(9))
     later_btn.pack(side="right", padx=(8, 0))
     update_btn = tk.Button(btns, text="Update now", width=12, command=do_update,
-                           bg="#c8aa6e", fg="#11131a", activebackground="#d8bd86",
-                           relief="flat", font=("Segoe UI", 9, "bold"))
+                           bg=skin.EMBER, fg=skin.VOID, activebackground=skin.EMBER_DEEP,
+                           relief="flat", font=skin.body(9, bold=True))
     update_btn.pack(side="right")
     root.update_idletasks()
     root.eval("tk::PlaceWindow . center")
