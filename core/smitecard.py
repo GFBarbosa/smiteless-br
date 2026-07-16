@@ -22,23 +22,57 @@ import lollive as ll
 import lolprofile as lp
 import phasecheck
 import smiteconfig as cfg
+import smiteskin as skin
 
 # Phases where the overlay's session is still alive. Anything else (Lobby, None, EndOfGame…)
 # means the champ select was dodged/left or the game is over -> the overlay should close so a
 # fresh one opens for the next game (avoids showing a stale board from the prior session).
 ACTIVE_PHASES = ("ChampSelect", "GameStart", "InProgress", "Reconnect")
 
-# ---- theme ----
-BG = (17, 19, 26); TEXT = (232, 230, 223); MUTED = (155, 152, 142); GOLD = (200, 170, 110)
-BLUE = (45, 108, 181); RED = (181, 64, 74)
-ALLY_BG = (22, 29, 42); ENEMY_BG = (40, 24, 28)
-GREEN = (95, 196, 122); REDWR = (224, 100, 108); TAN = (203, 196, 150)
-WSQ = (86, 184, 112); LSQ = (201, 85, 96)
-GANK = {"BEST": ((28, 82, 46), (150, 240, 168)),
-        "GANK": ((34, 74, 47), (122, 214, 146)),
-        "EVEN": ((58, 52, 24), (214, 185, 74)),
-        "TOUGH": ((78, 36, 41), (228, 130, 130)),
-        "AVOID": ((88, 26, 32), (240, 110, 110))}
+# ---- theme ("Duskfall" — every color here is DERIVED from smiteskin.py, never a local hex.
+# See docs/UIDESIGN.md §2. Old names are kept (BG, GOLD, TAN, ...) so the huge body of draw
+# calls below doesn't need touching, but each now points at its Duskfall token. ----
+BG = skin.rgb(skin.VOID)              # board/window ground (violet ink)
+SURFACE = skin.rgb(skin.SURFACE)      # cards, strips, panels
+RAISED = skin.rgb(skin.RAISED)        # chips/rows a step up off the ground
+SUNKEN = skin.rgb(skin.SUNKEN)        # bar troughs, wells
+LINE = skin.rgb(skin.LINE)            # card outlines / strong hairlines
+LINE_SOFT = skin.rgb(skin.LINE_SOFT)  # soft in-card seams
+TEXT = skin.rgb(skin.TXT)             # body ink
+MUTED = skin.rgb(skin.MUTED)          # secondary ink
+FAINT = skin.rgb(skin.FAINT)          # tertiary/disabled ink
+GOLD = skin.rgb(skin.EMBER)           # THE accent: brand, "me", identity/action (was muted gold)
+EMBER_DEEP = skin.rgb(skin.EMBER_DEEP)  # ember's dimmed shade: large fills, quiet rails
+ARC = skin.rgb(skin.ARC)              # live telemetry: timers, win-prob, sparklines
+GREEN = skin.rgb(skin.GOOD)           # wins / TAKE / saved-ok
+RED = skin.rgb(skin.BAD)              # losses / danger / GIVE / dodge flags
+WARN = skin.rgb(skin.WARN)            # caution / 50-50 / expiring
+INFO = skin.rgb(skin.INFO)            # links, neutral highlights, bullet dots
+MYSTIC = skin.rgb(skin.MYSTIC)        # antiheal/utility tags, duo markers
+# legacy aliases: the file used BLUE/RED for the ally/enemy rail accent and REDWR/TAN as a
+# second win-rate ramp — re-anchored onto the new tokens instead of re-typed everywhere.
+BLUE = ARC                            # ally identity used to be a flat blue; now ARC (live cyan)
+REDWR = RED
+TAN = MUTED
+PEDGE = LINE                          # card edge color, used all over as a var named PEDGE
+PCARD = SURFACE
+PCARD2 = RAISED
+ALLY_BG = SURFACE                     # rail color now carries ally/enemy identity, not the fill
+ENEMY_BG = SURFACE
+WSQ = GREEN; LSQ = RED
+
+
+def _dim(c, f):
+    return tuple(max(0, min(255, int(x * f))) for x in c)
+
+
+# Win/gank badge (BEST/GANK/EVEN/TOUGH/AVOID): (bg, fg) pairs re-anchored on GOOD/WARN/BAD so the
+# ramp reads as a single status system instead of five unrelated hand-picked hues.
+GANK = {"BEST": (_dim(GREEN, 0.28), GREEN),
+        "GANK": (_dim(GREEN, 0.22), _dim(GREEN, 0.94)),
+        "EVEN": (_dim(WARN, 0.24), WARN),
+        "TOUGH": (_dim(RED, 0.24), _dim(RED, 0.94)),
+        "AVOID": (_dim(RED, 0.30), RED)}
 ROLES = [("top", "top"), ("jungle", "jg"), ("mid", "mid"), ("adc", "adc"), ("support", "sup")]
 LANE_MACRO = {
     "top": "Lane: freeze when ahead, shove + TP/roam with prio.   After: splitpush a side lane, draw pressure, TP to fights.",
@@ -100,8 +134,10 @@ _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
 
 # Glyphs Segoe UI regular/bold don't carry -> they render as tofu boxes. Segoe UI Symbol
 # has all of them AND the same Latin, so a mixed string ("★ gank") drawn wholly in it looks
-# right (it just loses bold weight on those few short labels, which is fine).
-_SYM_MISSING = "▸▾★⚠✓⟳✚⚑◆"
+# right (it just loses bold weight on those few short labels, which is fine). ✦ is the
+# Duskfall brand spark (UIDESIGN §4 brand row) and ⇩ marks the primary import action (§5.1) —
+# both need the same fallback as the rest of this set.
+_SYM_MISSING = "▸▾★⚠✓⟳✚⚑◆✦⇩"
 
 
 def font(size, bold=False, text=None):
@@ -122,6 +158,28 @@ def font(size, bold=False, text=None):
             _FONTS[key] = ImageFont.truetype(fp, size)
         except Exception:
             _FONTS[key] = ImageFont.load_default()
+    return _FONTS[key]
+
+
+_DISPLAY_TTF_FALLBACK = r"C:\Windows\Fonts\seguisb.ttf"    # Segoe UI Semibold (UIDESIGN §3 fallback)
+
+
+def display_font(size, bold=False):
+    """Bahnschrift (skin.FONT_DISPLAY_TTF) for headers, the brand wordmark, champ names,
+    verdict text, and every numeral (KDA, win rates, scores, timers, gold, LP) — the Duskfall
+    display face (UIDESIGN §3). Bahnschrift is a variable font; PIL's plain truetype loader
+    just takes its default (Regular) weight, which is fine here — `bold` only widens where we
+    fall back to Segoe UI Semibold. Falls back to Segoe UI Semibold when Bahnschrift is
+    missing (any non-Windows dev box, or old Win10 LTSB), same as smiteskin.display()."""
+    key = ("display", size, bold)
+    if key not in _FONTS:
+        try:
+            _FONTS[key] = ImageFont.truetype(skin.FONT_DISPLAY_TTF, size)
+        except Exception:
+            try:
+                _FONTS[key] = ImageFont.truetype(_DISPLAY_TTF_FALLBACK, size)
+            except Exception:
+                _FONTS[key] = font(size, bold)      # last resort -> never crash a render
     return _FONTS[key]
 
 
@@ -489,7 +547,9 @@ def gank_kit(dd, my_cid):
     return float(GANK_KIT.get(dd.get("id2key", {}).get(my_cid, ""), GANK_KIT_DEFAULT))
 
 
-DUO_COLORS = [(232, 190, 90), (110, 205, 140), (150, 165, 235), (224, 130, 205), (110, 210, 210)]
+# MYSTIC is the duo-marker token (UIDESIGN §2); the rest are derived shades/other tokens so
+# a second or third duo group in the same game still reads distinctly.
+DUO_COLORS = [MYSTIC, _dim(MYSTIC, 0.68), GOLD, ARC, GREEN]
 DUO_SHARED = 3          # shared recent ranked games to call two teammates a duo
 
 
@@ -609,7 +669,7 @@ def queue_prediction(my_cid, scout_map, duo_map):
         else:
             enemy_wrs.append(wr)
     if not ally_wrs or not enemy_wrs:
-        return {"text": "QUEUE READ: scouting...", "fill": MUTED, "bg": (34, 38, 48)}
+        return {"text": "QUEUE READ: scouting...", "fill": MUTED, "bg": _dim(MUTED, 0.2)}
     aavg = sum(ally_wrs) / len(ally_wrs)
     eavg = sum(enemy_wrs) / len(enemy_wrs)
     diff = aavg - eavg
@@ -667,16 +727,30 @@ def dodge_read(dd, allies, enemies):
 
 
 def _wr_color(wr):
-    return GREEN if wr >= 55 else (REDWR if wr <= 42 else TAN)
+    """UIDESIGN §2's re-anchored win-rate ramp: <46 BAD, 46-52 MUTED, 52-56 GOOD, >56 ARC
+    (exceptional). Same math as smiteskin.wr_color, kept local so callers here don't need to
+    thread a percent through the Tk-oriented helper."""
+    if wr is None:
+        return MUTED
+    if wr < 46:
+        return RED
+    if wr < 52:
+        return MUTED
+    if wr <= 56:
+        return GREEN
+    return ARC
 
 
 TIER_ABBR = {"IRON": "I", "BRONZE": "B", "SILVER": "S", "GOLD": "G", "PLATINUM": "P",
              "EMERALD": "E", "DIAMOND": "D", "MASTER": "M", "GRANDMASTER": "GM", "CHALLENGER": "C"}
 _DIVNUM = {"I": "1", "II": "2", "III": "3", "IV": "4"}
-TIER_COLOR = {"IRON": (124, 114, 104), "BRONZE": (160, 114, 80), "SILVER": (156, 166, 176),
-              "GOLD": (210, 170, 90), "PLATINUM": (76, 184, 176), "EMERALD": (72, 192, 120),
-              "DIAMOND": (120, 166, 232), "MASTER": (186, 114, 206), "GRANDMASTER": (222, 96, 96),
-              "CHALLENGER": (232, 202, 124)}
+# Rank-tier ladder: every stop is a Duskfall token (some reused/dimmed for a low tier that
+# doesn't get its own token), climbing FAINT -> MUTED -> EMBER_DEEP -> GOLD -> ARC -> GOOD ->
+# INFO -> MYSTIC -> BAD -> WARN so low ranks read quiet and high ranks read hot/rare.
+TIER_COLOR = {"IRON": FAINT, "BRONZE": EMBER_DEEP, "SILVER": MUTED,
+              "GOLD": GOLD, "PLATINUM": ARC, "EMERALD": GREEN,
+              "DIAMOND": INFO, "MASTER": MYSTIC, "GRANDMASTER": RED,
+              "CHALLENGER": WARN}
 
 
 def rank_str(r):
@@ -691,29 +765,25 @@ def rank_str(r):
     return f"{ab}{_DIVNUM.get(r.get('div', ''), '')} {r.get('lp', 0)}LP", col
 
 
-GRADE_COLOR = {"S+": (236, 206, 128), "S": (236, 206, 128), "A": (95, 200, 126),
-               "B": (120, 166, 232), "C": (214, 156, 92), "D": (206, 86, 94)}
-PCARD = (25, 28, 38); PCARD2 = (31, 35, 47); PEDGE = (46, 50, 64)
+# Grade ramp, per UIDESIGN §5.1: S/A read as exceptional -> ARC (the "live/standout" telemetry
+# color); B is a plain good result -> GOOD; C is average -> MUTED; D/F are bad -> BAD.
+GRADE_COLOR = {"S+": ARC, "S": ARC, "A": ARC, "B": GREEN, "C": MUTED, "D": RED}
 LABEL_COL = {
-    # wins
-    "hard carry": (255, 214, 122),
-    "carried": (236, 206, 128),
-    "great game": (118, 214, 150),
-    "solid win": (95, 200, 126),
-    "decent game": (168, 206, 132),
-    "scrappy win": (160, 180, 140),
-    # losses
-    "carried, lost": (120, 166, 232),
-    "great game, lost": (130, 170, 225),
-    "kept fighting": (150, 165, 200),
-    "tough loss": (210, 150, 104),
-    "rough game": (206, 86, 94),
+    # wins - graduated off GOOD/GOLD, brightest for the best outcome
+    "hard carry": GOLD,
+    "carried": _dim(GOLD, 0.86),
+    "great game": GREEN,
+    "solid win": _dim(GREEN, 0.9),
+    "decent game": _dim(GREEN, 0.74),
+    "scrappy win": MUTED,
+    # losses - INFO family for "played well anyway", BAD family for the rough ones
+    "carried, lost": INFO,
+    "great game, lost": _dim(INFO, 0.92),
+    "kept fighting": MUTED,
+    "tough loss": _dim(WARN, 0.78),
+    "rough game": RED,
 }
 _POS_ABBR = {"TOP": "TOP", "JUNGLE": "JG", "MIDDLE": "MID", "MID": "MID", "BOTTOM": "ADC", "UTILITY": "SUP"}
-
-
-def _dim(c, f):
-    return tuple(max(0, min(255, int(x * f))) for x in c)
 
 
 def _rrect(d, box, r, fill=None, outline=None, width=1):
@@ -721,6 +791,38 @@ def _rrect(d, box, r, fill=None, outline=None, width=1):
         d.rounded_rectangle(box, radius=r, fill=fill, outline=outline, width=width)
     except Exception:
         d.rectangle(box, fill=fill, outline=outline)
+
+
+def _railed_card(d, box, rail_col, fill=None, outline=None, width=1, r=None, rail=None):
+    """Duskfall's signature shape (UIDESIGN §4): a rounded card with a 3px state-colored rail
+    inset just inside its left edge. Draws the card body first, then the rail on top."""
+    x0, y0, x1, y1 = box
+    r = skin.R_CARD if r is None else r
+    rail = skin.RAIL if rail is None else rail
+    _rrect(d, box, r, fill=fill, outline=outline, width=width)
+    if rail_col:
+        rx = x0 + max(2, r // 3)
+        d.rectangle([rx, y0 + r * 0.6, rx + rail, y1 - r * 0.6], fill=rail_col)
+
+
+def _brand_row(d, x, y, size=8, anchor="la", suffix="", suffix_col=None):
+    """The '✦ SMITELESS <suffix>' identity mark every board opens with (UIDESIGN §4): the
+    spark in EMBER, the wordmark in Bahnschrift, an optional MUTED suffix. `anchor` is 'la'
+    (draw rightward from x) or 'ra' (right-align the whole mark against x), matching how the
+    rest of this module already anchors text. Returns the total pixel width drawn."""
+    star_f = font(size, True, "✦")
+    word_f = display_font(size, True)
+    suf_f = font(size, True)
+    star_w = d.textlength("✦ ", font=star_f)
+    word_w = d.textlength("SMITELESS", font=word_f)
+    suf_w = d.textlength(" " + suffix, font=suf_f) if suffix else 0
+    total = star_w + word_w + suf_w
+    x0 = x - total if anchor == "ra" else x
+    d.text((x0, y), "✦ ", font=star_f, fill=GOLD, anchor="la")
+    d.text((x0 + star_w, y), "SMITELESS", font=word_f, fill=TEXT, anchor="la")
+    if suffix:
+        d.text((x0 + star_w + word_w, y), " " + suffix, font=suf_f, fill=(suffix_col or MUTED), anchor="la")
+    return total
 
 
 def _sparkline(d, x0, y0, w, h, vals):
@@ -745,28 +847,30 @@ def _draw_session_coach(d, p, y):
     For ANOTHER player's profile the session half is meaningless (it's local history) - show
     only their pool read."""
     W = PW                                        # profile surfaces render at the wide layout
-    f = font(11, 1)
+    f = font(11, 1)                                # body bits (sentences, riot id)
+    nf = display_font(11, True)                    # header/numeral bits (SESSION, W-L, LP, streak)
     sess = p.get("session") or {}
     bits = []
     if p.get("other"):
-        bits = [("VIEWING", GOLD), (p.get("riot_id", "?"), TAN),
-                ("· their last games, scored the same way", MUTED)]
+        bits = [("VIEWING", GOLD, True), (p.get("riot_id", "?"), TAN, False),
+                ("· their last games, scored the same way", MUTED, False)]
     else:
         if sess.get("games"):
-            bits.append(("SESSION", GOLD))
-            bits.append((f"{sess['wins']}W-{sess['losses']}L", TAN))
+            bits.append(("SESSION", GOLD, True))
+            bits.append((f"{sess['wins']}W-{sess['losses']}L", TAN, True))
             if sess.get("lp_delta") is not None:
                 dv = sess["lp_delta"]
-                bits.append((f"{dv:+d} LP", GREEN if dv >= 0 else REDWR))
+                bits.append((f"{dv:+d} LP", GREEN if dv >= 0 else REDWR, True))
         stv = sess.get("streak", 0)
         if abs(stv) >= 2:
-            bits.append((f"{'W' if stv > 0 else 'L'}{abs(stv)} streak", GREEN if stv > 0 else REDWR))
+            bits.append((f"{'W' if stv > 0 else 'L'}{abs(stv)} streak", GREEN if stv > 0 else REDWR, True))
         if not bits:
-            bits = [("SESSION", GOLD), ("play a ranked game to start tracking", MUTED)]
+            bits = [("SESSION", GOLD, True), ("play a ranked game to start tracking", MUTED, False)]
     x = 20
-    for txt, col in bits:
-        d.text((x, y), txt, font=f, fill=col)
-        x += d.textlength(txt, font=f) + 12
+    for txt, col, is_num in bits:
+        bf = nf if is_num else f
+        d.text((x, y), txt, font=bf, fill=col)
+        x += d.textlength(txt, font=bf) + 12
     if sess.get("tilt"):
         d.text((x, y), "· take a breather, tilt risk", font=f, fill=REDWR)
     coach = p.get("coach")
@@ -837,7 +941,7 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
     KDA, full item build as icons, damage/cs/gold/vision, duo markers - both teams, plus
     the review panel. Returns {'review': box, 'players': [(x0,y0,x1,y1,puuid,name)]}."""
     duos = duos or {}
-    _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
+    _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=SURFACE, outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
     myteam = me["team"] if me else 100
     maxd = max((pl["dmg"] for pl in parts), default=1) or 1
@@ -848,8 +952,8 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
     player_hits = []
     for ci, team in enumerate(teams):
         cx = x0 + pad + ci * (colw + 16)
-        d.text((cx, y0 + 9), "YOUR TEAM" if ci == 0 else "ENEMY", font=font(10, 1),
-               fill=(125, 166, 216) if ci == 0 else (216, 130, 130))
+        d.text((cx, y0 + 9), "YOUR TEAM" if ci == 0 else "ENEMY", font=display_font(10, True),
+               fill=ARC if ci == 0 else RED)
         ry = y0 + 28
         for pl in team[:5]:
             cid = dd["name2id"].get(dd["norm"](pl["champ"]))
@@ -863,12 +967,12 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
             d.text((cx + 32, ry), name, font=font(10, 1 if mine else 0),
                    fill=GOLD if mine else TEXT)
             d.text((cx + colw - 2, ry), f"{pl['k']}/{pl['d']}/{pl['a']}",
-                   font=font(10, 1 if mine else 0), fill=GOLD if mine else TAN, anchor="ra")
+                   font=display_font(10, True), fill=GOLD if mine else TAN, anchor="ra")
             # damage bar under the name, then items + economy line
             bx, bw_ = cx + 32, 92
-            _rrect(d, (bx, ry + 14, bx + bw_, ry + 18), 2, fill=(40, 44, 56))
+            _rrect(d, (bx, ry + 14, bx + bw_, ry + 18), 2, fill=SUNKEN)
             _rrect(d, (bx, ry + 14, bx + max(2, int(bw_ * pl["dmg"] / maxd)), ry + 18), 2,
-                   fill=(214, 130, 96))
+                   fill=EMBER_DEEP)
             ix = cx + 32 + bw_ + 8
             for iid in (pl.get("items") or [])[:6]:
                 iic = get_item_icon(dd, iid, 15)
@@ -877,14 +981,14 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
                 ix += 17
             d.text((cx + colw - 2, ry + 22), f"{pl['dmg'] // 1000}k dmg · {pl['cs']}cs · "
                    f"{pl['gold'] // 1000}k g · {pl.get('vision', 0)}v",
-                   font=font(9), fill=MUTED, anchor="ra")
+                   font=display_font(9, True), fill=MUTED, anchor="ra")
             player_hits.append((cx, ry, cx + colw, ry + 34, pl.get("puuid", ""),
                                 pl.get("name") or ""))
             ry += 42
     rx = x0 + w - rw - 12
-    _rrect(d, (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), 8, fill=(23, 27, 37), outline=PEDGE, width=1)
+    _rrect(d, (rx, y0 + 8, rx + rw, y0 + DETAIL_H - 8), 8, fill=RAISED, outline=PEDGE, width=1)
     good = (review_kind == "positive")
-    d.text((rx + 12, y0 + 18), "POST-GAME REVIEW", font=font(10, 1), fill=GOLD)
+    d.text((rx + 12, y0 + 18), "POST-GAME REVIEW", font=display_font(10, True), fill=GOLD)
     d.text((rx + 12, y0 + 34), ("What you did well" if good else "3 things to improve"),
            font=font(10), fill=(GREEN if good else MUTED))
     tips = list(review or [])
@@ -951,14 +1055,14 @@ def render_profile(dd, p, expanded=None, details=None):
                 md.rectangle((0, 0, bw, bh), fill=255)
             img.paste(splash, (hx0, hy0), mask)
             shade_mask = mask.point(lambda v: int(v * 0.33))
-            img.paste((10, 14, 22), (hx0, hy0, hx1, hy1), shade_mask)
+            img.paste(BG, (hx0, hy0, hx1, hy1), shade_mask)   # VOID -> transparent gradient (UIDESIGN §5.4)
             # bottom gradient so the headline/sparkline sit on a readable base
             gh = 46
             grad = Image.new("L", (bw, gh), 0)
             gd = ImageDraw.Draw(grad)
             for yy_ in range(gh):
                 gd.line([(0, yy_), (bw, yy_)], fill=int(200 * (yy_ / gh)))
-            img.paste((12, 15, 24), (hx0, hy1 - gh, hx1, hy1), grad)
+            img.paste(BG, (hx0, hy1 - gh, hx1, hy1), grad)
         else:
             # Fallback: enlarge champ icon so the header never appears blank.
             fic = get_icon(dd, best_cid, hy1 - hy0 - 8)
@@ -967,28 +1071,29 @@ def render_profile(dd, p, expanded=None, details=None):
     _rrect(d, (hx0, hy0, hx1, hy1), 14, fill=None, outline=PEDGE, width=1)
     name = p.get("riot_id", "?").split("#")[0]
     d.text((30, 22), name, font=name_font(25, name), fill=TEXT)
-    # rank as a tier-colored chip
+    # rank as a tier-colored chip — rank + LP in Bahnschrift (UIDESIGN §5.4)
     rs, rc = rank_str(p.get("rank"))
-    rf = font(13, 1)
+    rf = display_font(16, True)
     rw = d.textlength(rs, font=rf)
-    _rrect(d, (28, 56, 28 + rw + 18, 78), 8, fill=_dim(rc, 0.22), outline=_dim(rc, 0.6), width=1)
-    d.text((37, 60), rs, font=rf, fill=rc)
+    _rrect(d, (28, 54, 28 + rw + 18, 80), 10, fill=_dim(rc, 0.22), outline=_dim(rc, 0.6), width=1)
+    d.text((37, 58), rs, font=rf, fill=rc)
     # avg KDA chip next to the rank (from the loaded games)
     av = p.get("avgs") or {}
     if av.get("kda") is not None:
+        kf = display_font(13, True)
         ktxt = f"{av['kda']} KDA"
-        kw = d.textlength(ktxt, font=rf)
+        kw = d.textlength(ktxt, font=kf)
         kx = 28 + rw + 28
-        _rrect(d, (kx, 56, kx + kw + 18, 78), 8, fill=(28, 32, 43), outline=PEDGE, width=1)
-        d.text((kx + 9, 60), ktxt, font=rf, fill=TAN)
+        _rrect(d, (kx, 56, kx + kw + 18, 78), 8, fill=RAISED, outline=PEDGE, width=1)
+        d.text((kx + 9, 59), ktxt, font=kf, fill=TAN)
     # win bar + record
     bx, by, bw2 = 30, 82, 230
-    _rrect(d, (bx, by, bx + bw2, by + 8), 4, fill=(46, 50, 64))
+    _rrect(d, (bx, by, bx + bw2, by + 8), 4, fill=SUNKEN)
     if p["wr"] > 0:
         _rrect(d, (bx, by, bx + int(bw2 * min(1.0, p["wr"] / 100.0)), by + 8), 4,
                fill=GREEN if p["wr"] >= 50 else REDWR)
     d.text((bx + bw2 + 14, by - 4), f"{p['wins']}W {p['losses']}L  ·  {p['wr']}%  ·  last {p['n']}",
-           font=font(12, 1), fill=TEXT)
+           font=display_font(12, True), fill=TEXT)
     # top-right avg score (color-only, no icon)
     avg = int(p.get("avg_score", 0) or 0)
     if avg >= 115:
@@ -1003,8 +1108,8 @@ def render_profile(dd, p, expanded=None, details=None):
         sc_col = GRADE_COLOR["C"]
     else:
         sc_col = GRADE_COLOR["D"]
-    d.text((W - 30, 30), str(p["avg_score"]), font=font(34, 1), fill=sc_col, anchor="ra")
-    d.text((W - 30, 74), "AVG GAME SCORE", font=font(9, 1), fill=MUTED, anchor="ra")
+    d.text((W - 30, 30), str(p["avg_score"]), font=display_font(34, True), fill=sc_col, anchor="ra")
+    d.text((W - 30, 74), "AVG GAME SCORE", font=display_font(9, True), fill=MUTED, anchor="ra")
     # headline
     for ln in _wrap(_profile_headline(p), font(12), W - 360)[:1]:
         d.text((30, 98), ln, font=font(12), fill=TAN)
@@ -1013,10 +1118,10 @@ def render_profile(dd, p, expanded=None, details=None):
     if len(trend) >= 2:
         spw, sph, sy = 150, 18, 94
         sx = W - 30 - spw
-        d.text((W - 30, sy - 12), "LP TREND", font=font(8, 1), fill=MUTED, anchor="ra")
+        d.text((W - 30, sy - 12), "LP TREND", font=display_font(8, True), fill=MUTED, anchor="ra")
         _sparkline(d, sx, sy, spw, sph, trend)
         net = trend[-1] - trend[0]
-        d.text((sx - 8, sy + sph // 2), f"{net:+d}", font=font(11, 1),
+        d.text((sx - 8, sy + sph // 2), f"{net:+d}", font=display_font(11, True),
                fill=GREEN if net >= 0 else REDWR, anchor="rm")
 
     # ---- session + pool-coach band ----
@@ -1026,8 +1131,8 @@ def render_profile(dd, p, expanded=None, details=None):
     ay = HEAD + BAND - 2
     av = p.get("avgs") or {}
     if av:
-        f11 = font(11, 1)
-        d.text((20, ay), "AVG", font=f11, fill=GOLD)
+        f11 = display_font(11, True)              # the averages themselves are all numerals
+        d.text((20, ay), "AVG", font=display_font(11, True), fill=GOLD)
         x = 58
         for lab, val, col in (("KDA", f"{av.get('k', 0)}/{av.get('d', 0)}/{av.get('a', 0)}", TEXT),
                               ("KP", f"{av.get('kp', 0)}%", TEXT),
@@ -1043,15 +1148,16 @@ def render_profile(dd, p, expanded=None, details=None):
             total = max(1, sum(roles.values()))
             for pos, cnt in sorted(roles.items(), key=lambda kv: -kv[1])[:3]:
                 txt = f"{_POS_ABBR.get(pos, pos[:3])} {round(cnt / total * 100)}%"
-                d.text((rx, ay), txt, font=font(10, 1), fill=MUTED, anchor="ra")
-                rx -= d.textlength(txt, font=font(10, 1)) + 16
+                d.text((rx, ay), txt, font=display_font(10, True), fill=MUTED, anchor="ra")
+                rx -= d.textlength(txt, font=display_font(10, True)) + 16
 
     # ---- top champions ----
     cy = HEAD + BAND + STATS + 6
     ch_label = "TOP CHAMPIONS · THIS SEASON" if p.get("season_champs") else "TOP CHAMPIONS · RECENT"
-    d.text((20, cy), ch_label, font=font(11, 1), fill=GOLD)
-    d.line([40 + int(d.textlength(ch_label, font=font(11, 1))), cy + 7, W - 20, cy + 7],
-           fill=(36, 40, 52), width=1)
+    chf = display_font(13, True)
+    d.text((20, cy), ch_label, font=chf, fill=GOLD)
+    d.line([40 + int(d.textlength(ch_label, font=chf)), cy + 7, W - 20, cy + 7],
+           fill=LINE_SOFT, width=1)
     nch = max(1, min(6, len(p.get("champs", [])) or 1))
     cw = min(186, (W - 28) // nch)               # wider cards in the landscape layout
     x = 14
@@ -1061,42 +1167,43 @@ def render_profile(dd, p, expanded=None, details=None):
         ic = get_icon(dd, cid, 36)
         if ic:
             img.paste(ic, (x + 10, cy + 24), ic)
-        d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=font(12, 1), fill=TEXT)
+        d.text((x + 54, cy + 24), dd["id2name"].get(cid, c["champ"])[:8], font=display_font(12, True), fill=TEXT)
         wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
-        d.text((x + 54, cy + 42), f"{c['wr']}%", font=font(13, 1), fill=wcol)
-        d.text((x + 92, cy + 44), f"{c['g']}g", font=font(10), fill=MUTED)
+        d.text((x + 54, cy + 42), f"{c['wr']}%", font=display_font(13, True), fill=wcol)
+        d.text((x + 92, cy + 44), f"{c['g']}g", font=display_font(10, True), fill=MUTED)
         # mini win-rate bar along the card bottom
         bw_ = cw - 28
-        _rrect(d, (x + 10, cy + 60, x + 10 + bw_, cy + 62), 1, fill=(42, 46, 60))
+        _rrect(d, (x + 10, cy + 60, x + 10 + bw_, cy + 62), 1, fill=SUNKEN)
         _rrect(d, (x + 10, cy + 60, x + 10 + int(bw_ * min(1.0, c["wr"] / 100.0)), cy + 62), 1, fill=_dim(wcol, 0.9))
         if c.get("avg") is not None:
             gcol = GRADE_COLOR["A"] if c["avg"] >= 85 else (GRADE_COLOR["B"] if c["avg"] >= 70 else MUTED)
-            d.text((x + cw - 16, cy + 25), str(c["avg"]), font=font(11, 1), fill=gcol, anchor="ra")
+            d.text((x + cw - 16, cy + 25), str(c["avg"]), font=display_font(11, True), fill=gcol, anchor="ra")
             d.text((x + cw - 16, cy + 40), "avg", font=font(8), fill=MUTED, anchor="ra")
         x += cw
 
     # ---- recent games ----
-    d.text((20, games_top - 22), "RECENT GAMES", font=font(11, 1), fill=GOLD)
-    d.line([124, games_top - 15, W - 350, games_top - 15], fill=(36, 40, 52), width=1)
+    rg_f = display_font(13, True)
+    d.text((20, games_top - 22), "RECENT GAMES", font=rg_f, fill=GOLD)
+    rg_line_x = max(124, 30 + int(d.textlength("RECENT GAMES", font=rg_f)))
+    d.line([rg_line_x, games_top - 15, W - 350, games_top - 15], fill=LINE_SOFT, width=1)
     d.text((W - 20, games_top - 21), "click a game to expand  ·  score = vs your role's goals",
-           font=font(10), fill=(118, 116, 108), anchor="ra")
+           font=font(10), fill=FAINT, anchor="ra")
     hit_games, hit_reviews, hit_players, yy = [], [], [], games_top
     for i, g in enumerate(games):
-        acc = GREEN if g["win"] else REDWR
-        rowbg = PCARD2 if i % 2 == 0 else (28, 32, 43)     # alternate row tint
-        _rrect(d, (14, yy, W - 14, yy + 44), 9, fill=_dim(acc, 0.9))
-        _rrect(d, (21, yy, W - 14, yy + 44), 9, fill=rowbg)
+        acc = GREEN if g["win"] else RED
+        # railed card, not a flat zebra row (UIDESIGN §5.4): rail + card fill both carry result.
+        _railed_card(d, (14, yy, W - 14, yy + 44), acc, fill=SURFACE, outline=PEDGE, width=1, r=10)
         cid = dd["name2id"].get(dd["norm"](g["champ"]))
         ic = get_icon(dd, cid, 32)
         if ic:
             img.paste(ic, (30, yy + 6), ic)
-        d.text((70, yy + 13), "W" if g["win"] else "L", font=font(15, 1), fill=acc)
-        d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=font(13, 1), fill=TEXT)
-        d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=font(11), fill=MUTED)
+        d.text((70, yy + 13), "W" if g["win"] else "L", font=display_font(15, True), fill=acc)
+        d.text((92, yy + 6), dd["id2name"].get(cid, g["champ"])[:12], font=display_font(13, True), fill=TEXT)
+        d.text((92, yy + 25), f"{g['k']}/{g['d']}/{g['a']}", font=display_font(11, True), fill=MUTED)
         gc = GRADE_COLOR.get(g["letter"], TAN)
-        _rrect(d, (330, yy + 9, 396, yy + 35), 7, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)
-        d.text((342, yy + 14), g["letter"], font=font(14, 1), fill=gc)
-        d.text((371, yy + 16), str(g["score"]), font=font(12, 1), fill=gc)
+        _rrect(d, (330, yy + 9, 396, yy + 35), 13, fill=_dim(gc, 0.20), outline=_dim(gc, 0.5), width=1)  # pill
+        d.text((342, yy + 14), g["letter"], font=display_font(14, True), fill=gc)
+        d.text((371, yy + 16), str(g["score"]), font=display_font(12, True), fill=gc)
         d.text((436, yy + 16), _POS_ABBR.get((g.get("pos") or "").upper(), ""), font=font(10, 1), fill=MUTED)
         d.text((510, yy + 15), g["label"], font=font(12, 1), fill=LABEL_COL.get(g["label"], MUTED))
         extra = []
@@ -1110,7 +1217,7 @@ def render_profile(dd, p, expanded=None, details=None):
         if g.get("dur"):
             extra.append(f"{int(g['dur'] // 60)}m")
         if extra:
-            d.text((W - 46, yy + 16), "  ·  ".join(extra), font=font(10), fill=(110, 108, 100), anchor="ra")
+            d.text((W - 46, yy + 16), "  ·  ".join(extra), font=display_font(10, True), fill=FAINT, anchor="ra")
         d.text((W - 26, yy + 15), "▾" if i in expanded else "▸", font=font(13, text="▾"), fill=MUTED, anchor="ra")
         hit_games.append((yy, yy + 44, i))
         yy += 50
@@ -1126,7 +1233,7 @@ def render_profile(dd, p, expanded=None, details=None):
                     hit_reviews.append((r[0], r[1], r[2], r[3], i))
                     hit_players.extend(rb["players"])
             else:
-                _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=(19, 22, 30), outline=PEDGE, width=1)
+                _rrect(d, (14, yy, W - 14, yy + DETAIL_H), 9, fill=SURFACE, outline=PEDGE, width=1)
                 d.text((W // 2, yy + DETAIL_H // 2), "loading game detail…", font=font(11),
                        fill=MUTED, anchor="mm")
             yy += DETAIL_H + 8
@@ -1167,8 +1274,9 @@ def draw_form(d, x, y, form):
 # How good has this player been IN THEIR GAMES — regardless of rank. A Silver stomping 20/0
 # every game is God Mode (S, gold glow); a feeder is a black hole (F, avoid). Driven by recent
 # win rate + KDA (are they carrying or inting) + hot/cold streak. Rank is deliberately ignored.
-_RATE_COLOR = {"S": (236, 206, 128), "A": (95, 200, 126), "B": (120, 166, 232),
-               "C": (150, 148, 138), "D": (206, 130, 86), "F": (210, 66, 74)}
+# Same S/A-ARC, B-GOOD, C-MUTED, D/F-BAD ramp as GRADE_COLOR (UIDESIGN §5.1) — one grade
+# language across the scout rows and the profile's post-game grades.
+_RATE_COLOR = {"S": ARC, "A": ARC, "B": GREEN, "C": MUTED, "D": RED, "F": RED}
 
 
 def player_rating(sc):
@@ -1234,11 +1342,11 @@ def team_avg_grades(scout_map):
 
 
 def _grade_chip(d, cx, cy, grade, col):
-    """A bold grade letter in a chip, centered on (cx, cy)."""
+    """A bold grade letter in a filled pill (UIDESIGN §5.1), centered on (cx, cy)."""
     w, h = 22, 20
     fill = tuple(int(c * 0.28) for c in col)
-    _rrect(d, (cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2), 6, fill=fill, outline=col, width=1)
-    d.text((cx, cy), grade, font=font(13, 1, grade), fill=col, anchor="mm")
+    _rrect(d, (cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2), h // 2, fill=fill, outline=col, width=1)
+    d.text((cx, cy), grade, font=display_font(13, True), fill=col, anchor="mm")
 
 
 def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=True):
@@ -1249,7 +1357,7 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
     if grade == "S":
         box_edge, box_w = gcol, 2                     # banner glows gold
     elif grade == "F":
-        box_fill, box_edge, box_w = (14, 11, 13), gcol, 2   # black-hole: dark fill, red ring
+        box_fill, box_edge, box_w = SUNKEN, gcol, 2   # black-hole: dark fill, red ring
     name = dd["id2name"].get(cid, "?")
     icon = get_icon(dd, cid, 38)
     cw = 372
@@ -1329,7 +1437,8 @@ def _wr_line(d, x, y, sc, anchor, live=True):
         t2, col2 = "·  off-champ", REDWR          # no mastery + none recent = first-timing it
     else:
         t2, col2 = f"·  {cw}/{cg} on", TEXT
-    rf, ff = font(11, 1), font(11)               # rank (bold, tier-colored), form (by WR), comfort
+    # rank / form / comfort are all numerals (LP, W-L, %, mastery points) -> the display face
+    rf, ff = display_font(11, True), display_font(11)
     if anchor == "ra":                           # right rows: comfort ... form ... rank, mirrored
         d.text((x, y), t2, font=ff, fill=col2, anchor="ra")
         x2 = x - d.textlength(t2, font=ff) - 8
@@ -1368,19 +1477,20 @@ def _wrap(text, fnt, max_w):
 
 
 def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip_lines, ph):
-    _rrect(d, (x, y, x + w, y + ph), 10, fill=(24, 27, 37), outline=PEDGE, width=1)
+    _rrect(d, (x, y, x + w, y + ph), 10, fill=SURFACE, outline=PEDGE, width=1)
     d.rectangle([x, y + 8, x + 3, y + ph - 8], fill=GOLD)
     myn = dd["id2name"].get(my_cid, "?")
     arch = archetype(dd, my_cid)
     label = "YOUR LANE" + (f"   ·   {arch}" if arch else "") + ("   ·   live tip" if tip_lines else "")
-    d.text((x + 14, y + 8), label, font=font(11, 1), fill=GOLD)
+    d.text((x + 14, y + 8), label, font=display_font(13, True), fill=GOLD)
     if opp_cid:
         oppn = dd["id2name"].get(opp_cid, "?")
-        head = f"{myn} vs {oppn}"
-        d.text((x + 14, y + 25), head, font=font(15, 1), fill=TEXT)
-        hx = x + 14 + d.textlength(head, font=font(15, 1)) + 12
+        head = f"{myn} vs {oppn}"                          # champ names -> display face
+        head_f = display_font(15, True)
+        d.text((x + 14, y + 25), head, font=head_f, fill=TEXT)
+        hx = x + 14 + d.textlength(head, font=head_f) + 12
         if my_wr is not None:
-            d.text((hx, y + 27), f"{my_wr:.0f}%", font=font(14, 1), fill=_wr_color(my_wr))
+            d.text((hx, y + 27), f"{my_wr:.0f}%", font=display_font(14, True), fill=_wr_color(my_wr))
         else:
             d.text((hx, y + 28), "no op.gg sample", font=font(12), fill=MUTED)
         if opp_sc and opp_sc["n"]:
@@ -1395,24 +1505,24 @@ def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc
     if tip_lines:
         ty = y + 65
         for ln in tip_lines:
-            d.text((x + 14, ty), ln, font=font(12), fill=(216, 202, 168))
+            d.text((x + 14, ty), ln, font=font(12), fill=_dim(GOLD, 0.85))
             ty += 18
     else:
         macro = (LANE_MACRO["support"] if my_role == "support"
                  else (ARCHETYPE_MACRO.get(arch) or LANE_MACRO.get(my_role)))
         if macro:
-            d.text((x + 14, y + 64), macro, font=font(11), fill=(168, 184, 206))
+            d.text((x + 14, y + 64), macro, font=font(11), fill=INFO)
         vs = VS_NOTE.get(archetype(dd, opp_cid)) if opp_cid else None
         if vs:
-            d.text((x + 14, y + 82), vs, font=font(11), fill=(205, 175, 120))
+            d.text((x + 14, y + 82), vs, font=font(11), fill=_dim(WARN, 0.85))
 
 
 def draw_build_block(d, img, dd, x, y, build, hits=None):
     """The champ-select runes/build card: keystone + rune words, the core build as real
     ITEM ICONS, summoners, skill order, and the import button - in one framed card."""
     cw, chh = 396, 236
-    _rrect(d, (x - 16, y - 10, x - 16 + cw, y - 10 + chh), 12, fill=(20, 23, 32), outline=PEDGE, width=1)
-    d.text((x, y), "RUNES", font=font(10, 1), fill=GOLD)
+    _rrect(d, (x - 16, y - 10, x - 16 + cw, y - 10 + chh), 12, fill=SURFACE, outline=PEDGE, width=1)
+    d.text((x, y), "RUNES", font=display_font(10, True), fill=GOLD)
     d.text((x, y + 16), build.get("keystone", ""), font=font(15, 1), fill=TEXT)
     minor = "  ·  ".join(r for r in build.get("primary", [])[1:] if r)
     if minor:
@@ -1420,12 +1530,12 @@ def draw_build_block(d, img, dd, x, y, build, hits=None):
     sec = [r for r in build.get("secondary", []) if r]
     if sec:
         d.text((x, y + 58), f"{build.get('secondary_tree', '')}:  " + "  ·  ".join(sec),
-               font=font(11), fill=(150, 170, 200))
+               font=font(11), fill=INFO)
     shards = [s for s in build.get("shards", []) if s]
     if shards:
         d.text((x, y + 76), "Shards:  " + "  /  ".join(shards), font=font(11), fill=MUTED)
     d.line([x, y + 98, x - 32 + cw, y + 98], fill=PEDGE, width=1)
-    d.text((x, y + 106), "CORE BUILD", font=font(10, 1), fill=GOLD)
+    d.text((x, y + 106), "CORE BUILD", font=display_font(10, True), fill=GOLD)
     ids = build.get("core_ids") or []
     ix = x
     if ids:
@@ -1443,10 +1553,11 @@ def draw_build_block(d, img, dd, x, y, build, hits=None):
     skills = [s for s in build.get("skills", []) if s]
     if skills:
         d.text((x + 190, y + 164), "Skill max:  " + " > ".join(skills), font=font(11), fill=MUTED)
-    # Keep import action visually grouped with the runes/summoners block.
+    # Keep import action visually grouped with the runes/summoners block. THE primary action
+    # on this panel (UIDESIGN §4/§5.1): ember pill fill, VOID ink.
     bx, by, bw, bh = x, y + 186, 188, 28
-    _rrect(d, (bx, by, bx + bw, by + bh), 8, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
-    d.text((bx + (bw // 2), by + (bh // 2) + 1), "Import runes + summs", font=font(10, 1), fill=TEXT, anchor="mm")
+    _rrect(d, (bx, by, bx + bw, by + bh), bh // 2, fill=GOLD)
+    d.text((bx + (bw // 2), by + (bh // 2) + 1), "⇩ Import runes + summs", font=font(10, 1, "⇩"), fill=BG, anchor="mm")
     if hits is not None:
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
     _auto_chip(d, bx + bw + 8, by + 3, cfg_load_auto(), hits)
@@ -1828,24 +1939,24 @@ def _ban_icon(img, dd, cid, x, y, size, slash=True):
         img.paste(gray, (x, y), gray)
         if slash:
             dr = ImageDraw.Draw(img)
-            dr.line([x + 3, y + size - 3, x + size - 3, y + 3], fill=(206, 86, 94), width=2)
+            dr.line([x + 3, y + size - 3, x + size - 3, y + 3], fill=RED, width=2)
     except Exception:
         img.paste(ic, (x, y), ic)
 
 
 def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
     """Champ-select intel band: GOOD BANS (your hardest counters) · the lobby's bans · any
-    visible enemy picks."""
-    _rrect(d, (x0, y0, x0 + w, y0 + 52), 9, fill=(20, 23, 32), outline=PEDGE, width=1)
+    visible enemy picks. Its own card, BAD rail (UIDESIGN §5.1 - it's a ban/draft surface)."""
+    _railed_card(d, (x0, y0, x0 + w, y0 + 52), RED, fill=SURFACE, outline=PEDGE, width=1, r=9)
     x = x0 + 14
     # --- good bans ---
-    d.text((x, y0 + 6), "GOOD BANS", font=font(9, 1), fill=GOLD)
+    d.text((x, y0 + 6), "GOOD BANS", font=display_font(9, True), fill=GOLD)
     if ban_ideas:
         for cid, my_wr in ban_ideas[:3]:
             ic = get_icon(dd, cid, 28)
             if ic:
                 img.paste(ic, (x, y0 + 19), ic)
-            d.text((x + 32, y0 + 25), f"{my_wr:.0f}%", font=font(9), fill=REDWR)
+            d.text((x + 32, y0 + 25), f"{my_wr:.0f}%", font=display_font(9, True), fill=RED)
             x += 62
     elif ban_ideas is not None:                    # champ known, but nothing statistically scary
         d.text((x, y0 + 26), "no hard counters — ban comfort/meta", font=font(10), fill=MUTED)
@@ -1857,7 +1968,7 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
     d.line([x - 12, y0 + 8, x - 12, y0 + 44], fill=PEDGE, width=1)
     # --- lobby bans ---
     bm, bt = (bans or ({}, {}))[0] or [], (bans or ((), ()))[1] or []
-    d.text((x, y0 + 6), "BANS", font=font(9, 1), fill=(125, 166, 216))
+    d.text((x, y0 + 6), "BANS", font=display_font(9, True), fill=INFO)
     bx = x
     for cid in bm[:5]:
         _ban_icon(img, dd, cid, bx, y0 + 19, 26)
@@ -1874,7 +1985,7 @@ def _draw_draft_band(d, img, dd, x0, y0, w, bans, enemy_picks, ban_ideas):
     # --- enemy picks (visible in some queues / after reveal) ---
     x = max(bx + 26, x0 + 560)
     d.line([x - 12, y0 + 8, x - 12, y0 + 44], fill=PEDGE, width=1)
-    d.text((x, y0 + 6), "ENEMY PICKS", font=font(9, 1), fill=(216, 130, 130))
+    d.text((x, y0 + 6), "ENEMY PICKS", font=display_font(9, True), fill=RED)
     if enemy_picks:
         for cid in enemy_picks[:5]:
             ic = get_icon(dd, cid, 26)
@@ -1943,30 +2054,40 @@ def general_bans(dd, role, taken=(), topn=3):
 
 
 def _auto_chip(d, x, y, on, hits, action="action:toggle_auto_import", label="AUTO"):
-    """A small AUTO toggle chip; clicking flips the given config action (import or ban)."""
-    txt = f"{label} ✓" if on else label
-    f = font(9, 1, txt)
-    w = int(d.textlength(txt, font=f)) + 18
-    fill = (34, 64, 46) if on else (30, 34, 46)
-    edge = (95, 200, 126) if on else PEDGE
-    _rrect(d, (x, y, x + w, y + 22), 7, fill=fill, outline=edge, width=1)
-    d.text((x + 9, y + 5), txt, font=f, fill=(150, 220, 170) if on else MUTED)
+    """AUTO toggle PILL (UIDESIGN §5.1): on = GOOD outline + dot, off = FAINT outline."""
+    f = font(9, 1)
+    h = 22
+    dot = 12 if on else 0
+    w = int(d.textlength(label, font=f)) + 16 + dot
+    _rrect(d, (x, y, x + w, y + h), h // 2, fill=(_dim(GREEN, 0.16) if on else RAISED),
+           outline=(GREEN if on else FAINT), width=1)
+    tx = x + 9
+    if on:
+        d.ellipse((tx, y + h // 2 - 3, tx + 6, y + h // 2 + 3), fill=GREEN)
+        tx += dot
+    d.text((tx, y + 5), label, font=f, fill=GREEN if on else MUTED)
     if hits is not None:
-        hits.append((x, y, x + w, y + 22, action))
+        hits.append((x, y, x + w, y + h, action))
     return w
 
 
 def _rune_chip(d, x, y, idx, wr, sel, hits):
-    """A little clickable rune-set tab: '1 · 52%'. Selected one is highlighted green."""
+    """A little clickable rune-set PILL: '1 · 52%'. Selected one gets the GOOD dot treatment
+    (same on/off language as the AUTO chip - it's a toggle too)."""
     label = f"{idx + 1} · {wr:.0f}%"
     f = font(9, 1)
-    w = int(d.textlength(label, font=f)) + 16
-    fill = (40, 54, 40) if sel else (28, 32, 44)
-    edge = (140, 190, 118) if sel else PEDGE
-    _rrect(d, (x, y, x + w, y + 20), 6, fill=fill, outline=edge, width=1)
-    d.text((x + 8, y + 4), label, font=f, fill=(178, 222, 150) if sel else MUTED)
+    h = 20
+    dot = 11 if sel else 0
+    w = int(d.textlength(label, font=f)) + 14 + dot
+    _rrect(d, (x, y, x + w, y + h), h // 2, fill=(_dim(GREEN, 0.16) if sel else RAISED),
+           outline=(GREEN if sel else FAINT), width=1)
+    tx = x + 8
+    if sel:
+        d.ellipse((tx, y + h // 2 - 3, tx + 6, y + h // 2 + 3), fill=GREEN)
+        tx += dot
+    d.text((tx, y + 3), label, font=f, fill=GREEN if sel else MUTED)
     if hits is not None:
-        hits.append((x, y, x + w, y + 20, f"action:rune:{idx}"))
+        hits.append((x, y, x + w, y + h, f"action:rune:{idx}"))
     return w
 
 
@@ -1982,7 +2103,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     hits = []
     if build:
         build = pick_rune(build)                   # show/import the selected rune set (#3)
-    # header: splash strip + champ + role
+    # header: splash strip + champ + role — "your champ" card, ember rail (UIDESIGN §5.1)
     if my_cid:
         strip = get_splash(dd, my_cid, (VW, 84))
         if strip:
@@ -1992,27 +2113,36 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
             for yy in range(84):
                 sd.line([(0, yy), (VW, yy)], fill=min(255, 140 + int(yy * 1.5)))
             img.paste(Image.new("RGB", (VW, 84), BG), (0, 0), shade)
+    d.rectangle([0, 10, skin.RAIL, 74], fill=GOLD)              # ember identity rail
     ic = get_icon(dd, my_cid, 52)
     if ic:
         img.paste(ic, (14, 14), ic)
-    d.text((78, 16), dd["id2name"].get(my_cid, "pick a champ"), font=font(17, 1), fill=GOLD)
-    sub = (my_role or "?").upper()
+    nm_f = display_font(20, True)
+    champ_nm = dd["id2name"].get(my_cid, "pick a champ")
+    d.text((78, 12), champ_nm, font=nm_f, fill=GOLD)
+    if my_role:                                      # role chip pill next to the champ name
+        rl_txt = my_role.upper()
+        rl_f = font(9, True)
+        rl_w = d.textlength(rl_txt, font=rl_f)
+        rx0 = 78 + d.textlength(champ_nm, font=nm_f) + 10
+        _rrect(d, (rx0, 18, rx0 + rl_w + 14, 34), 8, fill=_dim(ARC, 0.18), outline=ARC, width=1)
+        d.text((rx0 + 7, 21), rl_txt, font=rl_f, fill=ARC)
     if build:
-        sub += f"   ·   {build['wr']:.1f}%  {build['tier']}"
-    d.text((78, 44), sub, font=font(11, 1), fill=TEXT)
-    d.text((VW - 12, 6), "SMITELESS", font=font(8, 1), fill=(120, 118, 108), anchor="ra")
+        d.text((78, 44), f"{build['wr']:.1f}%  {build['tier']}", font=display_font(11, True), fill=TEXT)
+    _brand_row(d, VW - 12, 6, size=8, anchor="ra")
     y = 92
     if dodge:
-        _rrect(d, (10, y, VW - 10, y + 26), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
+        # dodge read as a railed card, never inline text (UIDESIGN §5.1): BAD rail + fill.
+        _railed_card(d, (10, y, VW - 10, y + 26), RED, fill=_dim(RED, 0.14), outline=RED, width=1, r=8)
         d.text((VW // 2, y + 13), "⚠ CONSIDER DODGING — " + str(dodge.get("losing", "")) + " lanes behind",
-               font=font(10, 1, "⚠"), fill=(240, 150, 150), anchor="mm")
+               font=font(10, 1, "⚠"), fill=RED, anchor="mm")
         y += 34
-    # runes + build card
+    # runes + build card — quiet rail; the import button is THE primary action (ember pill)
     if build:
         card_h = 214
-        _rrect(d, (10, y, VW - 10, y + card_h), 10, fill=(20, 23, 32), outline=PEDGE, width=1)
+        _railed_card(d, (10, y, VW - 10, y + card_h), LINE, fill=SURFACE, outline=PEDGE, width=1)
         x = 24
-        d.text((x, y + 10), "RUNES", font=font(9, 1), fill=GOLD)
+        d.text((x, y + 10), "RUNES", font=display_font(9, True), fill=GOLD)
         opts = build.get("rune_options") or []
         if len(opts) > 1:                                  # rune-set picker (#3): click to switch
             cxr = 78
@@ -2024,11 +2154,11 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         for i, ln in enumerate(_wrap(minor, font(10), VW - 48)[:2]):
             d.text((x, y + 46 + i * 14), ln, font=font(10), fill=MUTED)
         sec = "  ·  ".join(r for r in build.get("secondary", []) if r)
-        d.text((x, y + 76), f"{build.get('secondary_tree', '')}: {sec}"[:60], font=font(10), fill=(150, 170, 200))
+        d.text((x, y + 76), f"{build.get('secondary_tree', '')}: {sec}"[:60], font=font(10), fill=INFO)
         shards = " / ".join(s for s in build.get("shards", []) if s)
         d.text((x, y + 92), f"Shards: {shards}", font=font(10), fill=MUTED)
         d.line([x, y + 110, VW - 24, y + 110], fill=PEDGE, width=1)
-        d.text((x, y + 116), "CORE BUILD", font=font(9, 1), fill=GOLD)
+        d.text((x, y + 116), "CORE BUILD", font=display_font(9, True), fill=GOLD)
         ix = x
         for j, iid in enumerate((build.get("core_ids") or [])[:4]):
             iic = get_item_icon(dd, iid, 32)
@@ -2043,8 +2173,8 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         if sk:
             d.text((x + 170, y + 172), "Max: " + " > ".join(sk), font=font(10), fill=MUTED)
         bx, by, bw, bh = x, y + 186, 160, 22
-        _rrect(d, (bx, by, bx + bw, by + bh), 7, fill=(35, 44, 68), outline=(72, 86, 120), width=1)
-        d.text((bx + bw // 2, by + bh // 2), "Import runes + summs", font=font(9, 1), fill=TEXT, anchor="mm")
+        _rrect(d, (bx, by, bx + bw, by + bh), bh // 2, fill=GOLD)
+        d.text((bx + bw // 2, by + bh // 2), "⇩ Import runes + summs", font=font(9, 1, "⇩"), fill=BG, anchor="mm")
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
         aw = _auto_chip(d, bx + bw + 8, by, auto_import, hits)
         if note:
@@ -2060,28 +2190,28 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         for b in plan:
             wrapped += _wrap("▸ " + b, font(10), VW - 42)[:2]
         ph_ = 22 + len(wrapped) * 14 + 4
-        _rrect(d, (10, y, VW - 10, y + ph_ - 4), 9, fill=(22, 25, 34), outline=PEDGE, width=1)
-        d.text((22, y + 6), "WIN CONDITION", font=font(9, 1), fill=GOLD)
+        _railed_card(d, (10, y, VW - 10, y + ph_ - 4), LINE, fill=SURFACE, outline=PEDGE, width=1, r=9)
+        d.text((22, y + 6), "WIN CONDITION", font=display_font(9, True), fill=GOLD)
         for i, ln in enumerate(wrapped):
-            d.text((22, y + 22 + i * 14), ln, font=font(10, text="▸"), fill=(206, 210, 218))
+            d.text((22, y + 22 + i * 14), ln, font=font(10, text="▸"), fill=TEXT)
         y += ph_ + 6
     # YOUR favorites, in your priority order, filtered to what's still open for your role
     # (#5, recommend-only: no hover/lock, purely "pick one of these").
     if favs:
-        d.text((20, y), "YOUR PICKS", font=font(9, 1), fill=(214, 184, 120))
+        d.text((20, y), "YOUR PICKS", font=display_font(9, True), fill=GOLD)
         xx = 20
         for rank_i, cid in enumerate(favs[:6]):
             fic = get_icon(dd, cid, 40)
             if fic:
                 img.paste(fic, (xx, y + 16), fic)
-                _rrect(d, (xx, y + 16, xx + 15, y + 30), 4, fill=(0, 0, 0))
-                d.text((xx + 3, y + 17), str(rank_i + 1), font=font(9, 1), fill=GOLD)
+                _rrect(d, (xx, y + 16, xx + 15, y + 30), 4, fill=BG)
+                d.text((xx + 3, y + 17), str(rank_i + 1), font=display_font(9, True), fill=GOLD)
             xx += 50
         y += 66
     # suggested picks (horizontal icons) — click a face to HOVER it in champ select (not lock)
-    d.text((20, y), "GOOD THIS GAME", font=font(9, 1), fill=GOLD)
+    d.text((20, y), "GOOD THIS GAME", font=display_font(9, True), fill=GOLD)
     if suggestions:
-        d.text((VW - 12, y + 1), "click to hover", font=font(8), fill=(120, 118, 108), anchor="ra")
+        d.text((VW - 12, y + 1), "click to hover", font=font(8), fill=FAINT, anchor="ra")
     xx = 20
     for cid in (suggestions or [])[:6]:
         sic = get_icon(dd, cid, 40)
@@ -2092,8 +2222,14 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     if not suggestions:
         d.text((20, y + 20), "no 12k+ mastery picks for this role", font=font(10), fill=MUTED)
     y += 66
+    # bans/draft band — one railed card wrapping GOOD BANS + lobby BANS + ENEMY PICKS,
+    # BAD rail (UIDESIGN §5.1). Numbers move to Bahnschrift; slash icons are unchanged.
+    band_content_h = 74 + 52 + (52 if enemy_picks else 0)
+    band_h = band_content_h + 10                  # 6px top pad + 4px bottom pad, snug not tight
+    _railed_card(d, (10, y, VW - 10, y + band_h), RED, fill=SURFACE, outline=PEDGE, width=1)
+    y += 6
     # good bans
-    d.text((20, y), "GOOD BANS", font=font(9, 1), fill=GOLD)
+    d.text((20, y), "GOOD BANS", font=display_font(9, True), fill=GOLD)
     _auto_chip(d, VW - 78, y - 3, auto_ban, hits, action="action:toggle_auto_ban", label="AUTO")
     if ban_ideas:
         xx = 20
@@ -2102,14 +2238,14 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
             if bic:
                 img.paste(bic, (xx, y + 16), bic)
             lbl = f"{my_wr:.0f}%" if my_wr is not None else "ban"     # None = general priority ban
-            d.text((xx + 17, y + 54), lbl, font=font(9), fill=REDWR, anchor="ma")
+            d.text((xx + 17, y + 54), lbl, font=display_font(9, True), fill=RED, anchor="ma")
             xx += 58
     else:
         d.text((20, y + 20), "ban ideas load in a moment…", font=font(10), fill=MUTED)
-    y += 74
+    y += 68
     # lobby bans
     bm, bt = (bans or ((), ()))[0] or [], (bans or ((), ()))[1] or []
-    d.text((20, y), "BANS", font=font(9, 1), fill=(125, 166, 216))
+    d.text((20, y), "BANS", font=display_font(9, True), fill=INFO)
     xx = 20
     for cid in bm[:5]:
         _ban_icon(img, dd, cid, xx, y + 15, 26)
@@ -2125,7 +2261,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     y += 52
     # enemy picks when a queue reveals them
     if enemy_picks:
-        d.text((20, y), "ENEMY PICKS", font=font(9, 1), fill=(216, 130, 130))
+        d.text((20, y), "ENEMY PICKS", font=display_font(9, True), fill=RED)
         xx = 20
         for cid in enemy_picks[:5]:
             eic = get_icon(dd, cid, 26)
@@ -2133,16 +2269,17 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
                 img.paste(eic, (xx, y + 15), eic)
             xx += 30
         y += 52
-    # your team
-    d.text((20, y), "YOUR TEAM", font=font(9, 1), fill=(125, 166, 216))
+    y += 4
+    # your team — railed rows (UIDESIGN §5.2): ARC for allies, GOLD for the "me" row
+    d.text((20, y), "YOUR TEAM", font=display_font(9, True), fill=ARC)
     y += 16
     for cid, role in (allies or [])[:5]:
-        _rrect(d, (12, y, VW - 12, y + 40), 8, fill=ALLY_BG, outline=PEDGE, width=1)
+        me = (cid == my_cid)
+        _railed_card(d, (12, y, VW - 12, y + 40), GOLD if me else ARC, fill=SURFACE, outline=PEDGE, width=1, r=8)
         if cid:
             aic = get_icon(dd, cid, 30)
             if aic:
                 img.paste(aic, (20, y + 5), aic)
-            me = (cid == my_cid)
             d.text((58, y + 11), dd["id2name"].get(cid, "?") + ("  YOU" if me else ""),
                    font=font(12, 1), fill=GOLD if me else TEXT)
         else:
@@ -2151,11 +2288,11 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         if rl:
             cf = font(8, 1)
             cw_ = d.textlength(rl.upper(), font=cf)
-            _rrect(d, (VW - 26 - cw_ - 12, y + 11, VW - 26, y + 27), 6, fill=(30, 34, 46), outline=PEDGE, width=1)
-            d.text((VW - 32 - cw_ / 2 - 3, y + 14), rl.upper(), font=cf, fill=(150, 148, 138), anchor="ma")
+            _rrect(d, (VW - 26 - cw_ - 12, y + 11, VW - 26, y + 27), 8, fill=RAISED, outline=PEDGE, width=1)
+            d.text((VW - 32 - cw_ / 2 - 3, y + 14), rl.upper(), font=cf, fill=MUTED, anchor="ma")
         y += 46
     d.text((20, y + 6), "enemies hidden in ranked · board opens at loading screen",
-           font=font(9), fill=(110, 108, 100))
+           font=font(9), fill=FAINT)
     out = img.crop((0, 0, VW, min(H, y + 26)))    # trim the unused tail; panel ends after the team
     out.hitmap = hits
     out.dock_left = True                          # smiteoverlay: park this next to the client
@@ -2195,41 +2332,44 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         if murl:
             hits.append((16 + xoff, 9, 64 + xoff, 57, murl))
     if my_cid:
-        d.text((74 + xoff, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}", font=font(18, 1), fill=GOLD)
+        d.text((74 + xoff, 12), f"{dd['id2name'].get(my_cid, '?')}   {(my_role or '?').upper()}",
+               font=display_font(18, True), fill=GOLD)
     else:                                        # spectator / replay: no "you"
-        d.text((16 + xoff, 12), "SPECTATING", font=font(18, 1), fill=GOLD)
+        d.text((16 + xoff, 12), "SPECTATING", font=display_font(18, True), fill=GOLD)
         d.text((16 + xoff, 42), "both teams scouted — no personal build (replay/spectator mode)", font=font(11), fill=MUTED)
     if build:
         bl = f"{build['keystone']}   ·   " + " > ".join(x for x in build['core'] if x) + "   ·   " + " / ".join(build['summs'])
         d.text((74 + xoff, 40), bl[:104], font=font(12), fill=MUTED)
-        d.text((W2 - 16, 13), f"{build['wr']:.1f}%  {build['tier']}", font=font(15, 1), fill=TEXT, anchor="ra")
-    d.text((W2 - 16, 40), "SMITELESS  ·  " + source, font=font(11), fill=(110, 108, 100), anchor="ra")
-    d.line([16 + xoff, 66, W2 - 16, 66], fill=(40, 42, 50), width=1)
-    d.text((26 + xoff, 74), "YOUR TEAM", font=font(11, 1), fill=(125, 166, 216))
+        d.text((W2 - 16, 13), f"{build['wr']:.1f}%  {build['tier']}", font=display_font(15, True), fill=TEXT, anchor="ra")
+    _brand_row(d, W2 - 16, 40, size=9, anchor="ra", suffix="· " + source, suffix_col=FAINT)
+    d.line([16 + xoff, 66, W2 - 16, 66], fill=LINE_SOFT, width=1)
+    d.text((26 + xoff, 73), "YOUR TEAM", font=display_font(13, True), fill=ARC)
     if champ_select:
-        d.text((W2 - 26, 74), "YOUR RUNES + BUILD", font=font(11, 1), fill=GOLD, anchor="ra")
+        d.text((W2 - 26, 73), "YOUR RUNES + BUILD", font=display_font(13, True), fill=GOLD, anchor="ra")
     else:
-        d.text((W2 - 26, 74), "ENEMY", font=font(11, 1), fill=(216, 130, 130), anchor="ra")
+        d.text((W2 - 26, 73), "ENEMY", font=display_font(13, True), fill=RED, anchor="ra")
     cxc = W2 // 2
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
     duo_all = detect_duos(scout_map) if (roles_known and not champ_select) else {}
     duo_of = duo_all if DUO_ON else {}
     if roles_known and not champ_select:
+        # the closest thing this board has to UIDESIGN's win-prob "verdict strip" — same
+        # GOOD/BAD/MUTED status colors, numerals in the display face, true pill radius.
         qr = queue_prediction(my_cid, scout_map, duo_all)
         ga, ge = team_avg_grades(scout_map)          # grade-based read alongside the WR read
         text = qr["text"] + (f"   ·   grades {ga} vs {ge}" if (ga and ge) else "")
-        qf = font(10, 1)
+        qf = display_font(10, True)
         tw = d.textlength(text, font=qf)
         qx0, qx1 = cxc - (tw / 2) - 10, cxc + (tw / 2) + 10
-        _rrect(d, (qx0, 69, qx1, 87), 8, fill=qr["bg"], outline=PEDGE, width=1)
+        _rrect(d, (qx0, 69, qx1, 87), 9, fill=qr["bg"], outline=PEDGE, width=1)
         d.text((cxc, 78), text, font=qf, fill=qr["fill"], anchor="mm")
     if champ_select and dodge:
         txt = "⚠ CONSIDER DODGING — " + dodge["reason"]
         bf = font(12, 1, txt)
         tw = d.textlength(txt, font=bf)
         bx0, bx1 = cxc - tw / 2 - 12, cxc + tw / 2 + 12
-        _rrect(d, (bx0, 68, bx1, 92), 8, fill=(70, 26, 30), outline=(206, 86, 94), width=1)
-        d.text((cxc, 80), txt, font=bf, fill=(240, 150, 150), anchor="mm")
+        _rrect(d, (bx0, 68, bx1, 92), 12, fill=_dim(RED, 0.14), outline=RED, width=1)
+        d.text((cxc, 80), txt, font=bf, fill=RED, anchor="mm")
     if champ_select and build:
         draw_build_block(d, img, dd, cxc + 50, TOP + 16, build, hits=hits)
     # gank scores for every enemy lane FIRST, so labels can be RELATIVE (someone is always
@@ -2265,23 +2405,23 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         if e_cid and (e_cid, False) in duo_of:
             _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)], "R")
         if roles_known and not champ_select:
-            d.text((cxc, y + 11), lbl, font=font(10), fill=(120, 118, 110), anchor="ma")
+            d.text((cxc, y + 11), lbl, font=font(10), fill=FAINT, anchor="ma")
             if role in glabels:
                 draw_badge(d, cxc, y + 25, glabels[role])
             else:
-                d.text((cxc, y + 28), "vs", font=font(10), fill=(100, 98, 92), anchor="ma")
+                d.text((cxc, y + 28), "vs", font=font(10), fill=FAINT, anchor="ma")
         elif champ_select:
             cf = font(9, 1)
             cw_ = d.textlength(lbl.upper(), font=cf)
-            _rrect(d, (384, y + 20, 384 + cw_ + 14, y + 36), 7, fill=(30, 34, 46), outline=PEDGE, width=1)
-            d.text((391, y + 24), lbl.upper(), font=cf, fill=(150, 148, 138))
+            _rrect(d, (384, y + 20, 384 + cw_ + 14, y + 36), 8, fill=RAISED, outline=PEDGE, width=1)
+            d.text((391, y + 24), lbl.upper(), font=cf, fill=MUTED)
     if champ_select and suggestions:
         # Draw this AFTER the team rows so it can't be covered by row backgrounds. Header and
         # icons are flush top-left of the rail; tight vertical step fits 5 suggestions.
         sx, sy = 6, TOP + 2
-        _rrect(d, (sx, sy, sx + 78, sy + 322), 10, fill=(20, 24, 34), outline=PEDGE, width=1)
-        d.text((sx + 9, sy + 9), "GOOD THIS", font=font(9, 1), fill=GOLD, anchor="la")
-        d.text((sx + 9, sy + 21), "GAME", font=font(9, 1), fill=GOLD, anchor="la")
+        _rrect(d, (sx, sy, sx + 78, sy + 322), 10, fill=SURFACE, outline=PEDGE, width=1)
+        d.text((sx + 9, sy + 9), "GOOD THIS", font=display_font(9, True), fill=GOLD, anchor="la")
+        d.text((sx + 9, sy + 21), "GAME", font=display_font(9, True), fill=GOLD, anchor="la")
         yy = sy + 40
         for cid in suggestions[:5]:
             ic = get_icon(dd, cid, 36)
@@ -2299,15 +2439,15 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
                         tip_lines, panel_h)
         ly += panel_h + 14
     if plan:
-        _rrect(d, (12 + xoff, ly, W2 - 12, ly + plan_h - 4), 8, fill=(22, 25, 34), outline=PEDGE, width=1)
-        d.text((22 + xoff, ly + 6), "WIN CONDITION", font=font(9, 1), fill=GOLD)
+        _railed_card(d, (12 + xoff, ly, W2 - 12, ly + plan_h - 4), LINE, fill=SURFACE, outline=PEDGE, width=1, r=8)
+        d.text((22 + xoff, ly + 6), "WIN CONDITION", font=display_font(9, True), fill=GOLD)
         for i, b in enumerate(plan):
-            d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=(206, 210, 218))
+            d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=TEXT)
         ly += plan_h
     _legend = "rank · L10 W/L · mastery (gold=main 100k+, green=comfort 30k+, red=first-timing) · S-F / GOOD PLAYER = skill (how they PLAY) · ● duo   |   ★ gank = champ matchup edge   |   click → u.gg"
-    d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=(120, 118, 110))
+    d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=FAINT)
     if note:
-        d.text((16 + xoff, ly + 18), note, font=font(11), fill=(200, 150, 90))
+        d.text((16 + xoff, ly + 18), note, font=font(11), fill=EMBER_DEEP)
     img.hitmap = hits
     return img
 
@@ -2335,7 +2475,7 @@ def info_image(msg):
     """A small status/error card (no live game yet, key stale, etc.)."""
     img = Image.new("RGB", (W, 140), BG)
     d = ImageDraw.Draw(img)
-    d.text((20, 20), "SMITELESS", font=font(18, 1), fill=GOLD)
+    _brand_row(d, 20, 20, size=18)
     d.text((20, 58), msg, font=font(13), fill=TEXT)
     return img
 
