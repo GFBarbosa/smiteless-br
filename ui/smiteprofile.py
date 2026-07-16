@@ -22,8 +22,6 @@ import smitecard as sc
 import smiteconfig as cfg
 
 import smiteskin as skin
-BG = skin.BG; BAR = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
-BTN = skin.BTN; BTN_HOVER = skin.BTN_HOVER   # (BG was a drifted #0e1016 - unified in skin)
 _kernel32 = ctypes.windll.kernel32
 _user32 = ctypes.windll.user32
 
@@ -64,7 +62,7 @@ def main():
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
-    root.configure(bg=BG)
+    root.configure(bg=skin.VOID)
     skin.dark_titlebar(root)
     try:
         cand = []
@@ -89,58 +87,50 @@ def main():
     _center(root, sc.PW + 24, 780)              # default tall enough to show ~10 recent games before scrolling
     root.minsize(sc.PW + 24, 520)
 
-    header = tk.Label(root, bg=BG, bd=0, highlightthickness=0)
+    header = tk.Label(root, bg=skin.VOID, bd=0, highlightthickness=0)
     header.pack(side="top", fill="x")
 
-    body = tk.Frame(root, bg=BG)
+    body = tk.Frame(root, bg=skin.VOID)
     body.pack(side="top", fill="both", expand=True)
-    vbar = tk.Scrollbar(body, orient="vertical", bg=BAR, troughcolor="#0b0e15",
-                        activebackground=BTN_HOVER, relief="flat", bd=0,
+    vbar = tk.Scrollbar(body, orient="vertical", bg=skin.SURFACE, troughcolor=skin.SUNKEN,
+                        activebackground=skin.HOVER, relief="flat", bd=0,
                         highlightthickness=0, width=12)
     vbar.pack(side="right", fill="y")
-    canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=vbar.set, width=sc.PW)
+    canvas = tk.Canvas(body, bg=skin.VOID, highlightthickness=0, yscrollcommand=vbar.set, width=sc.PW)
     canvas.pack(side="left", fill="both", expand=True)
     vbar.config(command=canvas.yview)
-    canvas.create_text(sc.PW // 2, 60, text="loading your match history…", fill=MUTED, font=("Segoe UI", 13))
+    canvas.create_text(sc.PW // 2, 60, text="loading your match history…", fill=skin.MUTED, font=skin.body(12))
 
     # Two-row bottom area so nothing crowds: buttons row on top, status line below it.
     # (One row squeezed the dynamically-shown back button to zero width and mashed Save card.)
-    statusbar = tk.Frame(root, bg=BAR)
+    statusbar = tk.Frame(root, bg=skin.SURFACE)
     statusbar.pack(side="bottom", fill="x")
-    status = tk.Label(statusbar, text="", bg=BAR, fg=MUTED, font=("Segoe UI", 9), anchor="w")
+    status = tk.Label(statusbar, text="", bg=skin.SURFACE, fg=skin.MUTED, font=skin.body(skin.SMALL), anchor="w")
     status.pack(fill="x", padx=14, pady=(0, 6))
-    bar = tk.Frame(root, bg=BAR)
+    bar = tk.Frame(root, bg=skin.SURFACE)
     bar.pack(side="bottom", fill="x")
-    backbtn = tk.Button(bar, text="← my profile", bg=BTN, fg=GOLD, activebackground=BTN_HOVER,
-                        activeforeground=GOLD, relief="flat", font=("Segoe UI", 9, "bold"),
+    backbtn = tk.Button(bar, text="← my profile", bg=skin.RAISED, fg=skin.EMBER, activebackground=skin.HOVER,
+                        activeforeground=skin.EMBER, relief="flat", font=skin.body(skin.SMALL, bold=True),
                         padx=12, pady=4, cursor="hand2")
-    search = tk.Entry(bar, bg="#0d0f16", fg=TXT, insertbackground=TXT, relief="flat",
-                      font=("Segoe UI", 9), width=24)
+    search = tk.Entry(bar, bg=skin.SUNKEN, fg=skin.TXT, insertbackground=skin.TXT, relief="flat",
+                      font=skin.body(skin.SMALL), width=24)
     search.pack(side="left", padx=(12, 2), pady=7, ipady=3)
     search.insert(0, "Name#TAG")
     search.bind("<FocusIn>", lambda e: (search.delete(0, "end") if search.get() == "Name#TAG" else None))
-    gobtn = tk.Button(bar, text="Search", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
-                      activeforeground=TXT, relief="flat", font=("Segoe UI", 9),
-                      padx=10, pady=4, cursor="hand2")
+    gobtn = skin.button(bar, "Search", None, size=skin.SMALL)
     gobtn.pack(side="left", padx=(2, 6), pady=7)
-    loadbtn = tk.Button(bar, text="Load more", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
-                        activeforeground=TXT, relief="flat", font=("Segoe UI", 9, "bold"),
-                        padx=16, pady=4, cursor="hand2", state="disabled")
+    loadbtn = skin.button(bar, "Load more", None, size=skin.SMALL)
+    loadbtn.config(state="disabled")
     loadbtn.pack(side="right", padx=12, pady=7)
-    loadbtn.bind("<Enter>", lambda e: loadbtn.config(bg=BTN_HOVER))
-    loadbtn.bind("<Leave>", lambda e: loadbtn.config(bg=BTN))
-    savebtn = tk.Button(bar, text="Save card", bg=BTN, fg=TXT, activebackground=BTN_HOVER,
-                        activeforeground=TXT, relief="flat", font=("Segoe UI", 9),
-                        padx=12, pady=4, cursor="hand2", state="disabled")
+    savebtn = skin.button(bar, "Save card", None, size=skin.SMALL)
+    savebtn.config(state="disabled")
     savebtn.pack(side="right", padx=(0, 4), pady=7)
-    savebtn.bind("<Enter>", lambda e: savebtn.config(bg=BTN_HOVER))
-    savebtn.bind("<Leave>", lambda e: savebtn.config(bg=BTN))
-    refreshbtn = tk.Button(bar, text="⟳ Refresh", bg=BTN, fg=GOLD, activebackground=BTN_HOVER,
-                           activeforeground=GOLD, relief="flat", font=("Segoe UI", 9, "bold"),
+    refreshbtn = tk.Button(bar, text="⟳ Refresh", bg=skin.RAISED, fg=skin.EMBER, activebackground=skin.HOVER,
+                           activeforeground=skin.EMBER, relief="flat", font=skin.body(skin.SMALL, bold=True),
                            padx=12, pady=4, cursor="hand2", state="disabled")
     refreshbtn.pack(side="right", padx=(0, 4), pady=7)
-    refreshbtn.bind("<Enter>", lambda e: refreshbtn.config(bg=BTN_HOVER))
-    refreshbtn.bind("<Leave>", lambda e: refreshbtn.config(bg=BTN))
+    refreshbtn.bind("<Enter>", lambda e: refreshbtn.config(bg=skin.HOVER))
+    refreshbtn.bind("<Leave>", lambda e: refreshbtn.config(bg=skin.RAISED))
 
     def _save_card():
         prof = st.get("prof")
@@ -199,7 +189,7 @@ def main():
                 msg = ("couldn't tell who you are yet — open the League client once (Smiteless "
                        "remembers you after that, so the profile works with the client closed) "
                        "and check the Riot key in Settings.")
-            canvas.create_text(sc.PW // 2, 70, text=msg, fill=MUTED, font=("Segoe UI", 12), width=sc.PW - 100)
+            canvas.create_text(sc.PW // 2, 70, text=msg, fill=skin.MUTED, font=skin.body(12), width=sc.PW - 100)
             return
         st["prof"] = prof
         _render(keep_scroll=False)
@@ -319,19 +309,19 @@ def main():
         head = "What you did well" if kind == "positive" else "3 things to improve"
         win = tk.Toplevel(root)
         win.title("Smiteless — Full review")
-        win.configure(bg=BG)
+        win.configure(bg=skin.VOID)
         skin.dark_titlebar(win)
         win.minsize(560, 360)
-        tk.Label(win, text=f"{game.get('champ', '?')} ({game.get('pos', '?')})", bg=BG, fg=GOLD,
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(12, 2))
-        tk.Label(win, text=head, bg=BG, fg=(TXT if kind == "positive" else MUTED),
-                 font=("Segoe UI", 10)).pack(anchor="w", padx=14, pady=(0, 8))
-        wrap = tk.Frame(win, bg=BG)
+        tk.Label(win, text=f"{game.get('champ', '?')} ({game.get('pos', '?')})", bg=skin.VOID, fg=skin.EMBER,
+                 font=skin.display(skin.H2, bold=True)).pack(anchor="w", padx=14, pady=(12, 2))
+        tk.Label(win, text=head, bg=skin.VOID, fg=(skin.TXT if kind == "positive" else skin.MUTED),
+                 font=skin.display(skin.BODY)).pack(anchor="w", padx=14, pady=(0, 8))
+        wrap = tk.Frame(win, bg=skin.VOID)
         wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         sb = tk.Scrollbar(wrap, orient="vertical")
         sb.pack(side="right", fill="y")
-        tx = tk.Text(wrap, bg="#131722", fg=TXT, relief="flat", wrap="word", yscrollcommand=sb.set,
-                     font=("Segoe UI", 10), padx=12, pady=10)
+        tx = tk.Text(wrap, bg=skin.SURFACE, fg=skin.TXT, relief="flat", wrap="word", yscrollcommand=sb.set,
+                     font=skin.body(skin.BODY), padx=12, pady=10)
         tx.pack(side="left", fill="both", expand=True)
         sb.config(command=tx.yview)
         if not tips:
@@ -373,8 +363,8 @@ def main():
     def _player_menu(event, riot_id, puuid):
         """Right-click a player -> look them up anywhere / open their Smiteless profile / copy."""
         import webbrowser
-        m = tk.Menu(root, tearoff=0, bg="#171a24", fg=TXT, activebackground=BTN_HOVER,
-                    activeforeground=TXT, bd=0, font=("Segoe UI", 9))
+        m = tk.Menu(root, tearoff=0, bg=skin.SURFACE, fg=skin.TXT, activebackground=skin.HOVER,
+                    activeforeground=skin.TXT, bd=0, font=skin.body(skin.SMALL))
         who = (riot_id or "player").split("#")[0]
         m.add_command(label=f"{who}", state="disabled")
         m.add_separator()

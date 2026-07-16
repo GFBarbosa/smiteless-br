@@ -32,9 +32,7 @@ import smitecard as sc
 import smiteconfig as cfg
 
 import smiteskin as skin
-BG = skin.BG     # matches smitecard's background so there's no border seam
-BAR_BG = skin.PANEL; GOLD = skin.GOLD; TXT = skin.TXT; MUTED = skin.MUTED
-GREEN = skin.GREEN; RED = skin.RED; ENTRY_BG = skin.ENTRY; BTN_BG = skin.BTN; BTN_ACTIVE = skin.BTN_HOVER
+BG = skin.VOID   # matches smitecard's background so there's no border seam
 
 # ---- win32 constants ----
 GWL_EXSTYLE = -20
@@ -254,57 +252,53 @@ def main():
                 pass
         return None
 
-    bar = tk.Frame(root, bg=BAR_BG)
+    bar = tk.Frame(root, bg=skin.SURFACE)
     bar.pack(side="bottom", fill="x")
-    tk.Label(bar, text="RIOT KEY", bg=BAR_BG, fg=GOLD,
-             font=("Segoe UI", 8, "bold")).pack(side="left", padx=(10, 4), pady=6)
-    keylbl = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
+    tk.Frame(bar, bg=skin.WARN, width=skin.RAIL).pack(side="left", fill="y")
+    tk.Label(bar, text="RIOT KEY", bg=skin.SURFACE, fg=skin.EMBER,
+             font=skin.display(10, bold=True)).pack(side="left", padx=(10, 4), pady=6)
+    keylbl = tk.Label(bar, text="", bg=skin.SURFACE, fg=skin.MUTED, font=skin.body(skin.SMALL, bold=True))
     keylbl.pack(side="left", padx=(0, 6))
-
-    def mkbtn(text, cmd):
-        return tk.Button(bar, text=text, command=cmd, bg=BTN_BG, fg=TXT,
-                         activebackground=BTN_ACTIVE, activeforeground=TXT, relief="flat",
-                         bd=0, padx=9, pady=2, font=("Segoe UI", 8), cursor="hand2")
 
     def refresh_key_label():
         k = read_current_key()
         if k and k.startswith("RGAPI-"):
-            keylbl.config(text=f"...{k[-4:]} set", fg=GREEN)
+            keylbl.config(text=f"...{k[-4:]} set", fg=skin.GOOD)
         else:
-            keylbl.config(text="not set", fg=RED)
+            keylbl.config(text="not set", fg=skin.BAD)
 
     def open_dev_site():
         webbrowser.open("https://developer.riotgames.com/")
-        status.config(text="log in, copy your key, then Paste + Save", fg=MUTED)
+        status.config(text="log in, copy your key, then Paste + Save", fg=skin.MUTED)
 
     def paste_key():
         try:
             c = root.clipboard_get().strip()
         except Exception:
-            status.config(text="clipboard is empty", fg=RED)
+            status.config(text="clipboard is empty", fg=skin.BAD)
             return
         entry.delete(0, "end")
         entry.insert(0, c)
-        status.config(text="pasted - review it, then Save", fg=MUTED)
+        status.config(text="pasted - review it, then Save", fg=skin.MUTED)
 
     def save_key():
         k = entry.get().strip()
         if not (k.startswith("RGAPI-") and len(k) >= 24):
-            status.config(text="that doesn't look like an RGAPI-... key", fg=RED)
+            status.config(text="that doesn't look like an RGAPI-... key", fg=skin.BAD)
             return
         for p in KEY_FILES:
             try:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(k)
             except Exception as e:
-                status.config(text=f"save failed: {e}", fg=RED)
+                status.config(text=f"save failed: {e}", fg=skin.BAD)
                 return
         entry.delete(0, "end")
         refresh_key_label()
-        status.config(text=f"saved ...{k[-4:]} - applies next game", fg=GREEN)
+        status.config(text=f"saved ...{k[-4:]} - applies next game", fg=skin.GOOD)
 
     def import_build():
-        status.config(text="importing runes + summoners...", fg=MUTED)
+        status.config(text="importing runes + summoners...", fg=skin.MUTED)
 
         def work():
             try:
@@ -321,9 +315,9 @@ def main():
                 role = info.get("pos") or "jungle"
                 build = sc.pick_rune(sc.build_data(dd, cid, role))   # honor the selected rune set
                 msg = limp.import_build(dd, cid, role, build)
-                root.after(0, lambda: status.config(text=msg, fg=GREEN))
+                root.after(0, lambda: status.config(text=msg, fg=skin.GOOD))
             except Exception as e:
-                root.after(0, lambda: status.config(text=f"import failed: {e}", fg=RED))
+                root.after(0, lambda: status.config(text=f"import failed: {e}", fg=skin.BAD))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -337,20 +331,20 @@ def main():
                 dd = lb.ddragon()
                 limp.hover_champ(cid)
                 nm = dd["id2name"].get(cid, "champ")
-                root.after(0, lambda: status.config(text=f"hovered {nm}", fg=GREEN))
+                root.after(0, lambda: status.config(text=f"hovered {nm}", fg=skin.GOOD))
             except Exception as e:
-                root.after(0, lambda: status.config(text=f"hover failed: {e}", fg=RED))
+                root.after(0, lambda: status.config(text=f"hover failed: {e}", fg=skin.BAD))
         threading.Thread(target=work, daemon=True).start()
 
-    mkbtn("Get key ↗", open_dev_site).pack(side="left", padx=2, pady=4)
-    entry = tk.Entry(bar, bg=ENTRY_BG, fg=TXT, insertbackground=TXT, relief="flat",
-                     font=("Consolas", 8), width=30)
+    skin.button(bar, "Get key ↗", open_dev_site, size=skin.SMALL).pack(side="left", padx=2, pady=4)
+    entry = tk.Entry(bar, bg=skin.SUNKEN, fg=skin.TXT, insertbackground=skin.TXT, relief="flat",
+                     font=skin.mono(9), width=30)
     entry.pack(side="left", padx=(8, 2), pady=4, ipady=2)
     entry.bind("<Button-1>", lambda e: entry.focus_set())   # attempt keyboard focus for Ctrl+V
     entry.bind("<Return>", lambda e: save_key())
-    mkbtn("Paste", paste_key).pack(side="left", padx=2, pady=4)
-    mkbtn("Save", save_key).pack(side="left", padx=2, pady=4)
-    status = tk.Label(bar, text="", bg=BAR_BG, fg=MUTED, font=("Segoe UI", 8))
+    skin.button(bar, "Paste", paste_key, size=skin.SMALL).pack(side="left", padx=2, pady=4)
+    skin.button(bar, "Save", save_key, size=skin.SMALL).pack(side="left", padx=2, pady=4)
+    status = tk.Label(bar, text="", bg=skin.SURFACE, fg=skin.MUTED, font=skin.body(skin.SMALL))
     status.pack(side="left", padx=8)
     refresh_key_label()
 
@@ -463,7 +457,7 @@ def main():
                         elif url.startswith("action:rune:"):
                             try:
                                 sc.set_rune_idx(int(url.rsplit(":", 1)[1]))
-                                status.config(text="rune set switched — re-importing / re-rendering…", fg=MUTED)
+                                status.config(text="rune set switched — re-importing / re-rendering…", fg=skin.MUTED)
                             except Exception:
                                 pass
                         elif url == "action:toggle_auto_import":
@@ -471,13 +465,13 @@ def main():
                             s["auto_import"] = not s.get("auto_import", False)
                             cfg.save(s)
                             status.config(text=f"auto-import {'ON — runes+summs apply on lock' if s['auto_import'] else 'off'}",
-                                          fg=GREEN if s["auto_import"] else MUTED)
+                                          fg=skin.GOOD if s["auto_import"] else skin.MUTED)
                         elif url == "action:toggle_auto_ban":
                             s = cfg.load()
                             s["auto_ban"] = not s.get("auto_ban", False)
                             cfg.save(s)
                             status.config(text=f"auto-ban {'ON — locks the top ban on your turn' if s['auto_ban'] else 'off'}",
-                                          fg=GREEN if s["auto_ban"] else MUTED)
+                                          fg=skin.GOOD if s["auto_ban"] else skin.MUTED)
                     else:
                         webbrowser.open(url)
                     break
