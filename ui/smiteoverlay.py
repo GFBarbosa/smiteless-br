@@ -155,6 +155,19 @@ def move_window(hwnd, x, y):
         return False
 
 
+def ui_scale(size, mon, extra_h=0):
+    """Resolution-adaptive display scale for a rendered frame. The boards are drawn for a
+    1080p-tall screen: on a shorter screen (lower in-game display resolution, a laptop)
+    they shrink proportionally, and every frame is additionally hard-clamped to FIT its
+    monitor (the champ-select panel is taller than a 1080p screen at full size). Never
+    upscales — text stays crisp on big monitors."""
+    w, h = size
+    mw, mh = max(1, mon[2] - mon[0]), max(1, mon[3] - mon[1])
+    s = min(1.0, mh / 1080.0)
+    s = min(s, (mh - 16 - extra_h) / max(1, h), (mw - 16) / max(1, w))
+    return max(0.5, s)
+
+
 def _open_profile():
     """Open the Profile window as its own process (works frozen or as dev scripts)."""
     import subprocess
@@ -216,7 +229,7 @@ def main():
             pass
 
     import tkinter as tk
-    from PIL import ImageTk
+    from PIL import Image, ImageTk
 
     root = tk.Tk()
     root.overrideredirect(True)                 # borderless, no taskbar button
@@ -362,8 +375,11 @@ def main():
             st["client_moved"] = None
 
     def _dock(pil):
-        """Park the panel LEFT of the League client; nudge the client right when there's no
-        room (and remember where it was so we can put it back)."""
+        """Park the panel LEFT of the League client, vertically BALANCED against it —
+        centered on the client's span, then clamped fully on-screen. (Top-aligning to the
+        client used to push the panel's bottom below the desktop once it grew taller than
+        the client.) Nudges the client right when there's no room, remembering where it
+        was so we can put it back."""
         hwnd_c, rect = client_rect()
         if not rect:
             return                               # client not found -> normal centering
@@ -377,7 +393,9 @@ def main():
                 if st["client_moved"] is None:
                     st["client_moved"] = (hwnd_c, rect[0], rect[1])
             x = mon[0] + 4
-        st["pos"] = (x, max(mon[1] + 4, rect[1]))
+        y = (rect[1] + rect[3] - pil.height) // 2              # balance on the client...
+        y = max(mon[1] + 4, min(y, mon[3] - pil.height - 4))   # ...clamped fully on-screen
+        st["pos"] = (x, y)
         st["docked"] = True
         st["barh"] = 0                           # key bar is noise in the docked panel
         try:
@@ -388,6 +406,7 @@ def main():
     def _undock():
         _restore_client()
         st["docked"] = False
+        st["dragged"] = False                    # a fresh dock gets to balance itself again
         st["pos"] = None                         # recenter on the next frame
         st["barh"] = bar_h
         try:
@@ -416,6 +435,7 @@ def main():
         if not st["moved"] and abs(e.x_root - st["press"][0]) + abs(e.y_root - st["press"][1]) < 5:
             return                               # within click tolerance - not a drag yet
         st["moved"] = True
+        st["dragged"] = True                     # user placed it -> stop auto re-balancing
         dx, dy = e.x_root - st["last"][0], e.y_root - st["last"][1]
         st["pos"] = (st["pos"][0] + dx, st["pos"][1] + dy)
         st["last"] = (e.x_root, e.y_root)
@@ -494,20 +514,36 @@ def main():
             st["dirty"] = False
         if dirty and pil is not None:
             prev_fg = _user32.GetForegroundWindow()     # whatever had focus (the game/client)
-            ref = ImageTk.PhotoImage(pil)        # build on the Tk (main) thread
+            want_dock = bool(getattr(pil, "dock_left", False))
+            # Resolution-adaptive display: find the monitor this frame will live on and
+            # scale the rendered board to it. A lower in-game display resolution shrinks
+            # the whole UI in step, and the tall champ-select panel can never spill off
+            # the bottom of the screen again.
+            if want_dock:
+                _c, crect = client_rect()
+                mon = (monitor_of((crect[0] + crect[2]) // 2, (crect[1] + crect[3]) // 2)
+                       if crect else target_monitor())
+            elif st["pos"]:
+                mon = monitor_of(st["pos"][0], st["pos"][1])
+            else:
+                mon = target_monitor()
+            s = ui_scale(pil.size, mon, extra_h=0 if want_dock else bar_h)
+            disp = pil if s >= 0.999 else pil.resize(
+                (max(1, round(pil.width * s)), max(1, round(pil.height * s))), Image.LANCZOS)
+            ref = ImageTk.PhotoImage(disp)       # build on the Tk (main) thread
             label.configure(image=ref)
             st["ref"] = ref                      # keep a reference or it gets GC'd (blank image)
-            st["hitmap"] = getattr(pil, "hitmap", [])   # clickable icon rects for this frame
-            want_dock = bool(getattr(pil, "dock_left", False))
-            if want_dock and not st["docked"]:
-                _dock(pil)                       # champ-select panel -> park left of the client
+            st["hitmap"] = [(x0 * s, y0 * s, x1 * s, y1 * s, u)   # click rects follow the scale
+                            for x0, y0, x1, y1, u in getattr(pil, "hitmap", [])]
+            if want_dock and not st.get("dragged") and (not st["docked"] or st["size"] != disp.size):
+                _dock(disp)                      # champ-select panel -> balanced left of the client
                 st["size"] = None                # force re-place at the docked position
             elif not want_dock and st["docked"]:
                 _undock()                        # board/loading frame -> back to normal centering
                 st["size"] = None
-            if st["size"] != pil.size:
-                st["size"] = pil.size
-                place(pil.size)
+            if st["size"] != disp.size:
+                st["size"] = disp.size
+                place(disp.size)
             make_no_activate(hwnd)               # keep the no-activate style (Tk can clear it)
             if not st["shown"]:
                 show_no_activate(hwnd)           # reveal without taking focus

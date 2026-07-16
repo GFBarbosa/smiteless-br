@@ -676,6 +676,19 @@ def acquire_single_instance():
     return _kernel32.GetLastError() != 183                # ERROR_ALREADY_EXISTS
 
 
+def _wscale(root):
+    """Resolution-adaptive widget scale: the body is drawn for a 1080p-tall screen and
+    shrinks in step when the screen it sits on is shorter (e.g. the game switched the
+    display to a lower resolution). Never upscales — text stays crisp on big monitors."""
+    try:
+        x, y = root.winfo_x(), root.winfo_y()
+        mons = monitors()
+        m = next((mm for mm in mons if mm[0] <= x < mm[2] and mm[1] <= y < mm[3]), mons[0])
+        return max(0.6, min(1.0, (m[3] - m[1]) / 1080.0))
+    except Exception:
+        return 1.0
+
+
 def _load_pos():
     try:
         p = json.load(open(POS_FILE))
@@ -761,7 +774,7 @@ def main():
     vol.bind("<ButtonRelease-1>", _vol_done)
 
     # the body is ONE drawn image (see _render_body) — a HUD, not a stack of text labels.
-    from PIL import ImageTk
+    from PIL import Image, ImageTk
     champ = tk.Label(outer, text="waiting for a live game…", font=("Segoe UI Semibold", 11),
                      fg=MUTED, bg=BG, anchor="w")
     champ.pack(fill="x", padx=10, pady=(6, 7))
@@ -794,6 +807,10 @@ def main():
             im = _render_body(dd, rec, pulse, recall, ghost, dead)
         except Exception:
             return                                       # keep the last good frame
+        s = _wscale(root)                                # adapt to the screen's live resolution
+        if s < 0.999:
+            im = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))),
+                           Image.LANCZOS)
         ph = ImageTk.PhotoImage(im)
         shot.configure(image=ph)
         shot.image = ph                                  # keep a reference or Tk drops it
@@ -866,7 +883,12 @@ def main():
         lx.pack(side="right")
         lx.bind("<Button-1>", toggle_legend)
         body = tk.Label(lo, bg=BG, bd=0)
-        ph = ImageTk.PhotoImage(_render_legend())
+        lim = _render_legend()
+        ls = _wscale(root)                               # legend follows the widget's scale
+        if ls < 0.999:
+            lim = lim.resize((max(1, round(lim.width * ls)), max(1, round(lim.height * ls))),
+                             Image.LANCZOS)
+        ph = ImageTk.PhotoImage(lim)
         body.configure(image=ph)
         body.image = ph                                  # keep a reference or Tk drops it
         body.pack(padx=1, pady=(0, 1))
