@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.9
+- **The Death Brief now shows on your MAIN monitor** — where the game actually is. It was landing on the secondary screen (it borrowed the champ-select board's "use the other monitor" rule, which is wrong for a fullscreen in-game HUD). It now finds the League game window and draws on that monitor, falling back to your primary — so it's actually in front of you when you die.
+- **Packed with the whole game state.** The empty center is now a full live rundown of all ten players: role, champ, level, KDA, CS, fog-proof gold estimate, completed items, and who's dead — your row highlighted, the team gold lead up top. Alongside the respawn clock, the tempo verdict, your buy, the win read, the enemy to watch, next objectives, and the feed, the grey screen now hands you everything at once.
+
 ## v0.9.8
 - **THE DEATH BRIEF — a fullscreen read of the whole game, the moment you die.** Being dead is the one time in League you can process information at zero cost, so Smiteless now fills it: the instant you die, a **see-through overlay** fades in over the whole screen with a giant **respawn clock**, the **one tempo verdict** for what your death just did (*"Baron up now — you're too dead to contest, GIVE it, meet mid for grubs"*), **what to buy on respawn** for your current gold, the **win read**, the **scariest fed enemy** to watch, the **next objectives**, and a **feed of what you missed** while grey. It vanishes the instant you respawn. Toggle: **Settings → Death brief**.
 - **The center stays clear** — a chroma-key hole makes the middle of the screen fully transparent *and* click-through, so you keep watching the fight through the brief and keep full camera control while dead. It's the calm, high-information version of "follow the action."

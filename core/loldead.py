@@ -65,6 +65,38 @@ def _short(name):
     return (name or "?").split("#")[0][:14]
 
 
+_ROLE = {"TOP": "TOP", "JUNGLE": "JG", "MIDDLE": "MID", "BOTTOM": "BOT", "UTILITY": "SUP"}
+
+
+def _scoreboard(dd, data, gt):
+    """Full live rundown of all ten: champ, role, level, KDA, CS, est gold, completed items.
+    Gold is the fog-proof estimate so a farmed enemy in fog doesn't read as poor."""
+    split = ll.team_split(data)
+    if not split:
+        return None
+    me, allies, enemies, _t = split
+    myg = _gname(me) if me else ""
+
+    def row(p):
+        sc = p.get("scores") or {}
+        items = [it.get("itemID") for it in (p.get("items") or []) if it.get("itemID")]
+        try:
+            nit, _g = ll._completed_items(dd, items)
+        except Exception:
+            nit = 0
+        champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](p.get("championName", "")), 0),
+                                  p.get("championName", "?"))
+        return {"champ": champ, "role": _ROLE.get((p.get("position") or "").upper(), ""),
+                "lvl": int(p.get("level", 1)), "k": int(sc.get("kills", 0)),
+                "d": int(sc.get("deaths", 0)), "a": int(sc.get("assists", 0)),
+                "cs": int(sc.get("creepScore", 0)), "gold": int(ll.est_gold(p, gt)),
+                "items": nit, "dead": bool(p.get("isDead")), "me": _gname(p) == myg}
+    al = [row(p) for p in allies]
+    en = [row(p) for p in enemies]
+    lead = sum(r["gold"] for r in al) - sum(r["gold"] for r in en)
+    return {"allies": al, "enemies": en, "gold_lead": lead}
+
+
 def brief(dd, data):
     """The full death brief, or None unless the active player is dead right now."""
     dead = lt.respawn_plan(dd, data)          # None unless YOU are dead -> the whole trigger
@@ -95,4 +127,8 @@ def brief(dd, data):
         out["feed"] = _recent_feed(data, {_gname(a) for a in allies}, gt)
     except Exception:
         pass
+    try:
+        out["board"] = _scoreboard(dd, data, gt)
+    except Exception:
+        out["board"] = None
     return out

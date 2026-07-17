@@ -29,7 +29,26 @@ import loldead as ld
 import phasecheck
 import smiteconfig as cfg
 import smiteskin as skin
-from smiteoverlay import target_monitor, make_no_activate, toplevel_hwnd
+from smiteoverlay import target_monitor, make_no_activate, toplevel_hwnd, monitors, monitor_of
+
+
+def game_monitor():
+    """The monitor the GAME is actually on — that's where an in-game overlay belongs. Finds
+    the League game window (class RiotWindowClass); falls back to the PRIMARY monitor (origin
+    0,0), never the non-primary target_monitor (the board's fallback, wrong for a fullscreen
+    in-game HUD since you play on your main screen)."""
+    try:
+        h = _user32.FindWindowW("RiotWindowClass", None)
+        if h and _user32.IsWindowVisible(h):
+            r = wintypes.RECT()
+            _user32.GetWindowRect(h, ctypes.byref(r))
+            return monitor_of((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+    except Exception:
+        pass
+    for m in monitors():
+        if (m[0], m[1]) == (0, 0):      # primary
+            return m
+    return monitors()[0]
 
 _user32 = ctypes.windll.user32
 CHROMA_HEX = "#ff00ff"                 # chroma key -> transparent + (with WS_EX_TRANSPARENT) click-through
@@ -175,6 +194,51 @@ def render_frame(dd, b, W, H):
                    when, font=_wfont(S(15), True), fill=tcol)
             oy += S(24)
 
+    # ---------- CENTER: the full 10-player rundown (the dense value) ----------
+    board = b.get("board")
+    if board and (board.get("allies") or board.get("enemies")):
+        bw = S(500)
+        bx = (W - bw) // 2
+        rowh = S(24)
+        n = len(board["allies"]) + len(board["enemies"])
+        bh = S(52) + S(26) + rowh * n
+        by0 = int(H * 0.20)
+        _card(d, bx, by0, bw, bh, C_EMBER)
+        px = bx + S(20)
+
+        def _prow(y, r, header=None, lead=None):
+            if header:
+                col = C_GOOD if header == "YOUR TEAM" else C_BAD
+                d.text((px, y), header, font=_wfont(S(13), True), fill=col)
+                if lead is not None:
+                    lt_txt = f"{lead/1000:+.1f}k gold"
+                    d.text((bx + bw - S(20) - d.textlength(lt_txt, font=_wfont(S(13), True)), y),
+                           lt_txt, font=_wfont(S(13), True), fill=(C_GOOD if lead >= 0 else C_BAD))
+                return y + S(24)
+            fill = C_EMBER if r["me"] else (C_FAINT if r["dead"] else C_TXT)
+            f11 = _wfont(S(13), r["me"])
+            d.text((px, y), r["role"], font=_wfont(S(11), True), fill=C_MUTED)
+            d.text((px + S(40), y), r["champ"][:11], font=f11, fill=fill)
+            d.text((px + S(162), y), f"L{r['lvl']}", font=_wfont(S(12)), fill=C_MUTED)
+            d.text((px + S(200), y), f"{r['k']}/{r['d']}/{r['a']}", font=_wfont(S(13)), fill=fill)
+            d.text((px + S(280), y), f"{r['cs']}", font=_wfont(S(12)), fill=C_MUTED)
+            g = f"{r['gold']/1000:.1f}k"
+            d.text((px + S(322), y), g, font=_wfont(S(13), True), fill=C_WARN)
+            d.text((px + S(388), y), f"{r['items']} it", font=_wfont(S(12)), fill=C_MUTED)
+            if r["dead"]:
+                d.text((bx + bw - S(20) - d.textlength("DEAD", font=_wfont(S(11), True)), y),
+                       "DEAD", font=_wfont(S(11), True), fill=C_BAD)
+            return y + rowh
+
+        yy = by0 + S(16)
+        yy = _prow(yy, None, header="YOUR TEAM", lead=board.get("gold_lead"))
+        for r in board["allies"]:
+            yy = _prow(yy, r)
+        yy += S(6)
+        yy = _prow(yy, None, header="ENEMY")
+        for r in board["enemies"]:
+            yy = _prow(yy, r)
+
     # ---------- BOTTOM: what you missed ----------
     feed = b.get("feed") or []
     if feed:
@@ -220,7 +284,7 @@ def main():
     from PIL import ImageTk
 
     dd = lb.ddragon()
-    mon = target_monitor()
+    mon = game_monitor()
     l, t, r, b = mon
     W, H = r - l, b - t
 
