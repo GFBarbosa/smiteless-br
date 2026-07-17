@@ -146,7 +146,10 @@ def render_frame(dd, b, W, H):
     CHROMA = (255, 0, 255)
     img = Image.new("RGB", (W, H), CHROMA)
     d = ImageDraw.Draw(img)
-    s = max(0.6, min(1.4, H / 1080.0))            # scale fonts/panels to the monitor
+    # Resolution-adaptive, but sized to sit as a compact ~17%-per-column strip on ANY monitor
+    # (the design is drawn against a 1400px-tall reference, so 1080p renders ~0.77x — smaller
+    # than the old 1080-reference that filled ~22% of the width and felt oversized).
+    s = max(0.62, min(1.55, H / 1400.0))
     def S(v): return int(v * s)
     M = S(30)
     colw = S(430)

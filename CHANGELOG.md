@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.15
+- **The Death Brief is sized right now.** It was drawn against a 1080p reference, so on a 1080p screen it rendered at full size and each column ate ~22% of the width — it felt oversized. It's now drawn against a taller reference so it sits as a compact ~17%-per-column strip on **any** resolution (still fully resolution-adaptive — proportional on 1080p, 1440p, 4K, ultrawide), leaving much more of the screen clear.
+
 ## v0.9.14
 - **The Death Brief is now a coach, not a dashboard.** Death is when you need guidance most, so instead of just showing numbers it now reads the state and *tells you what to do*, leading with three synthesized calls:
   - **WHY YOU DIED** — from the actual kill that got you: *"Solo-killed by Zed (9/1) — he one-shots you now: buy Zhonya's/GA, never walk alone, group tight."* Knows solo-kill vs collapsed-on, and the killer's class + how fed they are.
