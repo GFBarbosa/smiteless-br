@@ -34,7 +34,7 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
 - **The climb system** — research-backed discipline: the 2-loss stop rule, champion-pool focus, and sample-aware "play more / ease off" coaching
 - **Click any player** to scout their full profile; right-click for u.gg / op.gg / Porofessor
-- **One-click Riot login** — save each account's "Stay signed in" session once, then switch accounts straight from the tray: no passwords stored, sessions DPAPI-encrypted, League relaunches already logged in
+- **One-click Riot login, two ways** — *(a)* save each account's "Stay signed in" session and switch from the tray with no password stored, or *(b)* Profile → **⚡ Log in** to save a username+password (DPAPI-encrypted) and have Smiteless autofill the Riot login form for you. Both relaunch you straight into League; the password path survives logging out, the session path can't be captcha'd
 
 Patch notes: tray → **Patch notes**, or [CHANGELOG.md](CHANGELOG.md).
 

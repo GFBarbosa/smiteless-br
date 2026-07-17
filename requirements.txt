@@ -1,3 +1,4 @@
 Pillow>=10
+comtypes>=1.2   # UI Automation: locate the Riot login fields for one-click autofill
 # Optional — only for the pure-Python tray (smiteless_tray.py). Not needed with the AHK tray.
 # pystray>=0.19

@@ -8,8 +8,10 @@ One frozen exe (SmitelessApp.exe) covers every window/tool; the first CLI arg pi
     SmitelessApp.exe settings       the settings window
     SmitelessApp.exe phase <file>   write the LCU gameflow phase to <file> (for the tray watcher)
     SmitelessApp.exe autoaccept     auto-accept queue ready checks (when enabled)
-    SmitelessApp.exe login <name>   one-click Riot login: swap to a saved account session
-    SmitelessApp.exe accounts ...   saved-login admin (list / save <name> / remove <name>)
+    SmitelessApp.exe login <name>   one-click Riot login: swap to a saved account SESSION (no pw)
+    SmitelessApp.exe accounts ...   saved-session admin (list / save <name> / remove <name>)
+    SmitelessApp.exe fill <name>    one-click Riot login: autofill a saved username+PASSWORD
+    SmitelessApp.exe logins ...     saved-login (password) admin (list / remove <name>)
     SmitelessApp.exe update [--apply]  check GitHub for a newer release (notify / one-click)
     SmitelessApp.exe selftest       dependency health check (dev)
 
@@ -72,6 +74,12 @@ def main():
     elif cmd == "accounts":
         import lolaccounts
         lolaccounts.main(rest)
+    elif cmd == "fill":
+        import lolcreds
+        lolcreds.main(["fill", *rest])
+    elif cmd == "logins":
+        import lolcreds
+        lolcreds.main(rest)
     elif cmd == "stats":
         import smitestats
         smitestats.main()
@@ -86,7 +94,7 @@ def main():
         selftest.main()
     else:
         sys.stderr.write("usage: SmitelessApp.exe [overlay|widget|settings|phase|autoaccept|"
-                         "login <name>|accounts|update|selftest]\n")
+                         "login <name>|accounts|fill <name>|logins|update|selftest]\n")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,119 @@ def _center(root, w, h):
             root.geometry(f"{w}x{h}")
 
 
+def _accounts_popup(root):
+    """One-click Riot logins: pick a saved account and Smiteless fills the Riot login form
+    (no typing by you). Add accounts here too - credentials are DPAPI-encrypted on this PC."""
+    import tkinter as tk
+    import lolcreds as lc
+    if getattr(_accounts_popup, "_win", None) is not None:
+        try:
+            _accounts_popup._win.deiconify(); _accounts_popup._win.lift(); return
+        except Exception:
+            pass
+    win = tk.Toplevel(root)
+    _accounts_popup._win = win
+    win.title("Riot logins")
+    win.configure(bg=skin.VOID)
+    skin.dark_titlebar(win)
+    win.resizable(False, False)
+
+    def _close():
+        _accounts_popup._win = None
+        win.destroy()
+    win.protocol("WM_DELETE_WINDOW", _close)
+
+    skin.brand_row(win, "logins", bg=skin.VOID).pack(anchor="w", padx=16, pady=(14, 2))
+    tk.Label(win, text="Click an account — Smiteless brings up the Riot login and fills it in. A "
+             "fresh login can still hit a Riot captcha / MFA email that nothing can auto-skip.",
+             bg=skin.VOID, fg=skin.MUTED, font=skin.body(skin.SMALL), justify="left",
+             wraplength=380).pack(anchor="w", padx=16, pady=(0, 8))
+
+    listwrap = tk.Frame(win, bg=skin.VOID)
+    listwrap.pack(fill="x", padx=14)
+    status = tk.Label(win, text="", bg=skin.VOID, fg=skin.MUTED, font=skin.body(skin.SMALL),
+                      anchor="w", justify="left", wraplength=380)
+
+    def _set_status(msg, fg=skin.MUTED):
+        status.config(text=msg, fg=fg)
+
+    def _do_login(name):
+        _set_status(f"{name}: starting…")
+
+        def work():
+            try:
+                lc.fill(name, on_status=lambda s: root.after(0, _set_status, f"{name}: {s}"))
+                root.after(0, _set_status, f"✓ {name} — check the Riot window", skin.GOOD)
+            except Exception as e:
+                root.after(0, _set_status, str(e), skin.BAD)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _refresh():
+        for w in listwrap.winfo_children():
+            w.destroy()
+        nm = lc.names()
+        if not nm:
+            tk.Label(listwrap, text="No accounts yet — add one below.", bg=skin.VOID,
+                     fg=skin.FAINT, font=skin.body(skin.SMALL)).pack(anchor="w", pady=4)
+        for name in nm:
+            row = skin.card(listwrap, rail=skin.LINE)
+            row.pack(fill="x", pady=3)
+            tk.Label(row.body, text=name, bg=skin.SURFACE, fg=skin.TXT,
+                     font=skin.body(skin.BODY, bold=True)).pack(side="left", padx=12, pady=6)
+            skin.button(row.body, "✕", (lambda n=name: (lc.remove(n), _refresh())),
+                        size=skin.SMALL).pack(side="right", padx=(0, 8))
+            skin.button(row.body, "Log in", (lambda n=name: _do_login(n)),
+                        primary=True, size=skin.SMALL).pack(side="right", padx=6)
+
+    skin.section_rule(win, "ADD / UPDATE ACCOUNT").pack(fill="x", padx=18, pady=(12, 2))
+    form = skin.card(win, rail=skin.LINE)
+    form.pack(fill="x", padx=14, pady=(0, 6))
+    fb = form.body
+
+    def _field(label, show=None):
+        tk.Label(fb, text=label, bg=skin.SURFACE, fg=skin.MUTED,
+                 font=skin.body(skin.SMALL)).pack(anchor="w", padx=12, pady=(6, 0))
+        e = tk.Entry(fb, bg=skin.SUNKEN, fg=skin.TXT, insertbackground=skin.TXT, relief="flat",
+                     font=skin.mono(skin.SMALL), show=(show or ""))
+        e.pack(fill="x", padx=12, pady=(1, 2), ipady=3)
+        return e
+    e_name = _field("Label (e.g. Main, Smurf)")
+    e_user = _field("Riot username (not the Riot ID)")
+    e_pass = _field("Password", show="•")
+    showpw = tk.BooleanVar(value=False)
+    tk.Checkbutton(fb, text="show password", variable=showpw, bg=skin.SURFACE, fg=skin.MUTED,
+                   selectcolor=skin.SUNKEN, activebackground=skin.SURFACE, activeforeground=skin.MUTED,
+                   font=skin.body(skin.SMALL), bd=0, highlightthickness=0,
+                   command=lambda: e_pass.config(show="" if showpw.get() else "•")).pack(anchor="w", padx=8)
+
+    def _save():
+        try:
+            lc.upsert(e_name.get(), e_user.get(), e_pass.get())
+            _set_status(f'✓ saved "{e_name.get().strip()}"', skin.GOOD)
+            e_name.delete(0, "end"); e_user.delete(0, "end"); e_pass.delete(0, "end")
+            _refresh()
+        except Exception as e:
+            _set_status(str(e), skin.BAD)
+    btns = tk.Frame(fb, bg=skin.SURFACE)
+    btns.pack(fill="x", padx=8, pady=(4, 8))
+    skin.button(btns, "Save account", _save, primary=True).pack(side="left", padx=4)
+    e_pass.bind("<Return>", lambda e: _save())
+    status.pack(anchor="w", padx=16, pady=(6, 12))
+    _refresh()
+
+    win.update_idletasks()
+    w, h = max(420, win.winfo_reqwidth()), win.winfo_reqheight()
+    try:
+        rx, ry = root.winfo_rootx(), root.winfo_rooty()
+        win.geometry(f"{w}x{h}+{rx + 60}+{ry + 60}")
+    except Exception:
+        pass
+    win.bind("<Escape>", lambda e: _close())
+    win.transient(root)
+    win.update_idletasks()
+    skin.dark_titlebar(win)                     # re-apply once realized (DWM needs the live HWND)
+
+
 def main():
     if not _single_instance():
         return
@@ -119,6 +232,15 @@ def main():
     search.bind("<FocusIn>", lambda e: (search.delete(0, "end") if search.get() == "Name#TAG" else None))
     gobtn = skin.button(bar, "Search", None, size=skin.SMALL)
     gobtn.pack(side="left", padx=(2, 6), pady=7)
+
+    def _open_logins():
+        _accounts_popup(root)
+    loginbtn = tk.Button(bar, text="⚡ Log in", bg=skin.RAISED, fg=skin.EMBER, activebackground=skin.HOVER,
+                         activeforeground=skin.EMBER, relief="flat", font=skin.body(skin.SMALL, bold=True),
+                         padx=12, pady=4, cursor="hand2", command=_open_logins)
+    loginbtn.pack(side="left", padx=(0, 6), pady=7)
+    loginbtn.bind("<Enter>", lambda e: loginbtn.config(bg=skin.HOVER))
+    loginbtn.bind("<Leave>", lambda e: loginbtn.config(bg=skin.RAISED))
     loadbtn = skin.button(bar, "Load more", None, size=skin.SMALL)
     loadbtn.config(state="disabled")
     loadbtn.pack(side="right", padx=12, pady=7)
