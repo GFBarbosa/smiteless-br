@@ -189,22 +189,25 @@ def main():
     for r in cfg.SWAP_ROLES:
         _chk(swaprow, _SWAP_LBL[r], swapvars[r]).pack(side="left", padx=(0, 8))
 
-    # Auto PICK-ORDER swap — trade your spot in the pick order toward first / last pick.
-    _pk = s.get("auto_pick_swap")
-    pickswap = tk.StringVar(value=(_pk if _pk in ("first", "last") else "off"))
+    # Auto PICK-ORDER swap — trade your spot toward a specific pick slot (1st..5th).
+    _pk = str(s.get("auto_pick_swap") or "")
+    _pk = {"first": "1", "last": "5"}.get(_pk, _pk)     # legacy first/last -> a slot number
+    pickswap = tk.StringVar(value=(_pk if _pk in ("any", "1", "2", "3", "4", "5") else "off"))
     skin.section_rule(body, "AUTO PICK-ORDER SWAP").pack(fill="x", padx=18, pady=(10, 2))
-    tk.Label(body, text="Auto-handle pick-order swaps. \"Accept any\" just accepts every incoming "
-             "swap request. \"Last pick\" works you as late as possible so you can counter-pick; "
-             "\"First pick\" swaps you early to lock a contested champ (these accept an offer that "
-             "moves you the right way, and ask for one otherwise).",
+    tk.Label(body, text="Auto-handle pick-order swaps toward the slot you pick. 1st = first pick "
+             "(lock a contested champ early); 5th = last pick (counter-pick). Pick 4th/5th to sit "
+             "near the end without insisting on dead-last. It accepts any offer that moves you "
+             "CLOSER to your slot and asks for one otherwise. \"Any\" just accepts every incoming "
+             "request. A slot past the lobby size just means last.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     pkrow = tk.Frame(body, bg=VOID)
     pkrow.pack(anchor="w", padx=16, pady=(0, 2))
-    for _lbl, _val in (("Off", "off"), ("Accept any", "any"), ("First pick", "first"), ("Last pick", "last")):
+    for _lbl, _val in (("Off", "off"), ("Any", "any"), ("1st", "1"), ("2nd", "2"),
+                       ("3rd", "3"), ("4th", "4"), ("5th", "5")):
         tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=VOID, fg=TXT,
                        selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
-                       font=skin.body(BODY), bd=0, highlightthickness=0).pack(side="left", padx=(0, 10))
+                       font=skin.body(BODY), bd=0, highlightthickness=0).pack(side="left", padx=(0, 8))
 
     from tkinter import ttk
     import lolbuild as _lb

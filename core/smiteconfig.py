@@ -13,6 +13,8 @@ NOHOME = os.path.expanduser("~/.claude/smiteless_nohomeonstart")  # presence = o
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 SWAP_ROLES = ("top", "jungle", "mid", "adc", "support")   # valid targets for auto-accept role swap
+# auto_pick_swap: "" off / "any" accept-all / "first" / "last" / a specific pick slot "1".."5".
+PICK_SWAP_VALUES = ("any", "first", "last", "1", "2", "3", "4", "5")
 
 # streak_influence: 0..100, 50 = the original/default behavior (a multiplier m = value/50
 #   scales the enemy form weight, the streak compounding, and the extreme override).
@@ -65,7 +67,7 @@ def load():
             s["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in raw["auto_swap_roles"])
                                     if r in SWAP_ROLES]
         pk = str(raw.get("auto_pick_swap", "")).strip().lower()
-        s["auto_pick_swap"] = pk if pk in ("any", "first", "last") else ""
+        s["auto_pick_swap"] = pk if pk in PICK_SWAP_VALUES else ""
     except Exception:
         pass
     return s
@@ -109,7 +111,7 @@ def save(s):
         clean["auto_swap_roles"] = []
     if "auto_pick_swap" in s:
         pk = str(s.get("auto_pick_swap", "")).strip().lower()
-        clean["auto_pick_swap"] = pk if pk in ("any", "first", "last") else ""
+        clean["auto_pick_swap"] = pk if pk in PICK_SWAP_VALUES else ""
     elif "auto_pick_swap" not in clean:
         clean["auto_pick_swap"] = ""
     try:

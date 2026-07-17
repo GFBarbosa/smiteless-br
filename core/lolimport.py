@@ -210,13 +210,16 @@ def _post_pick_swap(sid, action):
 
 def auto_pick_order_swap(target):
     """Handle champ-select PICK ORDER swaps. `target`:
-      'any'   -> just ACCEPT every incoming pick-order swap request (no direction, no asking).
-      'last'  -> pick last so you can counter-pick: accept swaps that move you later, else ask.
-      'first' -> pick early to secure a champ: accept swaps that move you earlier, else ask.
+      'any'         -> just ACCEPT every incoming pick-order request (no direction, no asking).
+      'first'/'last'-> pick as early / late as possible (last = counter-pick).
+      '1'..'5'      -> seek that exact pick slot (clamped to the lobby size); '4'/'5' let you
+                       pick near the end without insisting on dead-last.
       '' / anything else = off.
-    Returns a short status string or None. Never raises — must not disrupt champ select.
-    (LCU: pickOrderSwaps in the session.)"""
-    if target not in ("any", "first", "last"):
+    Accepts an incoming offer that moves you closer to the target, otherwise requests a swap
+    toward it. Returns a short status string or None. Never raises — must not disrupt champ
+    select. (LCU: pickOrderSwaps in the session.)"""
+    target = str(target).strip().lower()
+    if target not in ("any", "first", "last") and not (target.isdigit() and target != "0"):
         return None
     try:
         sess = _lcu_json("GET", "/lol-champ-select/v1/session")
@@ -251,30 +254,37 @@ def auto_pick_order_swap(target):
 
     if not my_pos or len(order) < 2:
         return None
-    best_slot = len(order) if target == "last" else 1
-    if my_pos == best_slot:
+    # Resolve the desired slot number, clamped to the actual lobby size.
+    if target == "first":
+        want = 1
+    elif target == "last":
+        want = len(order)
+    else:
+        want = max(1, min(len(order), int(target)))
+    if my_pos == want:
         return None                              # already where you want to be
-    better = (lambda p: p > my_pos) if target == "last" else (lambda p: p < my_pos)
+    # A slot is "better" if it's strictly closer to the target than where you are now.
+    dist = lambda p: abs(p - want)
+    better = lambda p: p and dist(p) < dist(my_pos)
 
-    # 1) Accept an incoming offer that moves you the right way (their slot is better than yours).
-    for s in swaps:
-        if s.get("state") != "RECEIVED":
-            continue
-        tp = pos.get(s.get("cellId"))
-        if tp and better(tp):
-            return f"pick {tp}" if _post_pick_swap(s.get("id"), "accept") else None
+    # 1) Accept the incoming offer that lands you CLOSEST to the target (among those that help).
+    incoming = [(pos.get(s.get("cellId")), s) for s in swaps if s.get("state") == "RECEIVED"]
+    incoming = [(tp, s) for tp, s in incoming if better(tp)]
+    if incoming:
+        tp, s = min(incoming, key=lambda t: dist(t[0]))
+        return f"pick {tp}" if _post_pick_swap(s.get("id"), "accept") else None
 
-    # 2) Otherwise request a swap toward the best available slot in the target direction.
-    cands = sorted((s for s in swaps if s.get("state") == "AVAILABLE"
-                    and pos.get(s.get("cellId")) and better(pos[s.get("cellId")])),
-                   key=lambda s: pos[s.get("cellId")], reverse=(target == "last"))
+    # 2) Otherwise request a swap toward the available slot CLOSEST to the target.
+    cands = sorted(((pos.get(s.get("cellId")), s) for s in swaps if s.get("state") == "AVAILABLE"),
+                   key=lambda t: (dist(t[0]) if t[0] else 99))
+    cands = [(tp, s) for tp, s in cands if better(tp)]
     if cands:
-        s = cands[0]
+        tp, s = cands[0]
         sid, now = s.get("id"), time.time()
         if _PICK_SWAP_LAST["sid"] == sid and now - _PICK_SWAP_LAST["ts"] < 12:
             return None                          # don't hammer the same holder
         _PICK_SWAP_LAST.update(sid=sid, ts=now)
-        return f"asked pick {pos[s.get('cellId')]}" if _post_pick_swap(sid, "request") else None
+        return f"asked pick {tp}" if _post_pick_swap(sid, "request") else None
     return None
 
 

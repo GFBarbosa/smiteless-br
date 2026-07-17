@@ -171,7 +171,8 @@ def main():
     key = ls.read_key()
     st = {"count": cfg.load().get("profile_games", 30), "busy": False, "photo_top": None, "photo_bottom": None,
           "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": [], "hit_reviews": [],
-          "hit_players": [], "view": None, "own_prof": None}   # view None = my profile; else {puuid, riot_id}
+          "hit_players": [], "view": None, "own_prof": None,   # view None = my profile; else {puuid, riot_id}
+          "scale": 1.0, "ox": 0, "_last_w": 0}                 # display scale + x-offset for window-fit
 
     root = tk.Tk()
     root.title("Smiteless — Profile")
@@ -269,6 +270,33 @@ def main():
         except Exception as e:
             status.config(text=f"save failed: {e}")
 
+    _LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+
+    def _blit(force_top=None):
+        """Draw the cached profile image scaled to fit the CURRENT window width, centered.
+        Hit regions stay in image space; clicks divide by st['scale'] and subtract st['ox'].
+        The base image is a fixed-width raster, so this fills the window on maximize (up to a
+        2x cap so upscaled text doesn't get mushy) instead of stranding it top-left."""
+        top, bot = st.get("base_top"), st.get("base_bottom")
+        if top is None or bot is None:
+            return
+        cw = canvas.winfo_width()
+        if cw <= 1:
+            cw = sc.PW                          # not realized yet -> natural width
+        k = max(1.0, min(2.0, cw / sc.PW))      # window is always >= PW (minsize), so only ever up
+        st["scale"] = k
+        top_s = top.resize((round(top.width * k), round(top.height * k)), _LANCZOS) if k != 1.0 else top
+        bot_s = bot.resize((round(bot.width * k), round(bot.height * k)), _LANCZOS) if k != 1.0 else bot
+        st["ox"] = ox = max(0, (cw - bot_s.width) // 2)
+        ptop, pbot = ImageTk.PhotoImage(top_s), ImageTk.PhotoImage(bot_s)
+        st["photo_top"], st["photo_bottom"] = ptop, pbot   # keep refs or Tk GC's them
+        top_pos = canvas.yview()[0] if force_top is None else force_top
+        header.config(image=ptop)
+        canvas.delete("all")
+        canvas.create_image(ox, 0, anchor="nw", image=pbot)
+        canvas.configure(scrollregion=(0, 0, max(cw, bot_s.width), bot_s.height))
+        canvas.yview_moveto(top_pos)
+
     def _render(keep_scroll=True):
         prof = st["prof"]
         if not prof:
@@ -276,25 +304,16 @@ def main():
         pil = sc.render_profile(dd, prof, st["expanded"], st["details"])
         split = int(getattr(pil, "profile_split_y", 240))
         split = max(120, min(pil.height - 1, split))
-        top_img = pil.crop((0, 0, pil.width, split))
-        bottom_img = pil.crop((0, split, pil.width, pil.height))
-        ptop = ImageTk.PhotoImage(top_img)
-        pbot = ImageTk.PhotoImage(bottom_img)
-        st["photo_top"] = ptop                 # keep refs or Tk GC's them
-        st["photo_bottom"] = pbot
+        st["base_top"] = pil.crop((0, 0, pil.width, split))
+        st["base_bottom"] = pil.crop((0, split, pil.width, pil.height))
         st["split_y"] = split
-        top_pos = canvas.yview()[0] if keep_scroll else 0.0
-        header.config(image=ptop)
-        canvas.delete("all")
-        canvas.create_image(0, 0, anchor="nw", image=pbot)
-        canvas.configure(scrollregion=(0, 0, bottom_img.width, bottom_img.height))
-        canvas.yview_moveto(top_pos)
         st["hit"] = [(max(0, y0 - split), max(0, y1 - split), idx)
                      for y0, y1, idx in getattr(pil, "hit_games", []) if y1 > split]
         st["hit_reviews"] = [(x0, max(0, y0 - split), x1, max(0, y1 - split), idx)
                              for x0, y0, x1, y1, idx in getattr(pil, "hit_reviews", []) if y1 > split]
         st["hit_players"] = [(x0, max(0, y0 - split), x1, max(0, y1 - split), pu, nm)
                              for x0, y0, x1, y1, pu, nm in getattr(pil, "hit_players", []) if y1 > split]
+        _blit(force_top=(None if keep_scroll else 0.0))
 
     def _apply(prof):
         st["busy"] = False
@@ -453,8 +472,9 @@ def main():
         tx.config(state="disabled")
 
     def _on_click(event):
-        x = canvas.canvasx(event.x)
-        y = canvas.canvasy(event.y)
+        k, ox = st.get("scale", 1.0), st.get("ox", 0)
+        x = (canvas.canvasx(event.x) - ox) / k     # canvas is in scaled+centered space -> image space
+        y = canvas.canvasy(event.y) / k
         for x0, y0, x1, y1, idx in st["hit_reviews"]:
             if x0 <= x <= x1 and y0 <= y <= y1:
                 gm = st["prof"]["games"][idx]
@@ -508,7 +528,8 @@ def main():
             m.grab_release()
 
     def _on_right(event):
-        x, y = canvas.canvasx(event.x), canvas.canvasy(event.y)
+        k, ox = st.get("scale", 1.0), st.get("ox", 0)
+        x, y = (canvas.canvasx(event.x) - ox) / k, canvas.canvasy(event.y) / k
         for x0, y0, x1, y1, pu, nm in st["hit_players"]:
             if x0 <= x <= x1 and y0 <= y <= y1:
                 if pu:
@@ -518,7 +539,21 @@ def main():
         if st.get("prof") and st["prof"].get("riot_id") and st["prof"]["riot_id"] != "?":
             _player_menu(event, st["prof"]["riot_id"], st["prof"].get("puuid"))
 
+    def _on_canvas_resize(event):
+        # window resized (e.g. maximize) -> re-fit the profile to the new width. Debounced so a
+        # drag doesn't re-scale on every intermediate pixel; skipped until content exists.
+        if st.get("base_bottom") is None or event.width == st.get("_last_w"):
+            return
+        st["_last_w"] = event.width
+        if st.get("_resize_after"):
+            try:
+                root.after_cancel(st["_resize_after"])
+            except Exception:
+                pass
+        st["_resize_after"] = root.after(120, lambda: _blit(force_top=None))
+
     loadbtn.config(command=lambda: _load(True))
+    canvas.bind("<Configure>", _on_canvas_resize)
     canvas.bind("<Button-1>", _on_click)
     canvas.bind("<Button-3>", _on_right)
     header.bind("<Button-3>", _on_right)                   # right-click the header art too
