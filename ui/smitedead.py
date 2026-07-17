@@ -100,8 +100,13 @@ def _wrap(d, text, font, maxw):
     return lines
 
 
+PANEL_ALPHA = 205                                  # ~80% — panels tint the game, don't wall it off
+                                                   # (alpha only bites on an RGBA image; the loading
+                                                   # overlay draws on RGB so its panels stay solid)
+
+
 def _card(d, x, y, w, h, rail):
-    d.rounded_rectangle([x, y, x + w, y + h], radius=12, fill=C_SURF)
+    d.rounded_rectangle([x, y, x + w, y + h], radius=12, fill=(*C_SURF, PANEL_ALPHA))
     d.rounded_rectangle([x, y, x + 6, y + h], radius=3, fill=rail)
     d.rectangle([x + 3, y, x + 6, y + h], fill=rail)
 
@@ -143,8 +148,7 @@ def render_frame(dd, b, W, H):
     """Draw the whole brief onto a monitor-sized image whose background is the chroma key
     (so everything not a panel is see-through + click-through). Returns a PIL RGB image."""
     from PIL import Image, ImageDraw
-    CHROMA = (255, 0, 255)
-    img = Image.new("RGB", (W, H), CHROMA)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))   # per-pixel alpha: clear bg, tinted panels, crisp text
     d = ImageDraw.Draw(img)
     # Resolution-adaptive, but sized to sit as a compact ~17%-per-column strip on ANY monitor
     # (the design is drawn against a 1400px-tall reference, so 1080p renders ~0.77x — smaller
@@ -274,6 +278,68 @@ def render_frame(dd, b, W, H):
     return img
 
 
+# ---------- per-pixel-alpha painting (UpdateLayeredWindow) ----------
+_gdi = ctypes.windll.gdi32
+
+
+class _BMIH(ctypes.Structure):
+    _fields_ = [("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG), ("biHeight", wintypes.LONG),
+                ("biPlanes", wintypes.WORD), ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                ("biSizeImage", wintypes.DWORD), ("biXPPM", wintypes.LONG), ("biYPPM", wintypes.LONG),
+                ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD)]
+
+
+class _BMI(ctypes.Structure):
+    _fields_ = [("bmiHeader", _BMIH), ("bmiColors", wintypes.DWORD * 3)]
+
+
+class _SIZE(ctypes.Structure):
+    _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+class _BLEND(ctypes.Structure):
+    _fields_ = [("BlendOp", ctypes.c_byte), ("BlendFlags", ctypes.c_byte),
+                ("SourceConstantAlpha", ctypes.c_byte), ("AlphaFormat", ctypes.c_byte)]
+
+
+def _paint_layered(hwnd, img):
+    """Push an RGBA PIL image onto a layered window with true per-pixel alpha (so panels can be
+    semi-transparent while the text stays crisp). Position is left unchanged (pptDst NULL)."""
+    from PIL import Image as _I, ImageChops
+    w, h = img.size
+    r, g, b, a = img.split()
+    pm = _I.merge("RGBA", (ImageChops.multiply(b, a), ImageChops.multiply(g, a),
+                           ImageChops.multiply(r, a), a))     # premultiplied, BGRA byte order
+    raw = pm.tobytes("raw", "RGBA")
+    hdc = _user32.GetDC(0)
+    memdc = _gdi.CreateCompatibleDC(hdc)
+    bmi = _BMI()
+    bmi.bmiHeader.biSize = ctypes.sizeof(_BMIH)
+    bmi.bmiHeader.biWidth = w
+    bmi.bmiHeader.biHeight = -h                              # top-down
+    bmi.bmiHeader.biPlanes = 1
+    bmi.bmiHeader.biBitCount = 32
+    bits = ctypes.c_void_p()
+    hbmp = _gdi.CreateDIBSection(memdc, ctypes.byref(bmi), 0, ctypes.byref(bits), None, 0)
+    if not hbmp:
+        _gdi.DeleteDC(memdc); _user32.ReleaseDC(0, hdc)
+        return
+    ctypes.memmove(bits, raw, len(raw))
+    old = _gdi.SelectObject(memdc, hbmp)
+    size, src = _SIZE(w, h), _POINT(0, 0)
+    blend = _BLEND(0, 0, 255, 1)                             # AC_SRC_OVER, AC_SRC_ALPHA
+    _user32.UpdateLayeredWindow(hwnd, hdc, None, ctypes.byref(size), memdc,
+                                ctypes.byref(src), 0, ctypes.byref(blend), 2)   # ULW_ALPHA
+    _gdi.SelectObject(memdc, old)
+    _gdi.DeleteObject(hbmp)
+    _gdi.DeleteDC(memdc)
+    _user32.ReleaseDC(0, hdc)
+
+
 # ---------- click-through / no-activate window styling ----------
 def _make_click_through(hwnd):
     GWL_EXSTYLE = -20
@@ -298,7 +364,6 @@ def main():
     if not cfg.load().get("death_brief", True):     # feature gated off -> don't even show up
         return
     import tkinter as tk
-    from PIL import ImageTk
 
     dd = lb.ddragon()
     mon = game_monitor()
@@ -308,15 +373,12 @@ def main():
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)
-    root.configure(bg=CHROMA_HEX)
-    root.attributes("-transparentcolor", CHROMA_HEX)
-    root.geometry(f"{W}x{H}+{l}+{t}")
-    label = tk.Label(root, bd=0, bg=CHROMA_HEX)
-    label.pack(fill="both", expand=True)
+    root.geometry(f"{W}x{H}+{l}+{t}")           # position only; the window is painted via ULW
     root.update_idletasks()
-    _make_click_through(toplevel_hwnd(root.winfo_id()))
+    hwnd = toplevel_hwnd(root.winfo_id())
+    _make_click_through(hwnd)                    # WS_EX_LAYERED needed for UpdateLayeredWindow
 
-    state = {"brief": None, "ts": 0.0, "fails": 0, "run": True, "shown": False}
+    state = {"brief": None, "ts": 0.0, "fails": 0, "run": True, "shown": False, "hwnd": hwnd}
 
     def poll():
         while state["run"]:
@@ -351,14 +413,11 @@ def main():
         if b:
             live = dict(b)                          # smooth the clock between polls
             live["secs"] = max(0, (b.get("secs") or 0) - (time.monotonic() - state["ts"]))
-            frame = render_frame(dd, live, W, H)
-            ph = ImageTk.PhotoImage(frame)
-            label.configure(image=ph)
-            label.image = ph
             if not state["shown"]:
                 root.deiconify()
-                _make_click_through(toplevel_hwnd(root.winfo_id()))
+                _make_click_through(state["hwnd"])
                 state["shown"] = True
+            _paint_layered(state["hwnd"], render_frame(dd, live, W, H))   # per-pixel alpha
         elif state["shown"]:
             root.withdraw()                         # respawned -> vanish
             state["shown"] = False

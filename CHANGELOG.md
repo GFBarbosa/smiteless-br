@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.16
+- **The Death Brief is glass now, not solid blocks.** The panels were fully opaque and walled off whatever they sat over. They're now **semi-transparent** (~80%) with true per-pixel alpha — the game tints through them while the text stays fully crisp and opaque on top. Painted via `UpdateLayeredWindow` instead of a binary chroma key, so it's a real glassy HUD, still click-through and still keeping the middle of the screen clear.
+
 ## v0.9.15
 - **The Death Brief is sized right now.** It was drawn against a 1080p reference, so on a 1080p screen it rendered at full size and each column ate ~22% of the width — it felt oversized. It's now drawn against a taller reference so it sits as a compact ~17%-per-column strip on **any** resolution (still fully resolution-adaptive — proportional on 1080p, 1440p, 4K, ultrawide), leaving much more of the screen clear.
 
