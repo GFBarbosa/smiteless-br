@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.11
+- **NEW — the LOADING-SCREEN matchup overlay.** While the game loads (dead time you're staring at anyway), the whole screen fills with the read that decides the early game: every champion's **good/bad tags**, the **damage split** to itemize against (AD/AP per player), and a plain-English **GAME PLAN** for the comp — *"Enemy is AP-heavy → build MR early"*, *"2 assassins → respect level 6, group, buy Zhonya's/GA"*, *"you out-scale → survive early, win late."* Your team gets light tags on the left; the enemy gets the detailed "what they do" on the right (Zed: *ults to delete a carry · dodge-able ult — ping it*; Darius: *wins extended trades — don't stay · no dash, kite the pull*). Gone the instant the game starts. Toggle: **Settings → Loading brief**.
+- Note: the loading screen only shows **champion** knowledge, not live rank/form — Riot exposes only placeholder player IDs during loading, so player scouting stays in champ select where it belongs.
+
 ## v0.9.10
 - **The Death Brief keeps the middle of your screen clear again.** v0.9.9 packed the 10-player board dead-center, which covered the fight — the whole point of the see-through design is that you can still watch the game while dead. The board now splits to the **left and right edges** (your team left, enemy right), and the center is fully transparent and click-through, as it should be.
 - **Every player carries a good/bad tag now** — the deeper read the dead screen is for. Each row shows a one-word threat/scaling tag (`burst`, `scales`, `engage`, `hook`, `bully`, `wombo`, `skirmish`…), and anyone snowballing lights up **FED** in red. Tags come from champion class + a curated sharpener for the highest-signal champs (Zed, Malphite, Yasuo, Vayne, Kassadin, Draven…). Rows stay compact: role · champ · KDA · gold · tag, with the team gold lead up top.

@@ -37,6 +37,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
+         "loading_brief": True,   # loading-screen matchup overlay (champ tags + game plan)
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
          "auto_import": False,    # import runes+summs AUTOMATICALLY when you lock a champ

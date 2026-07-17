@@ -6,6 +6,7 @@ One frozen exe (SmitelessApp.exe) covers every window/tool; the first CLI arg pi
     SmitelessApp.exe overlay        the scoreboard overlay (default)
     SmitelessApp.exe widget         the floating item widget
     SmitelessApp.exe dead           the fullscreen see-through DEATH BRIEF (while you're dead)
+    SmitelessApp.exe load           the LOADING-SCREEN matchup overlay (champ tags + game plan)
     SmitelessApp.exe settings       the settings window
     SmitelessApp.exe phase <file>   write the LCU gameflow phase to <file> (for the tray watcher)
     SmitelessApp.exe autoaccept     auto-accept queue ready checks (when enabled)
@@ -51,6 +52,9 @@ def main():
     elif cmd == "dead":
         import smitedead
         smitedead.main()
+    elif cmd == "load":
+        import smiteload
+        smiteload.main()
     elif cmd == "settings":
         import smitesettings
         smitesettings.main()

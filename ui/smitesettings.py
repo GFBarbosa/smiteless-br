@@ -143,6 +143,7 @@ def main():
     ghostv = tk.BooleanVar(value=s.get("ghost_race", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
+    loadbrief = tk.BooleanVar(value=s.get("loading_brief", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
@@ -167,6 +168,7 @@ def main():
     _chk(col1, "Ghost race (chase your best game)", ghostv, bg=SURFACE).pack(anchor="w")
     _chk(col1, "Respawn plan (death-screen card)", respawnv, bg=SURFACE).pack(anchor="w")
     _chk(col1, "Death brief (fullscreen while dead)", deadbrief, bg=SURFACE).pack(anchor="w")
+    _chk(col1, "Loading brief (matchup on load screen)", loadbrief, bg=SURFACE).pack(anchor="w")
     _chk(col1, "Matchup lane tips (written guides)", tips, bg=SURFACE).pack(anchor="w")
     _chk(col1, "Auto-accept queue", autoq, bg=SURFACE).pack(anchor="w")
     _chk(col1, "Auto-import runes + summs on lock", autoimp, bg=SURFACE).pack(anchor="w")
@@ -543,6 +545,7 @@ def main():
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "ghost_race": ghostv.get(),
                   "respawn_plan": respawnv.get(), "death_brief": deadbrief.get(),
+                  "loading_brief": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),

@@ -157,6 +157,7 @@ SmiteWatch() {
             g_widgetOpened := true
             OpenWidget()
             Run('"' PYW '" "' SCRIPTS '\ui\smitedead.py"', , "Hide")   ; fullscreen death brief
+            Run('"' PYW '" "' SCRIPTS '\ui\smiteload.py"', , "Hide")   ; loading-screen matchup brief
         }
     } else {
         g_widgetOpened := false

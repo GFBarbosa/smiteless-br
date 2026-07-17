@@ -316,6 +316,7 @@ SmiteWatch() {
             g_widgetOpened := true
             Launch("widget")
             Launch("dead")                          ; fullscreen death brief (self-gates on its setting)
+            Launch("load")                          ; loading-screen matchup brief (shows during load, exits at game start)
         }
     } else {
         g_endStreak += 1
