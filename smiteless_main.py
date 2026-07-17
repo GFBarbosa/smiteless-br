@@ -85,7 +85,8 @@ def main():
         import selftest
         selftest.main()
     else:
-        sys.stderr.write("usage: SmitelessApp.exe [overlay|widget|settings|phase|autoaccept|update|selftest]\n")
+        sys.stderr.write("usage: SmitelessApp.exe [overlay|widget|settings|phase|autoaccept|"
+                         "login <name>|accounts|update|selftest]\n")
 
 
 if __name__ == "__main__":
