@@ -23,7 +23,7 @@ for _s in ("stdout", "stderr"):
 
 import lolbuild as lb
 import lolload as ll
-import phasecheck
+import lolgame as lg
 import smiteconfig as cfg
 import smiteskin as skin
 # reuse the death overlay's window plumbing + drawing helpers (one source of truth)
@@ -106,6 +106,31 @@ def _single_instance():
     return ctypes.get_last_error() != 183
 
 
+def _live_up():
+    """True once the live game (:2999) is serving — i.e. the game world has loaded and you're
+    past the loading screen. The loading screen is exactly the window where this is FALSE."""
+    try:
+        lb.http("https://127.0.0.1:2999/liveclientdata/gamestats", timeout=1, insecure=True)
+        return True
+    except Exception:
+        return False
+
+
+def _gameflow_phase():
+    """RAW LCU gameflow phase (unlike phasecheck, which reports InProgress the moment :2999
+    answers — useless for telling loading apart from the live game)."""
+    lc = lg._lcu()
+    if not lc:
+        return ""
+    port, hdr = lc
+    try:
+        r = lb.http(f"https://127.0.0.1:{port}/lol-gameflow/v1/gameflow-phase",
+                    headers=hdr, timeout=3, insecure=True)
+        return r if isinstance(r, str) else ""
+    except Exception:
+        return ""
+
+
 def main():
     if not _single_instance():
         return
@@ -129,49 +154,56 @@ def main():
     root.update_idletasks()
     _make_click_through(toplevel_hwnd(root.winfo_id()))
 
-    state = {"run": True, "brief": None, "shown": False, "deadline": time.monotonic() + 120}
+    state = {"run": True, "brief": None, "shown": False, "want": False,
+             "deadline": time.monotonic() + 150}
+
+    def _done():
+        state["run"] = False
+        try:
+            root.after(0, root.destroy)
+        except Exception:
+            pass
 
     def poll():
         while state["run"]:
-            ph = phasecheck.phase()
-            if ph == "GameStart":                      # the loading screen
+            live = _live_up()
+            gf = _gameflow_phase()
+            # LOADING = the game process is up (GameStart/InProgress/Reconnect) but the live
+            # game isn't serving yet. That whole span is the loading screen.
+            loading = (gf in ("GameStart", "InProgress", "Reconnect")) and not live
+            if loading:
+                state["want"] = True
                 if state["brief"] is None:
                     try:
-                        state["brief"] = ll.brief(dd)
+                        state["brief"] = ll.brief(dd)     # scout (cached from champ select -> fast)
                     except Exception:
                         state["brief"] = None
-            elif ph in ("InProgress", "Reconnect", "") and ph != "GameStart":
-                # game started (or client gone) -> loading is over
-                if ph != "GameStart":
-                    state["run"] = False
-                    try:
-                        root.after(0, root.destroy)
-                    except Exception:
-                        pass
-                    return
-            if time.monotonic() > state["deadline"]:
-                state["run"] = False
-                try:
-                    root.after(0, root.destroy)
-                except Exception:
-                    pass
+            elif live or gf in ("", "None", "WaitingForStats", "PreEndOfGame", "EndOfGame"):
+                _done()                                    # game started, or client/game gone
                 return
-            time.sleep(1.0)
+            else:
+                state["want"] = False                      # still in Lobby/ChampSelect -> wait
+            if time.monotonic() > state["deadline"]:
+                _done()
+                return
+            time.sleep(0.8)
 
     threading.Thread(target=poll, daemon=True).start()
 
     def tick():
         if not state["run"]:
             return
-        if state["brief"]:
-            if not state["shown"]:
-                frame = render_frame(dd, state["brief"], W, H)
-                ph = ImageTk.PhotoImage(frame)
-                label.configure(image=ph)
-                label.image = ph
-                root.deiconify()
-                _make_click_through(toplevel_hwnd(root.winfo_id()))
-                state["shown"] = True
+        if state["want"] and state["brief"] and not state["shown"]:
+            frame = render_frame(dd, state["brief"], W, H)
+            ph = ImageTk.PhotoImage(frame)
+            label.configure(image=ph)
+            label.image = ph
+            root.deiconify()
+            _make_click_through(toplevel_hwnd(root.winfo_id()))
+            state["shown"] = True
+        elif state["shown"] and not state["want"]:
+            root.withdraw()
+            state["shown"] = False
         root.after(300, tick)
 
     root.withdraw()

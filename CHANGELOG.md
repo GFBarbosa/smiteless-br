@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.13
+- **Fix: the loading-screen overlay never actually showed.** It was gated on the gameflow phase being exactly `GameStart` — but that's a sub-second flash, and the phase reads `InProgress` for almost the entire loading screen, so the overlay launched and instantly closed itself every game. It now detects the loading window the right way: the game process is up (`GameStart`/`InProgress`) **but the live game (:2999) isn't serving yet** — which is precisely the loading screen. It shows the whole time you're loading and closes the moment the game world starts. (No change to what it shows — the lobby scout, champ tags, and game plan from v0.9.12.)
+
 ## v0.9.12
 - **The loading screen now SCOUTS the whole lobby.** The loading screen is the first time everyone's IGN is exposed — so it's the first time the lobby can be read — and Smiteless now does it: each player's summonerId resolves to their Riot ID, which resolves to a real puuid, which pulls their full scout. Every one of the ten now shows their **rank**, a **hot/tilted streak** read (`4W hot`, `4L skid`, `25% struggling`), whether they're a **one-trick** on this champ, and whether they're on an **off-champ** (sub-12k-mastery, ~44% win). Tags are colored *relative to you* — your ally struggling is red, an enemy on a skid is green. (Champ select just cached all of it, so it's near-instant.)
 - Kept from before: each champ's good/bad tags + AD/AP damage split, and the plain **GAME PLAN** for the comp. Correcting the v0.9.11 note — live player scouting on the loading screen IS possible after all; thanks to the IGNs being visible there.
