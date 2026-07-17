@@ -326,6 +326,103 @@ def main():
     except Exception:
         pass
 
+    # ---------- one-click Riot login (saved "Stay signed in" sessions, no passwords) ----------
+    import threading
+    import lolaccounts as la
+    skin.section_rule(body, "ONE-CLICK RIOT LOGIN").pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text="Setup, once per account: in the Riot Client log in with \"Stay signed in\" "
+             "TICKED, then Save current login. After that, pick a name here (or tray → Riot login) "
+             "and it closes the client, swaps the saved session in and relaunches League — no "
+             "password typed, nothing stored but Riot's own encrypted session file.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
+    lgfr = skin.card(body, rail=LINE)
+    lgfr.pack(fill="x", padx=14, pady=(0, 6))
+    lg_list_fr = tk.Frame(lgfr.body, bg=SURFACE)
+    lg_list_fr.pack(fill="x", padx=8, pady=(8, 4))
+    lg_list = tk.Listbox(lg_list_fr, height=4, bg=SUNKEN, fg=TXT, selectbackground=HOVER,
+                         selectforeground=TXT, relief="flat", highlightthickness=0, bd=0,
+                         font=skin.mono(SMALL), activestyle="none")
+    lg_list.pack(side="left", fill="x", expand=True)
+    lg_status = tk.StringVar(value="")
+    lg_names = []
+
+    def _lg_refresh():
+        lg_list.delete(0, "end")
+        lg_names.clear()
+        for a in la.list_accounts():
+            lg_names.append(a["name"])
+            rid = f'  {a["riot_id"]}' if a.get("riot_id") else ""
+            lg_list.insert("end", f'{"● " if a["active"] else "  "}{a["name"]}{rid}')
+
+    def _lg_busy(msg, fg=MUTED):
+        lg_status.set(msg)
+        lg_stat_lbl.config(fg=fg)
+
+    def _lg_login():
+        sel = lg_list.curselection()
+        if not sel:
+            _lg_busy("pick an account first", BAD)
+            return
+        name = lg_names[sel[0]]
+
+        def work():
+            try:
+                la.switch(name, on_status=lambda s: root.after(0, _lg_busy, f"{name}: {s}"))
+                root.after(0, _lg_busy, f"✓ launched as {name}", GOOD)
+            except Exception as e:
+                root.after(0, _lg_busy, str(e), BAD)
+            root.after(0, _lg_refresh)
+        _lg_busy(f"{name}: switching…")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _lg_save():
+        name = lg_name_entry.get().strip()
+
+        def work():
+            try:
+                rid = la.save_current(name)
+                root.after(0, _lg_busy, f'✓ saved "{name}"' + (f" ({rid})" if rid else ""), GOOD)
+            except Exception as e:
+                root.after(0, _lg_busy, str(e), BAD)
+            root.after(0, _lg_refresh)
+        _lg_busy("saving current login…")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _lg_remove():
+        sel = lg_list.curselection()
+        if sel:
+            la.remove(lg_names[sel[0]])
+            _lg_refresh()
+            _lg_busy("removed", MUTED)
+
+    lg_btns = tk.Frame(lg_list_fr, bg=SURFACE)
+    lg_btns.pack(side="left", fill="y", padx=(6, 0))
+    skin.button(lg_btns, "Log in", _lg_login).pack(fill="x", pady=1)
+    skin.button(lg_btns, "Remove", _lg_remove).pack(fill="x", pady=1)
+    lg_addrow = tk.Frame(lgfr.body, bg=SURFACE)
+    lg_addrow.pack(fill="x", padx=8, pady=(0, 4))
+    lg_name_entry = tk.Entry(lg_addrow, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
+                             font=skin.mono(SMALL), width=22)
+    lg_name_entry.pack(side="left", ipady=3)
+    skin.button(lg_addrow, "Save current login", _lg_save).pack(side="left", padx=(6, 0))
+    lg_name_entry.bind("<Return>", lambda e: _lg_save())
+    lg_stat_lbl = tk.Label(lgfr.body, textvariable=lg_status, bg=SURFACE, fg=MUTED,
+                           font=skin.body(SMALL), anchor="w", justify="left", wraplength=410)
+    lg_stat_lbl.pack(fill="x", padx=12, pady=(2, 8))
+    _lg_refresh()
+
+    def _lg_prefill():                # suggest the logged-in Riot ID as the name (background:
+        try:                          # the LCU call can take seconds / the client may be off)
+            import lolgame
+            cur = lolgame.current_account()
+            if cur and cur[1] and not lg_name_entry.get().strip():
+                root.after(0, lambda: (lg_name_entry.insert(0, cur[1])
+                                       if not lg_name_entry.get().strip() else None))
+        except Exception:
+            pass
+    threading.Thread(target=_lg_prefill, daemon=True).start()
+
     fkey = skin.card(body, rail=LINE)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
     tk.Label(fkey.body, text="FLASH KEY", bg=SURFACE, fg=TXT,

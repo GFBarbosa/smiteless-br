@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.9.5
+- **ONE-CLICK RIOT LOGIN — all your accounts, one tray menu.** Tray → **Riot login** → pick a name, and Smiteless closes the Riot/League clients, swaps in that account's saved session, and relaunches League already logged in. **No passwords, ever**: it snapshots the "Stay signed in" session the Riot Client itself keeps on disk (the same proven mechanism as the big account switchers — password login via the local API has been dead since Riot added captcha). Snapshots are DPAPI-encrypted, so only your Windows user can read them.
+- **Setup is once per account:** log in with *Stay signed in* ticked → Settings → **ONE-CLICK RIOT LOGIN** → *Save current login* (the name box pre-fills with the account's Riot ID when the client's open). Saved accounts also join your mastery pool automatically, so "good this game" already knows your smurfs' champs.
+- It refuses to switch while you're in an actual game, and it re-snapshots the account you're *leaving* on every switch — Riot rotates session cookies each login, so your saved sessions stay fresh instead of quietly expiring.
+
 ## v0.9.4
 - **The Profile is a whole new page.** Not a re-skin this time — a new board, drawn from scratch: a full-bleed splash of your main behind your name in real display type, your rank / record / KDA as chips, the average-score ring wearing its letter grade, your last ten games as form bars, and the LP trend as a live spark. The old cramped header card is gone entirely.
 - **PATTERNS — Smiteless now tells you WHEN you win.** A new out-of-game brain mines your own match timestamps for the habits behind your winrate: whether the queue after 11pm is robbing you, whether you tilt-queue straight after a loss, whether marathon sittings turn on you after game 2, whether you win the long games or the fast ones. It only speaks with a real sample (5+ games on the split) and a real gap (12+ points off your overall winrate), and every claim carries its receipt (`wr% · games`) right on the row. Nothing is guessed; if your history doesn't prove it, the panel stays quiet.

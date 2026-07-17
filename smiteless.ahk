@@ -31,6 +31,8 @@ tray.Delete()                                   ; replace the default AHK menu
 tray.Add("Open overlay", (*) => OpenSmiteless(false))
 tray.Add("Profile / home", (*) => OpenProfile())
 tray.Add("Item widget", (*) => OpenWidget())
+loginMenu := Menu()
+tray.Add("Riot login", loginMenu)
 tray.Add("Settings", (*) => OpenSettings())
 tray.Add("Patch notes", (*) => OpenNotes())
 tray.Add()
@@ -70,6 +72,41 @@ OpenNotes() {
     global PYW, SCRIPTS                           ; the patch notes / what's new window
     Run('"' PYW '" "' SCRIPTS '\ui\smitenotes.py"', , "Hide")
 }
+
+; --- "Riot login" submenu: one item per saved account session (managed in Settings). ---
+ACCIDX := EnvGet("USERPROFILE") "\.claude\smiteless_accounts\index.json"
+g_loginSig := "?"
+BuildLoginMenu() {
+    global loginMenu, ACCIDX, g_loginSig
+    names := []
+    try {
+        txt := FileRead(ACCIDX, "UTF-8")
+        pos := 1
+        while (p := RegExMatch(txt, '"name"\s*:\s*"([^"]+)"', &m, pos)) {
+            names.Push(m[1])
+            pos := p + m.Len(0)
+        }
+    }
+    sig := ""
+    for n in names
+        sig .= n "|"
+    if (sig = g_loginSig)
+        return
+    g_loginSig := sig
+    loginMenu.Delete()
+    if (names.Length = 0) {
+        loginMenu.Add("Set up in Settings…", (*) => OpenSettings())
+        return
+    }
+    for n in names
+        loginMenu.Add(n, LoginPick)
+}
+LoginPick(item, *) {
+    global PYW, SCRIPTS
+    Run('"' PYW '" "' SCRIPTS '\smiteless_main.py" login "' item '"', , "Hide")
+}
+BuildLoginMenu()
+SetTimer(BuildLoginMenu, 15000)
 
 ToggleAuto(ItemName, *) {
     global NOAUTO

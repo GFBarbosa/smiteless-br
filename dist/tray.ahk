@@ -30,6 +30,8 @@ tray.Delete()
 tray.Add("Open overlay", (*) => Launch("overlay"))
 tray.Add("Profile / home", (*) => Launch("profile"))
 tray.Add("Item widget", (*) => Launch("widget"))
+loginMenu := Menu()
+tray.Add("Riot login", loginMenu)
 tray.Add("Settings", (*) => Launch("settings"))
 tray.Add()
 tray.Add("Auto-open at champ select", ToggleAuto)
@@ -51,6 +53,41 @@ Launch(cmd) {
     global APP
     Run('"' APP '" ' cmd, , "Hide")
 }
+
+; --- "Riot login" submenu: one item per saved account session (managed in Settings). ---
+; Rebuilt from ~\.claude\smiteless_accounts\index.json on a timer, only when it changes.
+ACCIDX := EnvGet("USERPROFILE") "\.claude\smiteless_accounts\index.json"
+g_loginSig := "?"
+BuildLoginMenu() {
+    global loginMenu, ACCIDX, g_loginSig
+    names := []
+    try {
+        txt := FileRead(ACCIDX, "UTF-8")
+        pos := 1
+        while (p := RegExMatch(txt, '"name"\s*:\s*"([^"]+)"', &m, pos)) {
+            names.Push(m[1])
+            pos := p + m.Len(0)
+        }
+    }
+    sig := ""
+    for n in names
+        sig .= n "|"
+    if (sig = g_loginSig)
+        return
+    g_loginSig := sig
+    loginMenu.Delete()
+    if (names.Length = 0) {
+        loginMenu.Add("Set up in Settings…", (*) => Launch("settings"))
+        return
+    }
+    for n in names
+        loginMenu.Add(n, LoginPick)
+}
+LoginPick(item, *) {
+    Launch('login "' item '"')
+}
+BuildLoginMenu()
+SetTimer(BuildLoginMenu, 15000)
 
 ToggleAuto(*) {
     global NOAUTO

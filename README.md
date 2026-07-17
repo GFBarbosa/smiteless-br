@@ -34,6 +34,7 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
 - **The climb system** — research-backed discipline: the 2-loss stop rule, champion-pool focus, and sample-aware "play more / ease off" coaching
 - **Click any player** to scout their full profile; right-click for u.gg / op.gg / Porofessor
+- **One-click Riot login** — save each account's "Stay signed in" session once, then switch accounts straight from the tray: no passwords stored, sessions DPAPI-encrypted, League relaunches already logged in
 
 Patch notes: tray → **Patch notes**, or [CHANGELOG.md](CHANGELOG.md).
 

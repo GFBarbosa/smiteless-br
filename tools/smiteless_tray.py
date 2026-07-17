@@ -112,8 +112,22 @@ def main():
         _stop.set()
         icon.stop()
 
+    def _login_items():
+        # rebuilt each time the menu opens; one item per saved Riot session
+        try:
+            import lolaccounts as la
+            names = [a["name"] for a in la.list_accounts()]
+        except Exception:
+            names = []
+        if not names:
+            return [pystray.MenuItem("Set up in Settings…", lambda icon, item: open_settings())]
+        main_py = os.path.join(_ROOT, "smiteless_main.py")
+        return [pystray.MenuItem(n, (lambda nm: lambda icon, item: _launch(main_py, "login", nm))(n))
+                for n in names]
+
     menu = pystray.Menu(
         pystray.MenuItem("Open overlay", lambda icon, item: open_overlay(False), default=True),
+        pystray.MenuItem("Riot login", pystray.Menu(_login_items)),
         pystray.MenuItem("Settings…", lambda icon, item: open_settings()),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Auto-open at champ select", toggle_autoopen,
