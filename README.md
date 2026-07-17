@@ -29,6 +29,7 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **The Tempo engine** — a live director for the ~90 seconds before every objective: your farm window, exact recall deadline, when to rotate, and a **TAKE / GIVE / 50-50 verdict** from death timers, levels and gold (fog-of-war aware). With spoken callouts: *"Base now"*, *"Rotate to dragon"*, *"Give it, trade elsewhere"*
 - **Enemy jungle tracker** — where they were seen, when they're dead, when to respect the gank
 - **Win probability, objective timers with audio, power-spike alerts, item coaching** — one compact draggable HUD that fades when nothing needs you
+- **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, the tempo verdict for what your death did, what to buy on respawn, the win read, the enemy to watch, next objectives, and what you missed. Center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
 
 ### 📈 Between games
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking

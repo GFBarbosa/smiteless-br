@@ -315,6 +315,7 @@ SmiteWatch() {
         if (autoOpen && !g_widgetOpened) {
             g_widgetOpened := true
             Launch("widget")
+            Launch("dead")                          ; fullscreen death brief (self-gates on its setting)
         }
     } else {
         g_endStreak += 1
