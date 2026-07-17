@@ -1,5 +1,12 @@
 # Smiteless — Patch Notes
 
+## v0.9.14
+- **The Death Brief is now a coach, not a dashboard.** Death is when you need guidance most, so instead of just showing numbers it now reads the state and *tells you what to do*, leading with three synthesized calls:
+  - **WHY YOU DIED** — from the actual kill that got you: *"Solo-killed by Zed (9/1) — he one-shots you now: buy Zhonya's/GA, never walk alone, group tight."* Knows solo-kill vs collapsed-on, and the killer's class + how fed they are.
+  - **HOW YOU WIN** — your win condition for *this* game, from the comps and who's ahead: *"You out-scale — survive the early game, farm, take neutrals; your power is 3 items each,"* or *"Behind vs a scaling comp — you MUST make plays early."*
+  - **THE THREAT** — the enemy carrying the game and the actual counterplay for their class (dive the fed ADC, buy Zhonya's vs the assassin, %HP the tank), not just "watch him."
+- Still fronted by your respawn clock and the on-respawn buy + macro move, with the tagged team boards on the edges and the middle of the screen kept clear to watch the fight. Everything is grounded in the live game — it stays quiet when it can't prove a read.
+
 ## v0.9.13
 - **Fix: the loading-screen overlay never actually showed.** It was gated on the gameflow phase being exactly `GameStart` — but that's a sub-second flash, and the phase reads `InProgress` for almost the entire loading screen, so the overlay launched and instantly closed itself every game. It now detects the loading window the right way: the game process is up (`GameStart`/`InProgress`) **but the live game (:2999) isn't serving yet** — which is precisely the loading screen. It shows the whole time you're loading and closes the moment the game world starts. (No change to what it shows — the lobby scout, champ tags, and game plan from v0.9.12.)
 

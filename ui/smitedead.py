@@ -151,88 +151,107 @@ def render_frame(dd, b, W, H):
     M = S(30)
     colw = S(430)
 
-    # ---------- LEFT COLUMN: hero (respawn + verdict), then buy ----------
     lx = M
-    hy = int(H * 0.24)
-    hh = S(250)
-    rail = _TONE_C.get(b.get("tone"), C_EMBER)
-    _card(d, lx, hy, colw, hh, rail)
-    px, py = lx + S(24), hy + S(16)
-    d.text((px, py), "RESPAWN", font=_wfont(S(15), True), fill=C_MUTED)
+    rx = W - M - colw
+    hy = int(H * 0.14)
+
+    def _hdr(x, y, title, col):
+        d.text((x + S(22), y + S(11)), title, font=_wfont(S(13), True), fill=col)
+
+    def _block(x, y, title, title_col, line, sub, rail, big=False):
+        """A coaching card: bold headline + wrapped takeaway. Returns the new y-cursor."""
+        subf = _wfont(S(13))
+        sublines = _wrap(d, sub or "", subf, colw - S(44))[:2] if sub else []
+        lf = _wfont(S(17 if big else 16), True)
+        headlines = _wrap(d, line or "", lf, colw - S(44))[:2] if line else []
+        h = S(34) + S(23) * len(headlines) + S(20) * len(sublines)
+        _card(d, x, y, colw, h, rail)
+        _hdr(x, y, title, title_col)
+        yy = y + S(32)
+        for ln in headlines:
+            d.text((x + S(22), yy), ln, font=lf, fill=C_TXT)
+            yy += S(23)
+        for ln in sublines:
+            d.text((x + S(22), yy), ln, font=subf, fill=C_MUTED)
+            yy += S(20)
+        return y + h + S(12)
+
+    # ========== LEFT COLUMN: the reactive read (clock, why you died, respawn plan) ==========
+    ly = hy
+    ch = S(100)
+    _card(d, lx, ly, colw, ch, _TONE_C.get(b.get("tone"), C_EMBER))
+    px = lx + S(22)
+    d.text((px, ly + S(11)), "RESPAWN", font=_wfont(S(13), True), fill=C_MUTED)
     secs = max(0, int(round(b.get("secs") or 0)))
     clock = f"{secs}"
-    d.text((px - S(4), py + S(18)), clock, font=_dfont(S(96)), fill=C_TXT)
-    cw = d.textlength(clock, font=_dfont(S(96)))
-    d.text((px + cw + S(6), py + S(78)), "sec", font=_wfont(S(20)), fill=C_MUTED)
-    back_at = _mmss((b.get("gametime") or 0) + secs)
-    d.text((px, py + S(128)), f"back at {back_at}", font=_wfont(S(15)), fill=C_FAINT)
-    vy = py + S(158)
-    for ln in _wrap(d, b.get("verdict") or "", _wfont(S(18), True), colw - S(48))[:2]:
-        d.text((px, vy), ln, font=_wfont(S(18), True), fill=rail)
-        vy += S(24)
-    for ln in _wrap(d, b.get("verdict_sub") or "", _wfont(S(13)), colw - S(48))[:2]:
-        d.text((px, vy), ln, font=_wfont(S(13)), fill=C_MUTED)
-        vy += S(18)
+    d.text((px - S(3), ly + S(26)), clock, font=_dfont(S(58)), fill=C_TXT)
+    cw = d.textlength(clock, font=_dfont(S(58)))
+    d.text((px + cw + S(8), ly + S(56)), "sec", font=_wfont(S(15)), fill=C_MUTED)
+    d.text((px + cw + S(8), ly + S(30)),
+           f"back {_mmss((b.get('gametime') or 0) + secs)}", font=_wfont(S(13)), fill=C_FAINT)
+    ly += ch + S(12)
 
-    # buy card
-    by = hy + hh + S(14)
-    ly = by                                        # left-column cursor for the allies board
-    if b.get("buy"):
-        bh = S(72)
-        _card(d, lx, by, colw, bh, C_INFO)
-        d.text((lx + S(24), by + S(12)), "ON RESPAWN", font=_wfont(S(13), True), fill=C_MUTED)
-        for ln in _wrap(d, b["buy"], _wfont(S(17), True), colw - S(48))[:1]:
-            d.text((lx + S(24), by + S(34)), ln, font=_wfont(S(17), True), fill=C_TXT)
-        ly = by + bh + S(14)
+    why = b.get("why")
+    if why:
+        ly = _block(lx, ly, "WHY YOU DIED", C_BAD, why.get("line"), why.get("sub"), C_BAD)
 
-    # ---------- RIGHT COLUMN: win%, watch (spike), next objectives ----------
-    rx = W - M - colw
-    ry = int(H * 0.24)
+    buy, verdict = b.get("buy"), b.get("verdict")
+    if buy or verdict:
+        lines = _wrap(d, "→ " + buy, _wfont(S(15), True), colw - S(44))[:1] if buy else []
+        vlines = _wrap(d, "→ " + verdict, _wfont(S(15), True), colw - S(44))[:1] if verdict else []
+        h = S(34) + S(24) * (len(lines) + len(vlines))
+        _card(d, lx, ly, colw, h, C_INFO)
+        _hdr(lx, ly, "ON RESPAWN", C_MUTED)
+        yy = ly + S(32)
+        for ln in lines:
+            d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_TXT)
+            yy += S(24)
+        for ln in vlines:
+            d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_ARC)
+            yy += S(24)
+        ly += h + S(12)
+
+    board = b.get("board")
+    if board and board.get("allies"):
+        _team_block(d, S, lx, ly, colw, board["allies"], "YOUR TEAM", C_GOOD,
+                    lead=board.get("gold_lead"))
+
+    # ========== RIGHT COLUMN: the strategic read (win con, threat, win%, objectives) ==========
+    ry = hy
+    if b.get("wincon"):
+        ry = _block(rx, ry, "HOW YOU WIN", C_EMBER, b["wincon"], None, C_EMBER, big=True)
+    threat = b.get("threat")
+    if threat:
+        ry = _block(rx, ry, "THE THREAT", C_BAD, threat.get("line"), threat.get("sub"), C_BAD)
     wp = b.get("winprob")
     if wp:
-        wh = S(88)
+        wh = S(62)
         good = wp.get("ahead")
         _card(d, rx, ry, colw, wh, C_GOOD if good else C_BAD)
-        d.text((rx + S(24), ry + S(14)), "WIN READ", font=_wfont(S(13), True), fill=C_MUTED)
+        _hdr(rx, ry, "WIN READ", C_MUTED)
         pct = f"{int(wp.get('pct') or 0)}%"
-        d.text((rx + S(24), ry + S(30)), pct, font=_dfont(S(40)), fill=(C_GOOD if good else C_BAD))
-        d.text((rx + S(24) + d.textlength(pct, font=_dfont(S(40))) + S(14), ry + S(46)),
-               wp.get("basis") or "", font=_wfont(S(14)), fill=C_MUTED)
+        d.text((rx + colw - S(22) - d.textlength(pct, font=_dfont(S(30))), ry + S(20)),
+               pct, font=_dfont(S(30)), fill=(C_GOOD if good else C_BAD))
+        d.text((rx + S(22), ry + S(34)), wp.get("basis") or "", font=_wfont(S(13)), fill=C_MUTED)
         ry += wh + S(12)
-    sp = b.get("spike")
-    if sp:
-        sh = S(70)
-        _card(d, rx, ry, colw, sh, C_BAD)
-        d.text((rx + S(24), ry + S(12)), "WATCH — SPIKED & AHEAD", font=_wfont(S(13), True), fill=C_MUTED)
-        d.text((rx + S(24), ry + S(30)), f"{sp.get('name')}  {sp.get('items')} items  "
-               f"{sp.get('k')}/{sp.get('d')}", font=_wfont(S(18), True), fill=C_TXT)
-        ry += sh + S(12)
     objs = b.get("objectives") or []
     if objs:
-        oh = S(40) + S(24) * len(objs)
+        oh = S(34) + S(22) * len(objs)
         _card(d, rx, ry, colw, oh, C_ARC)
-        d.text((rx + S(24), ry + S(12)), "NEXT OBJECTIVES", font=_wfont(S(13), True), fill=C_MUTED)
-        oy = ry + S(36)
+        _hdr(rx, ry, "NEXT OBJECTIVES", C_MUTED)
+        oy = ry + S(32)
         for o in objs:
             secs_o = o.get("secs") or 0
             up = o.get("up") or secs_o <= 0
             tcol = C_EMBER if (up or o.get("urgent")) else C_TXT
             when = "UP" if up else _mmss(secs_o)
-            lab = o.get("label", "?")
-            d.text((rx + S(24), oy), lab, font=_wfont(S(15)), fill=C_TXT)
-            d.text((rx + colw - S(24) - d.textlength(when, font=_wfont(S(15), True)), oy),
-                   when, font=_wfont(S(15), True), fill=tcol)
-            oy += S(24)
-
-    # ---------- EDGES: the 10-player board, split L/R so the MIDDLE stays clear ----------
-    # (you keep watching the fight through the transparent center while dead)
-    board = b.get("board")
-    if board:
-        if board.get("allies"):
-            _team_block(d, S, lx, ly, colw, board["allies"], "YOUR TEAM", C_GOOD,
-                        lead=board.get("gold_lead"))
-        if board.get("enemies"):
-            _team_block(d, S, rx, ry + S(2), colw, board["enemies"], "ENEMY", C_BAD)
+            d.text((rx + S(22), oy), o.get("label", "?"), font=_wfont(S(14)), fill=C_TXT)
+            d.text((rx + colw - S(22) - d.textlength(when, font=_wfont(S(14), True)), oy),
+                   when, font=_wfont(S(14), True), fill=tcol)
+            oy += S(22)
+        ry += oh + S(12)
+    if board and board.get("enemies"):
+        _team_block(d, S, rx, ry, colw, board["enemies"], "ENEMY", C_BAD)
 
     # ---------- BOTTOM: what you missed ----------
     feed = b.get("feed") or []

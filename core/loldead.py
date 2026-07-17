@@ -92,12 +92,104 @@ def _scoreboard(dd, data, gt):
                 "lvl": int(p.get("level", 1)), "k": k, "d": dth, "a": int(sc.get("assists", 0)),
                 "cs": int(sc.get("creepScore", 0)), "gold": int(ll.est_gold(p, gt)),
                 "items": nit, "dead": bool(p.get("isDead")), "me": _gname(p) == myg,
-                "tag": ltag.short(dd, cid) if cid else "",
+                "cid": cid or 0, "tag": ltag.short(dd, cid) if cid else "",
                 "fed": (k - dth >= 5 and nit >= 2)}     # snowballing & itemized -> flag it
     al = [row(p) for p in allies]
     en = [row(p) for p in enemies]
     lead = sum(r["gold"] for r in al) - sum(r["gold"] for r in en)
     return {"allies": al, "enemies": en, "gold_lead": lead}
+
+
+def _cls(dd, cid):
+    tags = dd.get("id2tags", {}).get(cid, []) or []
+    return tags[0] if tags else ""
+
+
+# how to play AGAINST a fed enemy of each class — the counterplay, not just "watch him"
+_COUNTER = {
+    "Assassin": "buy Zhonya's / GA, never walk alone, group tight — he deletes you solo",
+    "Marksman": "he's squishy — hard-engage / CC him first, blow him up before he DPS's",
+    "Mage": "don't stand in his poke; flank or dive him, buy MR",
+    "Fighter": "don't 1v1 him — kite with your team, buy armor, focus him down together",
+    "Tank": "ignore him in fights, buy %HP / armor-pen, kill the carries behind him",
+    "Support": "he enables them — CC/kill him first to open the fight",
+}
+
+
+def _death_cause(dd, data, me, enemies, gt):
+    """Why you just died + the takeaway, from the kill event where YOU were the victim."""
+    myg = _gname(me)
+    kill = None
+    for e in reversed((data.get("events") or {}).get("Events") or []):
+        if e.get("EventName") == "ChampionKill" and lg_gname(e.get("VictimName")) == myg \
+                and gt - float(e.get("EventTime") or 0) <= 25:
+            kill = e
+            break
+    if not kill:
+        return None
+    kg = lg_gname(kill.get("KillerName") or "")
+    killer = next((p for p in enemies if _gname(p) == kg), None)
+    assists = len(kill.get("Assisters") or [])
+    if not killer:                                     # executed / turret / minion
+        return {"line": "You died with no killer credited", "sub": "reset, respawn clean"}
+    sc = killer.get("scores") or {}
+    kk, kd = int(sc.get("kills", 0)), int(sc.get("deaths", 0))
+    champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](killer.get("championName", "")), 0),
+                              killer.get("championName", "?"))
+    cid = dd["name2id"].get(dd["norm"](killer.get("championName", "")))
+    cls = _cls(dd, cid)
+    fed = kk - kd >= 3
+    if assists >= 2:
+        line = f"Collapsed on by {champ} +{assists}"
+        sub = "you were caught out of position — group up, ward flanks, stop face-checking"
+    elif fed and cls == "Assassin":
+        line = f"Solo-killed by {champ} ({kk}/{kd})"
+        sub = "he one-shots you now — " + _COUNTER["Assassin"]
+    else:
+        line = f"Solo-killed by {champ} ({kk}/{kd})"
+        sub = _COUNTER.get(cls, "lost the trade — don't take even fights into him without summs")
+    return {"line": line, "sub": sub}
+
+
+def _scalers(dd, rows):
+    n = 0
+    for p in rows:
+        cid = dd["name2id"].get(dd["norm"](p.get("championName", "")))
+        if _cls(dd, cid) == "Marksman" or dd["id2name"].get(cid) in ("Kassadin", "Vayne", "Jax", "Kayle", "Nasus", "Veigar"):
+            n += 1
+    return n
+
+
+def _wincon(dd, data, me, allies, enemies, wp, board):
+    """How YOU win this specific game — the strategic anchor to hold onto on the grey screen."""
+    ahead = bool(wp and wp.get("ahead"))
+    my_s, en_s = _scalers(dd, allies), _scalers(dd, enemies)
+    myrow = next((r for r in (board.get("allies") or []) if r.get("me")), None)
+    if myrow and myrow.get("fed"):
+        return "You're the win condition — take objectives with your lead and close before they scale."
+    if ahead and my_s <= en_s:
+        return "You're ahead — force tempo NOW: take towers and objectives, end before it evens out."
+    if my_s > en_s:
+        return "You out-scale — survive the early game, farm, take neutrals; your power is 3 items each."
+    if not ahead and en_s >= my_s:
+        return "Behind vs a scaling comp — you MUST make plays early: force objectives, don't let it go late."
+    return "Even game — win the next neutral objective; group and trade cross-map, don't coinflip."
+
+
+def _threat(dd, board):
+    """The enemy carrying the game + how to deal with them (not just 'watch him')."""
+    ens = board.get("enemies") or []
+    cand = [r for r in ens if (r["k"] - r["d"]) >= 3 and r["items"] >= 2]
+    if not cand:
+        return None
+    r = max(cand, key=lambda x: (x["k"] - x["d"]) + x["items"])
+    cls = _cls(dd, r.get("cid", 0))
+    return {"line": f"{r['champ']} {r['k']}/{r['d']}/{r['a']} is carrying",
+            "sub": _COUNTER.get(cls, "shut him down — deny him kills, group and focus him")}
+
+
+def lg_gname(name):
+    return lg._gname(name or "")
 
 
 def brief(dd, data):
@@ -109,7 +201,8 @@ def brief(dd, data):
     out = {"secs": dead.get("secs"), "tone": dead.get("tone"),
            "verdict": dead.get("line") or "", "verdict_sub": dead.get("sub") or "",
            "gametime": gt, "buy": None, "winprob": None, "spike": None,
-           "jungle": None, "objectives": [], "feed": []}
+           "jungle": None, "objectives": [], "feed": [], "board": None,
+           "why": None, "wincon": None, "threat": None}
     try:
         rc = li.recall_advice(dd, data)
         out["buy"] = rc.get("text") if rc else None
@@ -124,9 +217,13 @@ def brief(dd, data):
         out["spike"] = p.get("spike")
         out["jungle"] = p.get("jungle")
         out["objectives"] = [o for o in (p.get("objectives") or []) if o.get("secs") is not None][:3]
+    split = None
     try:
         split = ll.team_split(data)
-        allies = split[1] if split else []
+    except Exception:
+        split = None
+    me, allies, enemies = (split[0], split[1], split[2]) if split else (None, [], [])
+    try:
         out["feed"] = _recent_feed(data, {_gname(a) for a in allies}, gt)
     except Exception:
         pass
@@ -134,4 +231,18 @@ def brief(dd, data):
         out["board"] = _scoreboard(dd, data, gt)
     except Exception:
         out["board"] = None
+    # ---- the coaching (the whole point of the overhaul): why you died, how you win, the threat ----
+    if me is not None and out.get("board"):
+        try:
+            out["why"] = _death_cause(dd, data, me, enemies, gt)
+        except Exception:
+            out["why"] = None
+        try:
+            out["wincon"] = _wincon(dd, data, me, allies, enemies, out.get("winprob"), out["board"])
+        except Exception:
+            out["wincon"] = None
+        try:
+            out["threat"] = _threat(dd, out["board"])
+        except Exception:
+            out["threat"] = None
     return out
