@@ -111,6 +111,34 @@ def _mmss(gt):
     return f"{gt // 60}:{gt % 60:02d}"
 
 
+def _team_block(d, S, x, y, w, rows, title, title_col, lead=None):
+    """One team's rundown as an edge column (role, champ, KDA, gold, a good/bad tag). Lives
+    on the LEFT/RIGHT edge so the middle of the screen stays clear to watch the fight."""
+    rowh = S(23)
+    h = S(34) + rowh * len(rows)
+    _card(d, x, y, w, h, title_col)
+    px = x + S(18)
+    d.text((px, y + S(10)), title, font=_wfont(S(12), True), fill=title_col)
+    if lead is not None:
+        lt = f"{lead / 1000:+.1f}k"
+        d.text((x + w - S(18) - d.textlength(lt, font=_wfont(S(12), True)), y + S(10)),
+               lt, font=_wfont(S(12), True), fill=(C_GOOD if lead >= 0 else C_BAD))
+    yy = y + S(30)
+    for r in rows:
+        fill = C_EMBER if r["me"] else (C_FAINT if r["dead"] else C_TXT)
+        d.text((px, yy), r["role"], font=_wfont(S(10), True), fill=C_MUTED)
+        d.text((px + S(30), yy), (r["champ"] or "?")[:9], font=_wfont(S(12), r["me"]), fill=fill)
+        d.text((px + S(112), yy), f"{r['k']}/{r['d']}/{r['a']}", font=_wfont(S(11)), fill=fill)
+        d.text((px + S(178), yy), f"{r['gold'] / 1000:.1f}k", font=_wfont(S(11), True), fill=C_WARN)
+        tag = "dead" if r["dead"] else ("FED" if r.get("fed") else r.get("tag", ""))
+        if tag:
+            tcol = C_BAD if r.get("fed") else (C_FAINT if tag == "dead" else C_MUTED)
+            d.text((x + w - S(16) - d.textlength(tag, font=_wfont(S(11), bool(r.get("fed")))), yy),
+                   tag, font=_wfont(S(11), bool(r.get("fed"))), fill=tcol)
+        yy += rowh
+    return y + h
+
+
 def render_frame(dd, b, W, H):
     """Draw the whole brief onto a monitor-sized image whose background is the chroma key
     (so everything not a panel is see-through + click-through). Returns a PIL RGB image."""
@@ -148,12 +176,14 @@ def render_frame(dd, b, W, H):
 
     # buy card
     by = hy + hh + S(14)
+    ly = by                                        # left-column cursor for the allies board
     if b.get("buy"):
         bh = S(72)
         _card(d, lx, by, colw, bh, C_INFO)
         d.text((lx + S(24), by + S(12)), "ON RESPAWN", font=_wfont(S(13), True), fill=C_MUTED)
         for ln in _wrap(d, b["buy"], _wfont(S(17), True), colw - S(48))[:1]:
             d.text((lx + S(24), by + S(34)), ln, font=_wfont(S(17), True), fill=C_TXT)
+        ly = by + bh + S(14)
 
     # ---------- RIGHT COLUMN: win%, watch (spike), next objectives ----------
     rx = W - M - colw
@@ -194,50 +224,15 @@ def render_frame(dd, b, W, H):
                    when, font=_wfont(S(15), True), fill=tcol)
             oy += S(24)
 
-    # ---------- CENTER: the full 10-player rundown (the dense value) ----------
+    # ---------- EDGES: the 10-player board, split L/R so the MIDDLE stays clear ----------
+    # (you keep watching the fight through the transparent center while dead)
     board = b.get("board")
-    if board and (board.get("allies") or board.get("enemies")):
-        bw = S(500)
-        bx = (W - bw) // 2
-        rowh = S(24)
-        n = len(board["allies"]) + len(board["enemies"])
-        bh = S(52) + S(26) + rowh * n
-        by0 = int(H * 0.20)
-        _card(d, bx, by0, bw, bh, C_EMBER)
-        px = bx + S(20)
-
-        def _prow(y, r, header=None, lead=None):
-            if header:
-                col = C_GOOD if header == "YOUR TEAM" else C_BAD
-                d.text((px, y), header, font=_wfont(S(13), True), fill=col)
-                if lead is not None:
-                    lt_txt = f"{lead/1000:+.1f}k gold"
-                    d.text((bx + bw - S(20) - d.textlength(lt_txt, font=_wfont(S(13), True)), y),
-                           lt_txt, font=_wfont(S(13), True), fill=(C_GOOD if lead >= 0 else C_BAD))
-                return y + S(24)
-            fill = C_EMBER if r["me"] else (C_FAINT if r["dead"] else C_TXT)
-            f11 = _wfont(S(13), r["me"])
-            d.text((px, y), r["role"], font=_wfont(S(11), True), fill=C_MUTED)
-            d.text((px + S(40), y), r["champ"][:11], font=f11, fill=fill)
-            d.text((px + S(162), y), f"L{r['lvl']}", font=_wfont(S(12)), fill=C_MUTED)
-            d.text((px + S(200), y), f"{r['k']}/{r['d']}/{r['a']}", font=_wfont(S(13)), fill=fill)
-            d.text((px + S(280), y), f"{r['cs']}", font=_wfont(S(12)), fill=C_MUTED)
-            g = f"{r['gold']/1000:.1f}k"
-            d.text((px + S(322), y), g, font=_wfont(S(13), True), fill=C_WARN)
-            d.text((px + S(388), y), f"{r['items']} it", font=_wfont(S(12)), fill=C_MUTED)
-            if r["dead"]:
-                d.text((bx + bw - S(20) - d.textlength("DEAD", font=_wfont(S(11), True)), y),
-                       "DEAD", font=_wfont(S(11), True), fill=C_BAD)
-            return y + rowh
-
-        yy = by0 + S(16)
-        yy = _prow(yy, None, header="YOUR TEAM", lead=board.get("gold_lead"))
-        for r in board["allies"]:
-            yy = _prow(yy, r)
-        yy += S(6)
-        yy = _prow(yy, None, header="ENEMY")
-        for r in board["enemies"]:
-            yy = _prow(yy, r)
+    if board:
+        if board.get("allies"):
+            _team_block(d, S, lx, ly, colw, board["allies"], "YOUR TEAM", C_GOOD,
+                        lead=board.get("gold_lead"))
+        if board.get("enemies"):
+            _team_block(d, S, rx, ry + S(2), colw, board["enemies"], "ENEMY", C_BAD)
 
     # ---------- BOTTOM: what you missed ----------
     feed = b.get("feed") or []

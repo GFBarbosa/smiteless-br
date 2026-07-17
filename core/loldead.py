@@ -15,6 +15,7 @@ import loltempo as lt
 import lollive as ll
 import lolitems as li
 import lolgame as lg
+import loltags as ltag
 
 FEED_WINDOW = 40          # seconds of history for "what you missed"
 
@@ -84,13 +85,15 @@ def _scoreboard(dd, data, gt):
             nit, _g = ll._completed_items(dd, items)
         except Exception:
             nit = 0
-        champ = dd["id2name"].get(dd["name2id"].get(dd["norm"](p.get("championName", "")), 0),
-                                  p.get("championName", "?"))
+        cid = dd["name2id"].get(dd["norm"](p.get("championName", "")))
+        champ = dd["id2name"].get(cid, p.get("championName", "?"))
+        k, dth = int(sc.get("kills", 0)), int(sc.get("deaths", 0))
         return {"champ": champ, "role": _ROLE.get((p.get("position") or "").upper(), ""),
-                "lvl": int(p.get("level", 1)), "k": int(sc.get("kills", 0)),
-                "d": int(sc.get("deaths", 0)), "a": int(sc.get("assists", 0)),
+                "lvl": int(p.get("level", 1)), "k": k, "d": dth, "a": int(sc.get("assists", 0)),
                 "cs": int(sc.get("creepScore", 0)), "gold": int(ll.est_gold(p, gt)),
-                "items": nit, "dead": bool(p.get("isDead")), "me": _gname(p) == myg}
+                "items": nit, "dead": bool(p.get("isDead")), "me": _gname(p) == myg,
+                "tag": ltag.short(dd, cid) if cid else "",
+                "fed": (k - dth >= 5 and nit >= 2)}     # snowballing & itemized -> flag it
     al = [row(p) for p in allies]
     en = [row(p) for p in enemies]
     lead = sum(r["gold"] for r in al) - sum(r["gold"] for r in en)

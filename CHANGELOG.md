@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.10
+- **The Death Brief keeps the middle of your screen clear again.** v0.9.9 packed the 10-player board dead-center, which covered the fight — the whole point of the see-through design is that you can still watch the game while dead. The board now splits to the **left and right edges** (your team left, enemy right), and the center is fully transparent and click-through, as it should be.
+- **Every player carries a good/bad tag now** — the deeper read the dead screen is for. Each row shows a one-word threat/scaling tag (`burst`, `scales`, `engage`, `hook`, `bully`, `wombo`, `skirmish`…), and anyone snowballing lights up **FED** in red. Tags come from champion class + a curated sharpener for the highest-signal champs (Zed, Malphite, Yasuo, Vayne, Kassadin, Draven…). Rows stay compact: role · champ · KDA · gold · tag, with the team gold lead up top.
+
 ## v0.9.9
 - **The Death Brief now shows on your MAIN monitor** — where the game actually is. It was landing on the secondary screen (it borrowed the champ-select board's "use the other monitor" rule, which is wrong for a fullscreen in-game HUD). It now finds the League game window and draws on that monitor, falling back to your primary — so it's actually in front of you when you die.
 - **Packed with the whole game state.** The empty center is now a full live rundown of all ten players: role, champ, level, KDA, CS, fog-proof gold estimate, completed items, and who's dead — your row highlighted, the team gold lead up top. Alongside the respawn clock, the tempo verdict, your buy, the win read, the enemy to watch, next objectives, and the feed, the grey screen now hands you everything at once.
