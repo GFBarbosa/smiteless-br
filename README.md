@@ -30,7 +30,7 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **Enemy jungle tracker** — where they were seen, when they're dead, when to respect the gank
 - **Win probability, objective timers with audio, power-spike alerts, item coaching** — one compact draggable HUD that fades when nothing needs you
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, the tempo verdict for what your death did, what to buy on respawn, the win read, the enemy to watch, next objectives, and what you missed, with a good/bad tag on every player. Center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
-- **The Loading-Screen Matchup** — while the game loads, the whole screen becomes a pre-game read: each champ's good/bad tags, the AD/AP damage split to itemize against, and a plain game-plan for the comp. Gone the instant the game starts
+- **The Loading-Screen Matchup** — while the game loads, the whole screen becomes a pre-game read: every player scouted (rank, hot/tilt streak, one-trick, off-champ pick), each champ's good/bad tags, the AD/AP damage split to itemize against, and a plain game-plan for the comp. Gone the instant the game starts
 
 ### 📈 Between games
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking

@@ -33,6 +33,7 @@ from smitedead import (_wfont, _dfont, _wrap, _card, _make_click_through, game_m
 
 _user32 = ctypes.windll.user32
 _DMG_C = {"AD": C_WARN, "AP": C_ARC, "mixed": C_MUTED}
+_TONE_C = {"good": C_GOOD, "bad": C_BAD, "neutral": C_MUTED}
 
 
 def render_frame(dd, b, W, H):
@@ -52,26 +53,38 @@ def render_frame(dd, b, W, H):
         _card(d, x, S(96), colw, H - S(96) - S(200), title_col)
         px = x + S(22)
         d.text((px, S(110)), title, font=_wfont(S(15), True), fill=title_col)
-        yy = S(142)
-        rowh = S(78) if detailed else S(58)
+        yy = S(146)
+        rowh = S(78) if detailed else S(66)
         for r in rows:
             d.text((px, yy + S(2)), r["role"], font=_wfont(S(11), True), fill=C_MUTED)
-            d.text((px + S(44), yy), (r["champ"] or "?")[:16], font=_wfont(S(17), True), fill=C_TXT)
+            nmcol = C_EMBER if r.get("me") else C_TXT
+            d.text((px + S(44), yy), (r["champ"] or "?")[:15], font=_wfont(S(17), True), fill=nmcol)
+            rx2 = x + colw - S(22)
             dchip = r["dmg"]
-            cw = d.textlength(dchip, font=_wfont(S(11), True))
-            d.text((x + colw - S(22) - cw, yy + S(3)), dchip, font=_wfont(S(11), True),
-                   fill=_DMG_C.get(dchip, C_MUTED))
-            ph = r.get("phrases") or []
-            if detailed:
-                for i, line in enumerate(ph[:2]):
-                    d.text((px + S(44), yy + S(24) + i * S(18)), "· " + line,
-                           font=_wfont(S(13)), fill=C_MUTED)
-            elif ph:
-                d.text((px + S(44), yy + S(24)), "· " + ph[0], font=_wfont(S(12)), fill=C_FAINT)
+            d.text((rx2 - d.textlength(dchip, font=_wfont(S(11), True)), yy + S(3)), dchip,
+                   font=_wfont(S(11), True), fill=_DMG_C.get(dchip, C_MUTED))
+            if r.get("rank"):
+                d.text((rx2 - S(46) - d.textlength(r["rank"], font=_wfont(S(12), True)), yy + S(2)),
+                       r["rank"], font=_wfont(S(12), True), fill=C_ARC)
+            # scout tags line (rank/tilt/OTP/off-champ), colored relative to YOU
+            cxp = px + S(44)
+            ptags = r.get("ptags") or []
+            for txt, tone in ptags:
+                f = _wfont(S(12), True)
+                d.text((cxp, yy + S(23)), txt, font=f, fill=_TONE_C.get(tone, C_MUTED))
+                cxp += d.textlength(txt, font=f) + S(14)
+            if not ptags and r.get("rank") == "":       # not scouted -> at least the champ read
+                if r.get("phrases"):
+                    d.text((px + S(44), yy + S(23)), "· " + r["phrases"][0], font=_wfont(S(12)),
+                           fill=C_FAINT)
+            # champ good/bad phrase (enemies get one line even when scouted)
+            if detailed and r.get("phrases"):
+                d.text((px + S(44), yy + S(44)), "· " + r["phrases"][0], font=_wfont(S(12)),
+                       fill=C_MUTED)
             yy += rowh
 
     _column(M, "YOUR TEAM", b.get("allies") or [], C_GOOD, detailed=False)
-    _column(W - M - colw, "ENEMY — WHAT THEY DO", b.get("enemies") or [], C_BAD, detailed=True)
+    _column(W - M - colw, "ENEMY", b.get("enemies") or [], C_BAD, detailed=True)
 
     # GAME PLAN — the synthesis, wide across the bottom
     plan = b.get("plan") or []

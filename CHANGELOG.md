@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.12
+- **The loading screen now SCOUTS the whole lobby.** The loading screen is the first time everyone's IGN is exposed — so it's the first time the lobby can be read — and Smiteless now does it: each player's summonerId resolves to their Riot ID, which resolves to a real puuid, which pulls their full scout. Every one of the ten now shows their **rank**, a **hot/tilted streak** read (`4W hot`, `4L skid`, `25% struggling`), whether they're a **one-trick** on this champ, and whether they're on an **off-champ** (sub-12k-mastery, ~44% win). Tags are colored *relative to you* — your ally struggling is red, an enemy on a skid is green. (Champ select just cached all of it, so it's near-instant.)
+- Kept from before: each champ's good/bad tags + AD/AP damage split, and the plain **GAME PLAN** for the comp. Correcting the v0.9.11 note — live player scouting on the loading screen IS possible after all; thanks to the IGNs being visible there.
+
 ## v0.9.11
 - **NEW — the LOADING-SCREEN matchup overlay.** While the game loads (dead time you're staring at anyway), the whole screen fills with the read that decides the early game: every champion's **good/bad tags**, the **damage split** to itemize against (AD/AP per player), and a plain-English **GAME PLAN** for the comp — *"Enemy is AP-heavy → build MR early"*, *"2 assassins → respect level 6, group, buy Zhonya's/GA"*, *"you out-scale → survive early, win late."* Your team gets light tags on the left; the enemy gets the detailed "what they do" on the right (Zed: *ults to delete a carry · dodge-able ult — ping it*; Darius: *wins extended trades — don't stay · no dash, kite the pull*). Gone the instant the game starts. Toggle: **Settings → Loading brief**.
 - Note: the loading screen only shows **champion** knowledge, not live rank/form — Riot exposes only placeholder player IDs during loading, so player scouting stays in champ select where it belongs.
