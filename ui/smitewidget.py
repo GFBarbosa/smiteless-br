@@ -8,7 +8,7 @@ the whole game. Never steals focus; remembers where you drag it.
 
   python smitewidget.py
 """
-import sys, os, json, threading, time, queue
+import sys, os, json, threading, time, queue, ctypes
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
@@ -338,6 +338,34 @@ def _dragon_due(prev, secs, fired):
     fired.update(crossed)
     return min(crossed)
 POS_FILE = os.path.join(os.path.expanduser("~"), ".claude", "smiteless_widget_pos.json")
+
+
+# ---- in-game click-through ----
+# A HUD must NEVER eat a mouse click meant for the game — a click that lands on the
+# widget mid-fight is a dropped move/attack command. While a live game is being read the
+# window carries WS_EX_TRANSPARENT (every click falls straight through to the game);
+# holding CTRL+ALT lifts it so the widget can still be dragged/muted/closed mid-game.
+# Outside a live game it stays a normal, fully interactive window. Ctrl+Alt because the
+# game binds Alt (pings) and Ctrl (self-cast) individually — but never both together.
+_u32 = ctypes.windll.user32
+_GWL_EXSTYLE = -20
+_WS_EX_TRANSPARENT, _WS_EX_LAYERED = 0x00000020, 0x00080000
+
+
+def _interact_keys_down():
+    return bool(_u32.GetAsyncKeyState(0x11) & 0x8000) and bool(_u32.GetAsyncKeyState(0x12) & 0x8000)
+
+
+def _set_click_through(hwnd, on):
+    """Add/remove WS_EX_TRANSPARENT on a toplevel. No-ops when the style already matches,
+    so it's safe (and cheap) to assert every guard tick."""
+    try:
+        ex = _u32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+        want = (ex | _WS_EX_TRANSPARENT | _WS_EX_LAYERED) if on else (ex & ~_WS_EX_TRANSPARENT)
+        if want != ex:
+            _u32.SetWindowLongW(hwnd, _GWL_EXSTYLE, want)
+    except Exception:
+        pass
 
 
 # ---- PIL-rendered body: the widget's content is DRAWN (cards, chips, aligned rows) like
@@ -804,6 +832,10 @@ def main():
     # the slider is the noisiest header element — it appears only while the cursor is
     # over the widget (the pump's pointer check below packs/unpacks it)
 
+    # shown instead of the slider when the cursor is over a CLICK-THROUGH widget (in a
+    # live game): the one place the ctrl+alt affordance is taught, exactly when needed
+    hint = tk.Label(hdr, text="ctrl+alt to touch", font=skin.body(8), fg=FAINT, bg=SURFACE)
+
     def _vol_done(_e):
         try:
             cfg.save({"dragon_volume": int(st["vol"])})
@@ -822,6 +854,7 @@ def main():
     shot = tk.Label(outer, bg=VOID, bd=0)
 
     def render(rec, pulse=None, recall=None, ghost=None, dead=None):
+        st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
             shot.pack_forget()
@@ -1164,15 +1197,37 @@ def main():
             if a != st.get("alpha"):
                 st["alpha"] = a
                 root.attributes("-alpha", a)
-            if inside != st.get("vol_vis"):      # hover-reveal the volume slider
-                st["vol_vis"] = inside
-                if inside:
+            # hover-reveal: the volume slider when the widget is touchable, the ctrl+alt
+            # hint when it's click-through (nothing while the cursor is elsewhere)
+            mode = ("hint" if st.get("ct") else "vol") if inside else None
+            if mode != st.get("hdr_mode"):
+                st["hdr_mode"] = mode
+                vol.pack_forget()
+                hint.pack_forget()
+                if mode == "vol":
                     vol.pack(side="right", padx=(0, 7), pady=3)
-                else:
-                    vol.pack_forget()
+                elif mode == "hint":
+                    hint.pack(side="right", padx=(0, 7))
         except Exception:
             pass
         root.after(400, pump)
+
+    def guard():
+        """Fast loop owning the click-through state: transparent while a live game is being
+        read, lifted the instant Ctrl+Alt are held (120ms feels immediate on a key-hold).
+        The legend rides the same state so an open decoder card can't eat clicks either."""
+        if not st["alive"]:
+            return
+        ct = bool(st.get("ingame")) and not _interact_keys_down()
+        st["ct"] = ct
+        _set_click_through(toplevel_hwnd(root.winfo_id()), ct)
+        lg = st.get("legend")
+        try:
+            if lg and lg.winfo_exists():
+                _set_click_through(toplevel_hwnd(lg.winfo_id()), ct)
+        except Exception:
+            pass
+        root.after(120, guard)
 
     # place: remembered spot, else upper-left of the monitor you play on (primary)
     root.update_idletasks()
@@ -1185,6 +1240,7 @@ def main():
     make_no_activate(hwnd)
     show_no_activate(hwnd)
     pump()
+    guard()
     root.mainloop()
 
 

@@ -71,57 +71,129 @@ def _roster():
     return rows(mine), rows(other), (port, hdr)
 
 
-def _player_scout(dd, puuid, cid, key, ally):
-    """Full per-player read: {rank, mastery, champ_rec, wr, kda, tags}. tags tone is
-    'good'/'bad' RELATIVE TO YOU (an enemy on a loss streak is 'good')."""
-    out = {"rank": "", "mastery": "", "champ_rec": "", "wr": "", "kda": "", "tags": []}
+def _player_scout(dd, puuid, cid, key):
+    """Full per-ACCOUNT read for the loading scoreboard: solo rank (+LP, season W/L),
+    last-10 form, recent + this-champ record, pooled KDA, deaths/game, avg performance
+    score (how they actually play), mastery on this champ, their MAIN role over the last
+    10 games, and the recent match ids (drives the lobby-wide duo pass)."""
+    out = {"rank_full": None, "pts": 0, "mlevel": 0, "n": 0, "w": 0, "cg": 0, "cw": 0,
+           "form": [], "kdar": None, "kavg": "", "dpg": None, "perf": None,
+           "main_pos": "", "mids": []}
     try:
-        rk = ls.rank(puuid, key)
-        if rk and rk.get("tier"):
-            out["rank"] = f"{_TIER.get(rk['tier'].upper(), rk['tier'].title())} {rk.get('div', '')}".strip()
+        out["rank_full"] = ls.rank(puuid, key)
     except Exception:
         pass
     try:
-        n, w, cg, cw, form, _ids, kda, _perf = ls.scout(dd, puuid, cid, key, 10)
+        n, w, cg, cw, form, mids, kda, perf = ls.scout(dd, puuid, cid, key, 10)
+        out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf)
+        g = (kda or {}).get("g", 0)
+        if g:
+            out["kdar"] = round((kda["k"] + kda["a"]) / max(1, kda["d"]), 1)
+            out["kavg"] = f"{kda['k'] / g:.1f} / {kda['d'] / g:.1f} / {kda['a'] / g:.1f}"
+            out["dpg"] = round(kda["d"] / g, 1)
     except Exception:
-        n = w = cg = cw = 0
-        form, kda = [], {}
-
-    def tone(good_for_them):
-        return ("bad" if not ally else "good") if good_for_them else ("good" if not ally else "bad")
-
-    # champion mastery + this-champ recent record + overall winrate + recent KDA (the DETAIL)
+        pass
     try:
         m = ls.mastery(puuid, cid, key) or {}
+        out["pts"], out["mlevel"] = int(m.get("points", 0)), int(m.get("level", 0))
     except Exception:
-        m = {}
-    pts = int(m.get("points", 0))
-    if pts:
-        out["mastery"] = f"M{m.get('level', 0)}·{pts // 1000}k" if pts >= 1000 else f"M{m.get('level', 0)}"
-    if cg >= 2:
-        out["champ_rec"] = f"{cw}-{cg - cw} this champ"
-    if n >= 3:
-        out["wr"] = f"{int(w / n * 100)}% wr ({n})"
-    g = (kda or {}).get("g", 0)
-    if g:
-        k, dd_, a = kda["k"], kda["d"], kda["a"]
-        out["kda"] = f"{(k + a) / max(1, dd_):.1f} KDA"
+        pass
+    # main role over the recent games — pure disk reads (scout just cached these matches)
+    posc = {}
+    for mid in out["mids"]:
+        try:
+            res = ls.match_results(mid, key)
+        except Exception:
+            continue
+        rec = (res or {}).get(puuid)
+        if rec and len(rec) >= 11 and rec[10]:
+            posc[rec[10]] = posc.get(rec[10], 0) + 1
+    if posc:
+        best = max(posc, key=posc.get)
+        if posc[best] >= max(3, (sum(posc.values()) + 1) // 2):   # a real main, not noise
+            out["main_pos"] = _ROLE.get(best.upper(), "")
+    return out
 
-    # tags: only the sharp signals (streaks + off-champ) — mastery/record shown as data now
+
+def _profile_tags(row, ally):
+    """The DETAILED, UNIQUE profile-read tags — what kind of player this account is, said
+    plainly. Tone is relative to YOU: an enemy on a loss streak is 'good' (for you).
+    Ordered sharpest-first; the renderer draws the first few that fit."""
+    tags = []
+
+    def tone(good_for_them):
+        return ("good" if good_for_them else "bad") if ally else ("bad" if good_for_them else "good")
+
+    rk = row.get("rank_full") or {}
+    sg = int(rk.get("w", 0) or 0) + int(rk.get("l", 0) or 0)
+    swr = round(rk["w"] / sg * 100) if sg else None
+    form, n, w = row.get("form") or [], row.get("n", 0), row.get("w", 0)
+    pts, cg, cw = row.get("pts", 0), row.get("cg", 0), row.get("cw", 0)
+    perf, dpg, champ = row.get("perf"), row.get("dpg"), row.get("champ", "?")
+    # live streak (sharpest signal there is)
     if form:
         lead = 1
-        for i in range(1, len(form)):
-            if form[i] == form[0]:
-                lead += 1
-            else:
-                break
+        while lead < len(form) and form[lead] == form[0]:
+            lead += 1
         if lead >= 3:
-            out["tags"].append((f"{lead}{'W' if form[0] else 'L'}", tone(form[0])))
-    if pts >= 100000 or cg >= 7:
-        out["tags"].append(("OTP", "bad" if not ally else "good"))
-    elif pts < 12000 and cg == 0:
-        out["tags"].append(("off-role", tone(False)))
-    return out
+            tags.append((f"{lead}W streak · confident" if form[0]
+                         else f"{lead}L streak · tilt risk", tone(form[0])))
+    # smurf read: stomping recents on a barely-played ranked account
+    if n >= 8 and w / n >= 0.65 and 0 < sg < 80:
+        tags.append(("SMURF READ · new acct, stomping", tone(True)))
+    # champ relationship: OTP / main / comfort / first-time
+    if pts >= 250_000:
+        tags.append((f"{champ} OTP · {pts // 1000}k pts", tone(True)))
+    elif pts >= 100_000:
+        tags.append((f"{champ} main · {pts // 1000}k pts", tone(True)))
+    elif row.get("scouted") and pts < 6000 and cg == 0:
+        tags.append((f"first-time {champ}?", tone(False)))
+    if cg >= 5:
+        tags.append((f"comfort pick · {cw}-{cg - cw} recently", tone(cw * 2 >= cg)))
+    # autofill / off-role
+    mp = row.get("main_pos")
+    if mp and row.get("role") and mp != row["role"]:
+        tags.append((f"off-role · {mp} main", tone(False)))
+    # how they die (or don't)
+    if dpg is not None and n >= 5:
+        if dpg >= 6.5:
+            tags.append((f"bleeds · {dpg} deaths/game", tone(False)))
+        elif dpg <= 2.6:
+            tags.append(("hard to kill · low deaths", tone(True)))
+    # how they actually play, independent of W/L
+    if perf is not None:
+        if perf >= 85:
+            tags.append((f"carries games · {int(perf)} avg perf", tone(True)))
+        elif perf <= 45:
+            tags.append(("passenger · low impact", tone(False)))
+    # account character
+    if sg >= 400:
+        tags.append((f"grinder · {sg} ranked this season", "neutral"))
+    elif 0 < sg <= 25:
+        tags.append(("fresh ranked account", "neutral"))
+    if swr is not None and sg >= 100:
+        if swr >= 55:
+            tags.append((f"climbing · {swr}% season wr", tone(True)))
+        elif swr <= 45:
+            tags.append((f"hardstuck · {swr}% season wr", tone(False)))
+    return tags
+
+
+_DUO_SHARED = 3          # recent ranked games in common (same team) that flag a premade
+
+
+def _duo_pass(team_rows):
+    """Cross-reference ONE TEAM's recent match ids: players sharing >=3 recent ranked
+    games are almost certainly queued together. Prepends a 'duo · NAME' tag to both."""
+    for i, a in enumerate(team_rows):
+        for b in team_rows[i + 1:]:
+            if not (a.get("mids") and b.get("mids")):
+                continue
+            if len(set(a["mids"]) & set(b["mids"])) >= _DUO_SHARED:
+                an = (a.get("player") or a.get("champ") or "?").split("#")[0]
+                bn = (b.get("player") or b.get("champ") or "?").split("#")[0]
+                a["tags"].insert(0, (f"duo · {bn}", "info"))
+                b["tags"].insert(0, (f"duo · {an}", "info"))
 
 
 def _comp_read(dd, rows):
@@ -173,19 +245,26 @@ def brief(dd, key=None, scout=True):
             cid = row["champ_id"]
             rec = {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
                    "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
-                   "rank": "", "mastery": "", "champ_rec": "", "wr": "", "kda": "",
-                   "ptags": [], "me": row["me"]}
+                   "me": row["me"], "player": "", "scouted": False, "tags": [],
+                   "rank_full": None, "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0,
+                   "kdar": None, "kavg": "", "dpg": None, "perf": None,
+                   "pts": 0, "mlevel": 0, "main_pos": "", "mids": []}
             if key:
                 try:
                     ign = _ign_for(port, hdr, row["sid"])
                     puuid = ls.resolve_puuid(ign, key) if ign else None
                     if puuid and len(puuid) > 70:
-                        sc = _player_scout(dd, puuid, cid, key, ally)
-                        rec.update(rank=sc["rank"], mastery=sc["mastery"], champ_rec=sc["champ_rec"],
-                                   wr=sc["wr"], kda=sc["kda"], ptags=sc["tags"])
+                        rec["player"] = ign
+                        rec.update(_player_scout(dd, puuid, cid, key))
+                        rec["scouted"] = True
+                        rec["tags"] = _profile_tags(rec, ally)
                 except Exception:
                     pass
             out.append(rec)
         return out
-    return {"allies": enrich(my, True), "enemies": enrich(en, False),
+    allies, enemies = enrich(my, True), enrich(en, False)
+    if key:
+        _duo_pass(allies)
+        _duo_pass(enemies)
+    return {"allies": allies, "enemies": enemies,
             "plan": _plan(dd, my, en), "scouted": bool(key)}

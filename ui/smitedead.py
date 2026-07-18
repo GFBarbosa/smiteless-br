@@ -4,8 +4,12 @@
 When you die, this fades in over the whole monitor with the dense read you can't afford to
 process while alive: a giant respawn clock + the one tempo verdict, what to buy on respawn,
 the win read, the scariest enemy spike, the next objectives, and a feed of what you missed.
-The CENTER stays clear (a magenta chroma key -> fully transparent AND click-through), so you
-keep watching the fight through it and keep full camera control while dead. It vanishes the
+Laid out AROUND the game's own death HUD (keep-out map in render_frame): team boards sit
+top-center where TAB lives, the reactive read hangs under the death recap on the left, the
+strategic read hangs under the stats bar on the right — nothing covers the recap, chat,
+respawn portraits, minimap, BACK IN plate, or the TEMPO widget's bottom-left corner. The
+CENTER stays clear (magenta chroma key -> fully transparent AND click-through), so you keep
+watching the fight through it and keep full camera control while dead. It vanishes the
 instant you respawn.
 
 100% read-only off the live-client feed (:2999). It never moves your camera or sends a single
@@ -217,18 +221,28 @@ def render_frame(dd, b, W, H):
 
     lx = M
     rx = W - M - colw
-    hy = int(H * 0.14)
+    # Keep-out map of the GAME's own death HUD, so the brief reads as part of it instead
+    # of sitting on top of it: top-left death recap/gold/shop ends ~0.31H; the chat/kill
+    # feed owns the left from ~0.57H; the all-10 respawn portrait strip sits ~0.49-0.62H
+    # on the right; the minimap owns the bottom-right; BACK IN owns bottom-center; the
+    # bottom-left corner belongs to the user's TEMPO widget. Every card fits its lane or
+    # doesn't draw.
+    LY0, LY1 = int(H * 0.325), int(H * 0.565)     # left lane: below recap, above chat
+    RY0, RY1 = int(H * 0.070), int(H * 0.485)     # right lane: below stats bar, above portraits
 
     def _hdr(x, y, title, col):
         d.text((x + S(22), y + S(11)), title, font=_wfont(S(13), True), fill=col)
 
-    def _block(x, y, title, title_col, line, sub, rail, big=False):
-        """A coaching card: bold headline + wrapped takeaway. Returns the new y-cursor."""
+    def _block(x, y, title, title_col, line, sub, rail, big=False, ymax=None):
+        """A coaching card: bold headline + wrapped takeaway. Returns the new y-cursor.
+        With ymax set, a card that would cross its lane boundary is skipped whole."""
         subf = _wfont(S(13))
         sublines = _wrap(d, sub or "", subf, colw - S(44))[:2] if sub else []
         lf = _wfont(S(17 if big else 16), True)
         headlines = _wrap(d, line or "", lf, colw - S(44))[:2] if line else []
         h = S(34) + S(23) * len(headlines) + S(20) * len(sublines)
+        if ymax is not None and y + h > ymax:
+            return y
         _card(d, x, y, colw, h, rail)
         _hdr(x, y, title, title_col)
         yy = y + S(32)
@@ -240,8 +254,22 @@ def render_frame(dd, b, W, H):
             yy += S(20)
         return y + h + S(12)
 
-    # ========== LEFT COLUMN: the reactive read (clock, why you died, respawn plan) ==========
-    ly = hy
+    # ========== TOP-CENTER: the two team boards, tab-scoreboard position ==========
+    # (the one big free band while dead — the game's own banner sits above, the fight
+    # is usually below; matching the TAB scoreboard's home makes it feel native)
+    board = b.get("board")
+    if board and (board.get("allies") or board.get("enemies")):
+        bw = colw
+        bx = (W - (bw * 2 + S(20))) // 2
+        ty = S(56)
+        if board.get("allies"):
+            _team_block(d, S, bx, ty, bw, board["allies"], "YOUR TEAM", C_GOOD,
+                        lead=board.get("gold_lead"))
+        if board.get("enemies"):
+            _team_block(d, S, bx + bw + S(20), ty, bw, board["enemies"], "ENEMY", C_BAD)
+
+    # ========== LEFT LANE: the reactive read (clock, why you died, respawn plan) ==========
+    ly = LY0
     ch = S(100)
     _card(d, lx, ly, colw, ch, _TONE_C.get(b.get("tone"), C_EMBER))
     px = lx + S(22)
@@ -257,80 +285,81 @@ def render_frame(dd, b, W, H):
 
     why = b.get("why")
     if why:
-        ly = _block(lx, ly, "WHY YOU DIED", C_BAD, why.get("line"), why.get("sub"), C_BAD)
+        ly = _block(lx, ly, "WHY YOU DIED", C_BAD, why.get("line"), why.get("sub"), C_BAD,
+                    ymax=LY1)
 
     buy, verdict = b.get("buy"), b.get("verdict")
     if buy or verdict:
         lines = _wrap(d, "→ " + buy, _wfont(S(15), True), colw - S(44))[:1] if buy else []
         vlines = _wrap(d, "→ " + verdict, _wfont(S(15), True), colw - S(44))[:1] if verdict else []
         h = S(34) + S(24) * (len(lines) + len(vlines))
-        _card(d, lx, ly, colw, h, C_INFO)
-        _hdr(lx, ly, "ON RESPAWN", C_MUTED)
-        yy = ly + S(32)
-        for ln in lines:
-            d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_TXT)
-            yy += S(24)
-        for ln in vlines:
-            d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_ARC)
-            yy += S(24)
-        ly += h + S(12)
+        if ly + h <= LY1:
+            _card(d, lx, ly, colw, h, C_INFO)
+            _hdr(lx, ly, "ON RESPAWN", C_MUTED)
+            yy = ly + S(32)
+            for ln in lines:
+                d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_TXT)
+                yy += S(24)
+            for ln in vlines:
+                d.text((lx + S(22), yy), ln, font=_wfont(S(15), True), fill=C_ARC)
+                yy += S(24)
+            ly += h + S(12)
 
-    board = b.get("board")
-    if board and board.get("allies"):
-        _team_block(d, S, lx, ly, colw, board["allies"], "YOUR TEAM", C_GOOD,
-                    lead=board.get("gold_lead"))
+    # what you missed, folded into whatever's left of the lane (the game's own chat and
+    # the TEMPO widget live at the bottom-left — never park a card down there again)
+    feed = b.get("feed") or []
+    if feed:
+        rows = min(len(feed), (LY1 - ly - S(40)) // S(22))
+        if rows >= 2:
+            fh = S(40) + S(22) * rows
+            _card(d, lx, ly, colw, fh, C_LINE)
+            d.text((lx + S(22), ly + S(12)), "WHILE YOU WERE DEAD", font=_wfont(S(13), True),
+                   fill=C_MUTED)
+            yy = ly + S(36)
+            for r in feed[:rows]:
+                col = C_GOOD if r.get("ally") else C_BAD
+                d.text((lx + S(22), yy), f"{r.get('ago', 0):>2}s", font=_wfont(S(12)), fill=C_FAINT)
+                d.text((lx + S(60), yy), r.get("text", ""), font=_wfont(S(13)), fill=col)
+                yy += S(22)
 
-    # ========== RIGHT COLUMN: the strategic read (win con, threat, win%, objectives) ==========
-    ry = hy
+    # ========== RIGHT LANE: the strategic read (win con, threat, win%, objectives) ==========
+    ry = RY0
     if b.get("wincon"):
-        ry = _block(rx, ry, "HOW YOU WIN", C_EMBER, b["wincon"], None, C_EMBER, big=True)
+        ry = _block(rx, ry, "HOW YOU WIN", C_EMBER, b["wincon"], None, C_EMBER, big=True,
+                    ymax=RY1)
     threat = b.get("threat")
     if threat:
-        ry = _block(rx, ry, "THE THREAT", C_BAD, threat.get("line"), threat.get("sub"), C_BAD)
+        ry = _block(rx, ry, "THE THREAT", C_BAD, threat.get("line"), threat.get("sub"), C_BAD,
+                    ymax=RY1)
     wp = b.get("winprob")
     if wp:
         wh = S(62)
-        good = wp.get("ahead")
-        _card(d, rx, ry, colw, wh, C_GOOD if good else C_BAD)
-        _hdr(rx, ry, "WIN READ", C_MUTED)
-        pct = f"{int(wp.get('pct') or 0)}%"
-        d.text((rx + colw - S(22) - d.textlength(pct, font=_dfont(S(30))), ry + S(20)),
-               pct, font=_dfont(S(30)), fill=(C_GOOD if good else C_BAD))
-        d.text((rx + S(22), ry + S(34)), wp.get("basis") or "", font=_wfont(S(13)), fill=C_MUTED)
-        ry += wh + S(12)
+        if ry + wh <= RY1:
+            good = wp.get("ahead")
+            _card(d, rx, ry, colw, wh, C_GOOD if good else C_BAD)
+            _hdr(rx, ry, "WIN READ", C_MUTED)
+            pct = f"{int(wp.get('pct') or 0)}%"
+            d.text((rx + colw - S(22) - d.textlength(pct, font=_dfont(S(30))), ry + S(20)),
+                   pct, font=_dfont(S(30)), fill=(C_GOOD if good else C_BAD))
+            d.text((rx + S(22), ry + S(34)), wp.get("basis") or "", font=_wfont(S(13)), fill=C_MUTED)
+            ry += wh + S(12)
     objs = b.get("objectives") or []
     if objs:
-        oh = S(34) + S(22) * len(objs)
-        _card(d, rx, ry, colw, oh, C_ARC)
-        _hdr(rx, ry, "NEXT OBJECTIVES", C_MUTED)
-        oy = ry + S(32)
-        for o in objs:
-            secs_o = o.get("secs") or 0
-            up = o.get("up") or secs_o <= 0
-            tcol = C_EMBER if (up or o.get("urgent")) else C_TXT
-            when = "UP" if up else _mmss(secs_o)
-            d.text((rx + S(22), oy), o.get("label", "?"), font=_wfont(S(14)), fill=C_TXT)
-            d.text((rx + colw - S(22) - d.textlength(when, font=_wfont(S(14), True)), oy),
-                   when, font=_wfont(S(14), True), fill=tcol)
-            oy += S(22)
-        ry += oh + S(12)
-    if board and board.get("enemies"):
-        _team_block(d, S, rx, ry, colw, board["enemies"], "ENEMY", C_BAD)
-
-    # ---------- BOTTOM: what you missed ----------
-    feed = b.get("feed") or []
-    if feed:
-        fw = S(560)
-        fh = S(40) + S(22) * len(feed)
-        fx, fy = M, H - M - fh
-        _card(d, fx, fy, fw, fh, C_LINE)
-        d.text((fx + S(24), fy + S(12)), "WHILE YOU WERE DEAD", font=_wfont(S(13), True), fill=C_MUTED)
-        yy = fy + S(36)
-        for r in feed:
-            col = C_GOOD if r.get("ally") else C_BAD
-            d.text((fx + S(24), yy), f"{r.get('ago', 0):>2}s", font=_wfont(S(12)), fill=C_FAINT)
-            d.text((fx + S(64), yy), r.get("text", ""), font=_wfont(S(14)), fill=col)
-            yy += S(22)
+        rows = min(len(objs), (RY1 - ry - S(34)) // S(22))
+        if rows >= 1:
+            oh = S(34) + S(22) * rows
+            _card(d, rx, ry, colw, oh, C_ARC)
+            _hdr(rx, ry, "NEXT OBJECTIVES", C_MUTED)
+            oy = ry + S(32)
+            for o in objs[:rows]:
+                secs_o = o.get("secs") or 0
+                up = o.get("up") or secs_o <= 0
+                tcol = C_EMBER if (up or o.get("urgent")) else C_TXT
+                when = "UP" if up else _mmss(secs_o)
+                d.text((rx + S(22), oy), o.get("label", "?"), font=_wfont(S(14)), fill=C_TXT)
+                d.text((rx + colw - S(22) - d.textlength(when, font=_wfont(S(14), True)), oy),
+                       when, font=_wfont(S(14), True), fill=tcol)
+                oy += S(22)
 
     return img
 
