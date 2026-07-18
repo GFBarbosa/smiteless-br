@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.20
+- **Loading screen: smaller, cleaner, and a lot more informative.** Shrunk it down to a compact centered card instead of a full-screen sprawl, and packed real scouting into each row: champion **mastery** (M7·210k), their recent record **on that exact champ** (6-2), **overall winrate**, and **recent KDA** — alongside the rank badge and hot/tilt/OTP/off-role pills. Reads like a clean scouting table now, with the game plan underneath.
+
 ## v0.9.19
 - **The loading screen got a real design.** The flat text is gone — every player is now a card with their **champion portrait**, name, role, damage type, a **rank badge in its tier colour** (Diamond blue, Emerald green, Gold amber…), tag pills for streaks/one-tricks, and the champ read, split into two team panels with a game-plan footer. It looks like the profile page now, not a spreadsheet. Portraits load in the background and pop in; after the first game they're instant.
 - **Fix: it no longer vanishes while you're still loading.** It was closing itself the moment the live-game API started responding — but that happens *while you're still on the loading screen*. It now waits for the actual game clock to start before closing, and a momentary hiccup can't make it disappear anymore.
