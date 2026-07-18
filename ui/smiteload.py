@@ -170,7 +170,7 @@ def main():
     root.update_idletasks()
     _make_click_through(toplevel_hwnd(root.winfo_id()))
 
-    state = {"run": True, "brief": None, "shown": False, "want": False,
+    state = {"run": True, "brief": None, "shown": False, "want": False, "fetching": False,
              "deadline": time.monotonic() + 1200}         # spawned at champ select: cover it + load
 
     def _done(why):
@@ -180,6 +180,25 @@ def main():
             root.after(0, root.destroy)
         except Exception:
             pass
+
+    def _fetch():
+        # ALL network work lives here, OFF the poll/render loop, so the overlay is never blocked.
+        # Phase 1: champs + tags + plan (fast, no Riot API) -> the overlay appears immediately.
+        # Phase 2: per-player rank/OTP scout (slow, rate-limited) -> fills in when ready.
+        try:
+            fast = ll.brief(dd, scout=False)
+            if fast:
+                state["brief"] = fast
+                _log("fast brief READY (champs/tags/plan) -> showing")
+        except Exception as e:
+            _log(f"fast brief ERROR {type(e).__name__}: {e}")
+        try:
+            full = ll.brief(dd, scout=True)
+            if full and state["run"]:
+                state["brief"] = full
+                _log("scout brief READY (ranks/tags) -> enriched")
+        except Exception as e:
+            _log(f"scout brief ERROR {type(e).__name__}: {e}")
 
     def poll():
         n = errs = 0
@@ -192,16 +211,12 @@ def main():
             loading = (gf in ("GameStart", "InProgress", "Reconnect")) and not live
             n += 1
             if n <= 4 or loading or n % 10 == 0:           # log the interesting transitions
-                _log(f"poll gf={gf!r} live={live} loading={loading} want={state['want']} shown={state['shown']} brief={state['brief'] is not None}")
+                _log(f"poll gf={gf!r} live={live} loading={loading} want={state['want']} shown={state['shown']} brief={state['brief'] is not None} fetching={state['fetching']}")
             if loading:
                 state["want"] = True
-                if state["brief"] is None:
-                    try:
-                        state["brief"] = ll.brief(dd)     # scout (cached from champ select -> fast)
-                        _log(f"brief fetched: {'OK' if state['brief'] else 'None'}")
-                    except Exception as e:
-                        state["brief"] = None
-                        _log(f"brief ERROR {type(e).__name__}: {e}")
+                if not state["fetching"]:                  # kick the fetch ONCE, on a worker thread
+                    state["fetching"] = True
+                    threading.Thread(target=_fetch, daemon=True).start()
             elif live or errs >= 3 or gf in ("None", "Lobby", "Matchmaking", "ReadyCheck",
                                              "WaitingForStats", "PreEndOfGame", "EndOfGame"):
                 # game started, dodge/requeue, or client gone -> this run is over
@@ -212,25 +227,31 @@ def main():
             if time.monotonic() > state["deadline"]:
                 _done("deadline")
                 return
-            time.sleep(0.8)
+            time.sleep(0.5)
 
     threading.Thread(target=poll, daemon=True).start()
 
+    state["rendered"] = None
     def tick():
         if not state["run"]:
             return
-        if state["want"] and state["brief"] and not state["shown"]:
-            frame = render_frame(dd, state["brief"], W, H)
-            ph = ImageTk.PhotoImage(frame)
-            label.configure(image=ph)
-            label.image = ph
-            root.deiconify()
-            _make_click_through(toplevel_hwnd(root.winfo_id()))
-            state["shown"] = True
+        b = state["brief"]
+        if state["want"] and b:
+            if b is not state["rendered"]:              # (re)draw on first show AND on scout upgrade
+                frame = render_frame(dd, b, W, H)
+                ph = ImageTk.PhotoImage(frame)
+                label.configure(image=ph)
+                label.image = ph
+                state["rendered"] = b
+                if not state["shown"]:
+                    root.deiconify()
+                    _make_click_through(toplevel_hwnd(root.winfo_id()))
+                    state["shown"] = True
+                    _log("overlay SHOWN")
         elif state["shown"] and not state["want"]:
             root.withdraw()
             state["shown"] = False
-        root.after(300, tick)
+        root.after(250, tick)
 
     root.withdraw()
     root.after(200, tick)

@@ -154,13 +154,15 @@ def _plan(dd, my, en):
     return out[:4] or ["Even comps — play your matchup, track the enemy jungler, trade objectives."]
 
 
-def brief(dd, key=None):
-    """The loading brief with scout, or None if no game roster is readable yet."""
+def brief(dd, key=None, scout=True):
+    """The loading brief. scout=False returns FAST (champs + tags + damage + plan, no Riot API)
+    so the overlay can appear instantly; scout=True additionally pulls each player's rank/form/
+    OTP tags (slow, rate-limited — run it off the render loop). None if no roster is readable."""
     r = _roster()
     if not r:
         return None
     my, en, (port, hdr) = r
-    key = key or ls.read_key()
+    key = (key or ls.read_key()) if scout else None
 
     def enrich(rows, ally):
         out = []
