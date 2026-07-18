@@ -205,6 +205,8 @@ def _riot_exe():
 
 # ---------- UI Automation: locate + focus the login fields ----------
 _IS_PASSWORD, _CT_EDIT = 30057, 50004
+_PROP_CONTROL_TYPE = 30003
+_SCOPE_DESCENDANTS = 4
 
 
 def _uia():
@@ -213,38 +215,31 @@ def _uia():
     return cc.CreateObject("{ff48dba4-60ef-4201-aa87-54103eef594e}", interface=mod.IUIAutomation)
 
 
-def _login_edits(hwnd):
-    """[(element, is_password)] for the Edit fields inside the Riot window, or [] if UIA is
-    unavailable. Empty-with-UIA-working means 'no login form here' (already signed in)."""
+def _login_edits(hwnd, uia=None):
+    """[(element, is_password)] for the Edit fields inside the Riot window, or None if UIA
+    is unavailable. Empty-with-UIA-working means 'no login form here (yet)'. Uses ONE native
+    FindAll (the search runs inside UIAutomationCore) instead of the old Python tree walk —
+    the walk made thousands of COM round-trips through the Chromium tree and took seconds
+    per poll, which is exactly why the fill took forever to notice a waiting login form."""
     try:
-        uia = _uia()
+        uia = uia or _uia()
     except Exception:
         return None                            # UIA not available -> caller does a blind fill
-    root = uia.ElementFromHandle(hwnd)
-    walker = uia.CreateTreeWalker(uia.CreateTrueCondition())
-    edits = []
-
-    def walk(el, d=0):
-        if d > 24:
-            return
-        try:
-            if el.CurrentControlType == _CT_EDIT:
-                try:
-                    is_pw = bool(el.GetCurrentPropertyValue(_IS_PASSWORD))
-                except Exception:
-                    is_pw = False
-                edits.append((el, is_pw))
-        except Exception:
-            pass
-        try:
-            c = walker.GetFirstChildElement(el)
-            while c:
-                walk(c, d + 1)
-                c = walker.GetNextSiblingElement(c)
-        except Exception:
-            pass
-    walk(root)
-    return edits
+    try:
+        root = uia.ElementFromHandle(hwnd)
+        cond = uia.CreatePropertyCondition(_PROP_CONTROL_TYPE, _CT_EDIT)
+        found = root.FindAll(_SCOPE_DESCENDANTS, cond)
+        edits = []
+        for i in range(found.Length):
+            el = found.GetElement(i)
+            try:
+                is_pw = bool(el.GetCurrentPropertyValue(_IS_PASSWORD))
+            except Exception:
+                is_pw = False
+            edits.append((el, is_pw))
+        return edits
+    except Exception:
+        return []                              # tree not materialized yet -> poll again
 
 
 def _is_login_form(edits):
@@ -270,20 +265,27 @@ def _pick_fields(edits):
 
 
 def _wait_for_login_window(timeout=35):
-    """Poll for a Riot window that actually shows a password field (UIA), else just any Riot
-    window after a grace period (UIA missing / slow tree)."""
+    """Poll (fast — 0.35s, one shared UIA object, native FindAll) for a Riot window that
+    actually shows a password field, else just any Riot window after the grace period
+    (UIA missing / tree never materialized)."""
+    try:
+        uia = _uia()
+    except Exception:
+        uia = None
     end = time.time() + timeout
     while time.time() < end:
         h = _riot_login_hwnd()
         if h:
-            edits = _login_edits(h)
-            if edits is None:                  # no UIA -> can't verify; accept the window
+            if uia is None:                    # no UIA -> can't verify; accept the window
                 return h, None
-            if any(pw for _el, pw in edits):
+            edits = _login_edits(h, uia)
+            # a password-flagged edit OR two fields = the form (Chromium doesn't always
+            # expose IsPassword — waiting for the flag alone rode out the whole timeout)
+            if edits and (any(pw for _el, pw in edits) or len(edits) >= 2):
                 return h, edits
-        time.sleep(1.0)
+        time.sleep(0.35)
     h = _riot_login_hwnd()
-    return (h, _login_edits(h)) if h else (0, None)
+    return (h, _login_edits(h, uia)) if h else (0, None)
 
 
 # ---------- the one verb ----------
@@ -298,10 +300,17 @@ def fill(name, submit=True, on_status=None):
     hwnd = _riot_login_hwnd()
     edits = _login_edits(hwnd) if hwnd else None
     if not (bool(hwnd) and _is_login_form(edits)):
-        say("opening Riot Client…")
-        subprocess.Popen([_riot_exe(), "--launch-product=league_of_legends",
-                          "--launch-patchline=live"], creationflags=CREATE_NO_WINDOW)
-        hwnd, edits = _wait_for_login_window()
+        if not hwnd:
+            say("opening Riot Client…")
+            subprocess.Popen([_riot_exe(), "--launch-product=league_of_legends",
+                              "--launch-patchline=live"], creationflags=CREATE_NO_WINDOW)
+            hwnd, edits = _wait_for_login_window()
+        else:
+            # the window is ALREADY up — the form just isn't readable yet (Chromium builds
+            # its accessibility tree lazily). Never relaunch the client for this; just poll
+            # until the password field shows (or conclude it's the signed-in home screen).
+            say("login window found — waiting for the form…")
+            hwnd, edits = _wait_for_login_window(timeout=12)
         if not hwnd:
             raise RuntimeError("Riot login window never appeared - open it and try again.")
     # UIA present but clearly not a login form (e.g. already on the client home) -> don't type
