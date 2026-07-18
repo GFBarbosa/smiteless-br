@@ -1,5 +1,17 @@
 # Smiteless — Patch Notes
 
+## v0.9.25
+- **The overlay now opens the moment your QUEUE starts, not at champ select.** As soon as you hit Find Match, the second monitor shows the new queue card: a live **in-queue clock vs the estimate**, your queue + selected roles as chips, and a **"good this game" row of your comfort picks** for your primary role (mastery-gated, from all your accounts). On match found it flips to a gold **MATCH FOUND** banner — and the full lobby scout takes over the instant champ select actually starts, exactly like before.
+- **Auto-accept actually works now.** The Settings toggle existed, but nothing ever polled it — the tray now watches for ready checks every 2s and accepts for you when it's on. The queue card shows "auto-accepting ✓" so you know it's armed.
+- **QoL round (council pass):**
+  - **"Reset" in Settings actually resets everything** — it used to skip tempo, voice, the death/loading briefs, and auto-import/ban, silently keeping your old values.
+  - **Drake-up audio is no longer a nag** — the full jingle plays once when it spawns; while it stays up you get a short calm two-note reminder every ~15s (was: the full fanfare every ~5s).
+  - **Respawn chime** — one soft cue as your death timer hits ~1.5s, so looking away while dead doesn't cost you seconds after respawn.
+  - **"♪ Test audio" button in Settings** — hear the chime + a voice line at the current volume without launching a game.
+  - **Loading screen calls the threat** — when one enemy account stands out (perf + OTP + streak), the header says so: "WATCH BRIAR — SMURF READ · 6W streak".
+  - **Settings mouse-wheel fix** — scrolling over the favourites/accounts lists scrolls the list, not the whole page.
+  - **The overlay's Riot-key rail now shows key state** — green when your key is set, amber only when it actually needs work.
+
 ## v0.9.24
 - **The live board now fills its monitor.** It rendered at a fixed design size and could only ever shrink — small on the very screen it owns. It now **draws itself scaled to the monitor it opens on** (~1740px wide on 1080p, larger on 1440p+): every font, art slab, tag pill, grade chip and gank badge grows in step, crisp at any size because it re-renders instead of stretching pixels. Small windows and low resolutions still shrink-to-fit exactly as before.
 

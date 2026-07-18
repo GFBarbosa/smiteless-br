@@ -2907,6 +2907,118 @@ def info_image(msg):
     return img
 
 
+# ---------- the QUEUE card: the overlay opens WITH the queue, not after it ----------
+QUEUE_PHASES = ("Matchmaking", "ReadyCheck")
+_QUEUE_NAMES = {420: "Ranked Solo/Duo", 440: "Ranked Flex", 400: "Normal Draft",
+                430: "Normal Blind", 450: "ARAM", 480: "Swiftplay", 490: "Quickplay",
+                700: "Clash", 1700: "Arena", 1900: "URF"}
+_POS_NICE = {"TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC",
+             "UTILITY": "SUPPORT"}
+_NO_ROLE_QUEUES = ("ARAM", "Arena", "URF", "Normal Blind")
+
+
+def _lcu_get(port, hdr, path, timeout=3):
+    try:
+        return lb.http(f"https://127.0.0.1:{port}{path}", headers=hdr, timeout=timeout, insecure=True)
+    except Exception:
+        return None
+
+
+def queue_state():
+    """What the LCU knows while you're queueing: queue name, your role prefs, time in
+    queue vs the estimate, the ready-check countdown, and whether auto-accept is armed.
+    All cheap local reads — safe to poll every couple of seconds."""
+    out = {"phase": phasecheck.phase(), "queue": "", "roles": [], "tq": None, "est": None,
+           "rc": None, "auto": bool(cfg.load().get("auto_accept", False))}
+    lc = lg._lcu()
+    if not lc:
+        return out
+    port, hdr = lc
+    lob = _lcu_get(port, hdr, "/lol-lobby/v2/lobby") or {}
+    gc = lob.get("gameConfig") or {} if isinstance(lob, dict) else {}
+    out["queue"] = _QUEUE_NAMES.get(gc.get("queueId"), "")
+    me = lob.get("localMember") or {} if isinstance(lob, dict) else {}
+    for r in (me.get("firstPositionPreference"), me.get("secondPositionPreference")):
+        if r and r != "UNSELECTED":
+            out["roles"].append(_POS_NICE.get(r, r))
+    srch = _lcu_get(port, hdr, "/lol-matchmaking/v1/search")
+    if isinstance(srch, dict):
+        out["tq"] = srch.get("timeInQueue")
+        out["est"] = srch.get("estimatedQueueTime")
+    if out["phase"] == "ReadyCheck":
+        rc = _lcu_get(port, hdr, "/lol-matchmaking/v1/ready-check")
+        if isinstance(rc, dict):
+            out["rc"] = rc.get("timer")
+    return out
+
+
+def _q_mmss(v):
+    v = max(0, int(v or 0))
+    return f"{v // 60}:{v % 60:02d}"
+
+
+def render_queue_card(dd, q, sugg=None):
+    """The IN-QUEUE / MATCH-FOUND card — up the moment you start searching, so the board
+    is already on the second monitor warming up before champ select exists. Calm and
+    compact: the queue clock, your roles, and your comfort picks for the role, then the
+    full scout takes over the instant champ select starts."""
+    warm = [c for c in (sugg or []) if c][:6]
+    H = 150 + (108 if warm else 0)
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+    ready = q.get("phase") == "ReadyCheck"
+    _brand_row(d, 20, 18, size=12, suffix=("· match found" if ready else "· in queue"),
+               suffix_col=(GOLD if ready else FAINT))
+
+    if ready:
+        _railed_card(d, (16, 46, W - 16, 106), GOLD, fill=_dim(GOLD, 0.13), outline=_dim(GOLD, 0.6), width=1)
+        d.text((36, 62), "MATCH FOUND", font=display_font(24, True), fill=GOLD)
+        if q.get("auto"):
+            d.text((W - 36, 62), "auto-accepting ✓", font=display_font(14, True), fill=GREEN, anchor="ra")
+        else:
+            left = q.get("rc")
+            t = f"ACCEPT NOW{f'  ·  {int(max(0, 12 - left))}s' if isinstance(left, (int, float)) else ''}"
+            d.text((W - 36, 62), t, font=display_font(14, True), fill=WARN, anchor="ra")
+    else:
+        _railed_card(d, (16, 46, W - 16, 106), ARC, fill=SURFACE, outline=PEDGE, width=1)
+        tq = q.get("tq")
+        clock = _q_mmss(tq) if tq is not None else "…"
+        d.text((36, 56), "IN QUEUE", font=display_font(12, True), fill=MUTED)
+        d.text((36, 70), clock, font=display_font(24, True), fill=ARC)
+        est = q.get("est")
+        if est:
+            d.text((44 + d.textlength(clock, font=display_font(24, True)), 79),
+                   f"est {_q_mmss(est)}", font=display_font(12, True), fill=FAINT)
+        # queue + roles, right-aligned as chips
+        cx = W - 36
+        rf = display_font(12, True)
+        for lab, col in [(r, GOLD) for r in reversed(q.get("roles") or [])] + \
+                        ([(q["queue"], MUTED)] if q.get("queue") else []):
+            wdt = d.textlength(lab, font=rf)
+            _rrect(d, (cx - wdt - 16, 66, cx, 90), 12, fill=RAISED, outline=PEDGE, width=1)
+            d.text((cx - wdt - 8, 71), lab, font=rf, fill=col)
+            cx -= wdt + 26
+    yy = 118
+    if warm:
+        chf = display_font(12, True)
+        lbl = "GOOD THIS GAME · YOUR COMFORT PICKS"
+        d.text((20, yy), lbl, font=chf, fill=GOLD)
+        d.line([34 + int(d.textlength(lbl, font=chf)), yy + 8, W - 20, yy + 8], fill=LINE_SOFT, width=1)
+        x = 20
+        for cid2 in warm:
+            ic = get_icon(dd, cid2, 56)
+            if ic:
+                _rrect(d, (x - 2, yy + 22, x + 58, yy + 82), 8, fill=SUNKEN)
+                img.paste(ic, (x, yy + 24), ic)
+            nm = dd["id2name"].get(cid2, "")[:10]
+            d.text((x + 28, yy + 86), nm, font=font(9), fill=MUTED, anchor="ma")
+            x += 74
+        yy += 108
+    d.text((20, H - 24), "the full lobby scout takes over the moment champ select starts",
+           font=font(10), fill=FAINT)
+    return img
+
+
 def _info_card(path, msg):
     _save_png(info_image(msg), path)
 
@@ -2950,6 +3062,25 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         # STALE board after a game ends, so we gate on phasecheck, not resolve - otherwise
         # opening the overlay out of game shows the PREVIOUS game instead of the home page.
         ph = phasecheck.phase()
+        if ph in QUEUE_PHASES:
+            # IN QUEUE: the board opens WITH the queue and warms up (queue clock, your
+            # roles, comfort picks); champ select then fills in over it the moment it
+            # starts. The pre-game deadline is pushed while queueing so a long queue
+            # can't expire the overlay.
+            deadline = max(deadline, time.time() + 420)
+            q = queue_state()
+            sugg = None
+            if q.get("roles") and q.get("queue") not in _NO_ROLE_QUEUES:
+                try:
+                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6,
+                                          fam=ls.familiarity(lg.my_mastery_points()))
+                except Exception:
+                    sugg = None
+            emit(render_queue_card(dd, q, sugg))
+            shown = True                   # leaving the queue (decline/dodge) closes us
+            inactive = 0
+            time.sleep(2)
+            continue
         if ph not in ACTIVE_PHASES:
             if ph == "":                   # client unreachable (closed, or a mid-game lag blip) -> wait
                 time.sleep(3)

@@ -96,6 +96,27 @@ def _grade_of(perf):
     return "D", C_BAD
 
 
+def _top_threat(enemies):
+    """The single enemy account most likely to decide the game — perf-driven, sharpened
+    by OTP mastery, a live win streak, and champ comfort. None unless someone actually
+    stands out (a quiet lobby gets no scare line)."""
+    best, bs = None, -1.0
+    for r in enemies or []:
+        if not r.get("scouted"):
+            continue
+        s = float(r.get("perf") or 50)
+        if r.get("pts", 0) >= 100_000:
+            s += 12
+        form = r.get("form") or []
+        if len(form) >= 3 and all(form[:3]):
+            s += 8
+        if r.get("cg", 0) >= 5 and r.get("cw", 0) * 2 > r["cg"]:
+            s += 6
+        if s > bs:
+            bs, best = s, r
+    return best if bs >= 78 else None
+
+
 def _rank_str(rk):
     if not rk or not rk.get("tier"):
         return "", None
@@ -130,10 +151,15 @@ def render_frame(dd, b, W, H):
         pass
     d.text((x0 + S(26), top), "SMITELESS", font=_dfont(S(20)), fill=C_EMBER)
     d.text((x0 + S(158), top + S(3)), "LOADING SCOUT", font=_dfont(S(16)), fill=C_MUTED)
-    sub = ("reading the ten accounts…" if not b.get("scouted")
-           else "who they are, before minute one")
-    d.text((x0 + CW - d.textlength(sub, font=_wfont(S(12))), top + S(6)),
-           sub, font=_wfont(S(12)), fill=C_FAINT)
+    thr = _top_threat(enemies) if b.get("scouted") else None
+    if thr:                                        # the one enemy who decides the game
+        tags = " · ".join(t for t, _ in (thr.get("tags") or [])[:2])
+        sub, scol = f"WATCH {thr['champ'].upper()}" + (f" — {tags}" if tags else ""), C_WARN
+    else:
+        sub, scol = ("reading the ten accounts…" if not b.get("scouted")
+                     else "who they are, before minute one"), C_FAINT
+    d.text((x0 + CW - d.textlength(sub, font=_wfont(S(12), True)), top + S(6)),
+           sub, font=_wfont(S(12), True), fill=scol)
     yy = top + hdr_h
 
     def _pill(x, y, txt, col, maxx):

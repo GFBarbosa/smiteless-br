@@ -67,7 +67,14 @@ def main():
         canvas.itemconfigure(body_id, width=canvas.winfo_width())
     body.bind("<Configure>", _sync_scroll)
     canvas.bind("<Configure>", _sync_scroll)
-    root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+    def _wheel(e):
+        # don't hijack the wheel from embedded lists (fav picks, accounts) — over a
+        # Listbox/Text the widget scrolls itself; everywhere else the page scrolls
+        w = root.winfo_containing(e.x_root, e.y_root)
+        if isinstance(w, (tk.Listbox, tk.Text)):
+            return
+        canvas.yview_scroll(-1 * (e.delta // 120), "units")
+    root.bind_all("<MouseWheel>", _wheel)
 
     try:
         import smiteupdate as _su
@@ -121,6 +128,23 @@ def main():
     dvol = scale_row("Audio volume (chime + voice)",
                      "drake chime, voice callouts and the ghost fanfare (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
+
+    def _test_audio():
+        # hear the chime + a voice line at the CURRENT slider value — no game required
+        import threading
+        v = int(dvol.get())
+
+        def work():
+            try:
+                import time as _t
+                import smitewidget as sw
+                sw._beep(15, v)
+                _t.sleep(1.8)                     # let the jingle ring before the voice
+                sw._say("test", "Take it. You win this fight.", v)
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+    skin.button(body, "♪ Test audio", _test_audio, size=SMALL).pack(anchor="w", padx=18, pady=(0, 4))
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
     homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
@@ -557,14 +581,26 @@ def main():
         status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GOOD)
 
     def reset():
+        # EVERY control returns to its default — the old body listed a subset, so "Reset"
+        # silently skipped tempo/voice/briefs/auto-import and lied about what it did.
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
-        for v in (tips, duo, widget, intel, dragon, ghostv, respawnv, dodge, dock, autoq, auto, homeonstart):
+        for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, ghostv,
+                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart):
             v.set(True)
+        for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
+            v.set(False)
         flash_side.set(0)
         _upd_flash()
-        autoq.set(False)
+        try:
+            for var in swapvars.values():
+                var.set(False)
+            pickswap.set("off")
+        except Exception:
+            pass
+        # startwin (Start with Windows) is deliberately untouched — Reset must never
+        # silently re-arm a registry autostart
         status.config(text="reset to defaults - click Save to apply", fg=MUTED)
 
     btns = tk.Frame(body, bg=VOID)

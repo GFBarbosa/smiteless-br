@@ -1037,13 +1037,18 @@ def main():
             muted = st.get("muted", False)                # temp mute for this game (header ♪ button)
             if thr is not None and not muted:
                 threading.Thread(target=_beep, args=(thr, st["vol"]), daemon=True).start()
-            # Once drake is up, keep replaying the final cue every ~5s until it dies.
+            # Once drake is up, remind SPARSELY: the full jingle fires exactly once at the
+            # crossing above; the reminder is the short calm two-note cue every ~15s. (It
+            # used to replay the full 5-note fanfare every ~5s — a 40s contested drake
+            # meant 8 fanfares. That was the naggiest sound in the app.)
             if secs <= 0:
                 t = time.monotonic()
-                if (t - float(dragon.get("last_up_ping") or 0.0)) >= 4.8:
+                if (t - float(dragon.get("last_up_ping") or 0.0)) >= 15.0:
+                    first = not dragon.get("last_up_ping")
                     dragon["last_up_ping"] = t
                     if not muted:
-                        threading.Thread(target=_beep, args=(15, st["vol"]), daemon=True).start()
+                        threading.Thread(target=_beep, args=((15 if first else 45), st["vol"]),
+                                         daemon=True).start()
             else:
                 dragon["last_up_ping"] = 0.0
 
@@ -1089,6 +1094,14 @@ def main():
                     dead = lt.respawn_plan(dd, raw)
                 except Exception:
                     dead = None
+            # "you're up" chime: one soft two-note cue as the respawn timer crosses ~1.5s,
+            # so eyes-off-screen death time ends with a nudge instead of lost seconds.
+            rs = (dead or {}).get("secs")
+            prev_rs = st.get("respawn_prev")
+            if (audio_on and rs is not None and prev_rs is not None
+                    and prev_rs > 1.5 >= rs and not st.get("muted", False)):
+                threading.Thread(target=_beep, args=(45, st["vol"]), daemon=True).start()
+            st["respawn_prev"] = rs
             ghost = None
             if ghost_on and raw is not None:             # GHOST pace race vs your own best game
                 try:

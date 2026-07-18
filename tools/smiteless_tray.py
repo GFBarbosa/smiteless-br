@@ -53,12 +53,16 @@ def open_settings():
     _launch(SETTINGS)
 
 
-# ---------- auto-open watcher (polls the phase in-process every 4s) ----------
+# ---------- auto-open watcher (polls the phase in-process every 2s) ----------
 def _watcher():
     opened = False
     while not _stop.is_set():
+        ph = phasecheck.phase()
         if cfg.auto_open_enabled():
-            active = phasecheck.phase() in ("ChampSelect", "GameStart", "InProgress", "Reconnect")
+            # the overlay now opens the moment the QUEUE starts (it shows the queue
+            # card and warms up), not just at champ select
+            active = ph in ("Matchmaking", "ReadyCheck", "ChampSelect",
+                            "GameStart", "InProgress", "Reconnect")
             if active and not opened:
                 opened = True
                 open_overlay(auto=True)
@@ -66,7 +70,15 @@ def _watcher():
                 opened = False                   # any non-active phase re-arms for next game
         else:
             opened = False
-        _stop.wait(4)
+        if ph == "ReadyCheck":
+            # the auto-accept SETTING existed but nothing ever polled it — the tray is
+            # the always-running process, so it owns the accept now
+            try:
+                import lolautoaccept
+                lolautoaccept.try_accept()
+            except Exception:
+                pass
+        _stop.wait(2)
 
 
 # ---------- global hotkey: Ctrl+Alt+X (native, like AHK uses) ----------
@@ -130,7 +142,7 @@ def main():
         pystray.MenuItem("Riot login", pystray.Menu(_login_items)),
         pystray.MenuItem("Settings…", lambda icon, item: open_settings()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Auto-open at champ select", toggle_autoopen,
+        pystray.MenuItem("Auto-open (queue → game)", toggle_autoopen,
                          checked=lambda item: cfg.auto_open_enabled()),
         pystray.MenuItem("Start with Windows", toggle_autostart,
                          checked=lambda item: cfg.autostart_enabled()),

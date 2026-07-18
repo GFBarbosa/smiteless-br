@@ -212,7 +212,9 @@ def main():
     if not wait:
         try:
             import phasecheck
-            if phasecheck.phase() not in sc.ACTIVE_PHASES:
+            # queueing counts as "in a session" now — a manual open during queue shows
+            # the queue card, not the profile window
+            if phasecheck.phase() not in sc.ACTIVE_PHASES + sc.QUEUE_PHASES:
                 _open_profile()
                 return
         except Exception:
@@ -254,7 +256,8 @@ def main():
 
     bar = tk.Frame(root, bg=skin.SURFACE)
     bar.pack(side="bottom", fill="x")
-    tk.Frame(bar, bg=skin.WARN, width=skin.RAIL).pack(side="left", fill="y")
+    keyrail = tk.Frame(bar, bg=skin.WARN, width=skin.RAIL)   # recolored by key state below
+    keyrail.pack(side="left", fill="y")
     tk.Label(bar, text="RIOT KEY", bg=skin.SURFACE, fg=skin.EMBER,
              font=skin.display(10, bold=True)).pack(side="left", padx=(10, 4), pady=6)
     keylbl = tk.Label(bar, text="", bg=skin.SURFACE, fg=skin.MUTED, font=skin.body(skin.SMALL, bold=True))
@@ -262,10 +265,9 @@ def main():
 
     def refresh_key_label():
         k = read_current_key()
-        if k and k.startswith("RGAPI-"):
-            keylbl.config(text=f"...{k[-4:]} set", fg=skin.GOOD)
-        else:
-            keylbl.config(text="not set", fg=skin.BAD)
+        ok = bool(k and k.startswith("RGAPI-"))
+        keylbl.config(text=(f"...{k[-4:]} set" if ok else "not set"), fg=(skin.GOOD if ok else skin.BAD))
+        keyrail.config(bg=(skin.GOOD if ok else skin.WARN))   # the rail is the at-a-glance state
 
     def open_dev_site():
         webbrowser.open("https://developer.riotgames.com/")
