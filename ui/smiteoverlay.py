@@ -491,6 +491,8 @@ def main():
 
     def worker():
         try:
+            l_, t_, r_, b_ = target_monitor()    # size the live board to the monitor it owns
+            sc.BOARD_TARGET = (r_ - l_, b_ - t_)
             sc.run(emit, count=count, wait=wait, stop=lambda: st["closing"], monitor=True)
             st["done"] = True                    # normal return = match over -> overlay may close
         except Exception as e:
