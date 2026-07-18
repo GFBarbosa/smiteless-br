@@ -2424,7 +2424,287 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
     return out
 
 
+LW = 1480                 # the LIVE board renders wide — it owns a whole second monitor
+_TAG_TONE = {"good": GREEN, "bad": RED, "neutral": MUTED, "info": INFO}
+
+
+def _live_tags(dd, cid, sc, ally):
+    """The loading screen's profile-read tags (duo/smurf/OTP/tilt/first-time/…), driven by
+    the live scout's data. One tag language across every Smiteless surface."""
+    try:
+        import lolload as llo
+        kda = sc.get("kda") or {}
+        g = int(kda.get("g") or 0)
+        row = {"champ": dd["id2name"].get(cid, "?"), "role": "", "main_pos": "",
+               "rank_full": sc.get("rank"), "form": sc.get("form") or [],
+               "n": int(sc.get("n") or 0), "w": int(sc.get("w") or 0),
+               "cg": int(sc.get("cg") or 0), "cw": int(sc.get("cw") or 0),
+               "pts": int((sc.get("mastery") or {}).get("points", 0) or 0),
+               "dpg": round(kda["d"] / g, 1) if g else None,
+               "perf": sc.get("perf"), "scouted": True}
+        return llo._profile_tags(row, ally)
+    except Exception:
+        return []
+
+
+def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map,
+                      source, note="", live=True, lane_tip=None, live_gank=None):
+    """The IN-GAME board, profile-grade: it sits on the second monitor for the whole game,
+    so it gets the full treatment — a splash hero header, the winners-queue verdict strip,
+    and five lane-matchup rows where each player is a mini profile card (art slab, riot id,
+    rank + LP, last-10 form, KDA, mastery, S–F grade pill, and the same profile-read tags
+    as the loading screen), with the gank verdict between them. Same inputs and hitmap
+    contract as render_image's live path."""
+    HERO = 100
+    panel = bool(my_role and my_role != "jungle" and my_role in dict(ROLES))
+    tip_lines = _wrap(lane_tip, font(12), LW - 60) if (panel and lane_tip) else []
+    panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
+    plan = game_plan(dd, list(ally_role.values()), list(enemy_role.values()))
+    plan_h = (26 + len(plan) * 16 + 8) if plan else 0
+    ROW, GAP = 92, 8
+    rows_y = HERO + 8 + 36 + 8
+    H = rows_y + 5 * (ROW + GAP) + (panel_h + 10 if panel_h else 0) + plan_h + 42
+    img = Image.new("RGB", (LW, H), BG)
+    d = ImageDraw.Draw(img)
+    hits = []
+
+    # ============================ HERO ============================
+    if my_cid:
+        splash = get_splash(dd, my_cid, (LW, HERO))
+        if splash:
+            img.paste(splash, (0, 0))
+            img.paste(BG, (0, 0, LW, HERO), Image.new("L", (LW, HERO), 96))
+            _vshade(img, (0, HERO - 60, LW, HERO), BG, 0, 235)
+            _hshade(img, (0, 0, 520, HERO), BG, 170, 0)
+        ic = get_icon(dd, my_cid, 56)
+        if ic:
+            img.paste(ic, (22, 22), ic)
+            msc = scout_map.get((my_cid, True))
+            murl = _profile_url(msc.get("riot_id")) if msc else None
+            if murl:
+                hits.append((22, 22, 78, 78, murl))
+        nm = dd["id2name"].get(my_cid, "?")
+        d.text((92, 24), nm, font=display_font(26, True), fill=TEXT)
+        rf = display_font(12, True)
+        rx = 96 + d.textlength(nm, font=display_font(26, True))
+        _rrect(d, (rx, 30, rx + d.textlength((my_role or "?").upper(), font=rf) + 16, 50), 10,
+               fill=_dim(GOLD, 0.20), outline=_dim(GOLD, 0.6), width=1)
+        d.text((rx + 8, 34), (my_role or "?").upper(), font=rf, fill=GOLD)
+        if build:
+            bl = f"{build['keystone']}   ·   " + " > ".join(x for x in build['core'] if x) \
+                 + "   ·   " + " / ".join(build['summs'])
+            d.text((92, 62), bl[:120], font=font(12), fill=MUTED)
+            d.text((LW - 20, 24), f"{build['wr']:.1f}%  {build['tier']}",
+                   font=display_font(16, True), fill=TEXT, anchor="ra")
+    else:
+        d.text((22, 24), "SPECTATING", font=display_font(26, True), fill=GOLD)
+        d.text((22, 62), "both teams scouted — no personal build (replay/spectator mode)",
+               font=font(12), fill=MUTED)
+    _brand_row(d, LW - 20, HERO - 28, size=10, anchor="ra", suffix="· " + source, suffix_col=FAINT)
+    d.line([(0, HERO - 1), (LW, HERO - 1)], fill=_dim(GOLD, 0.55), width=1)
+
+    # ============================ VERDICT STRIP ============================
+    duo_all = detect_duos(scout_map)
+    duo_of = duo_all if DUO_ON else {}
+    qr = queue_prediction(my_cid, scout_map, duo_all)
+    ga, ge = team_avg_grades(scout_map)
+    sy = HERO + 8
+    _railed_card(d, (14, sy, LW - 14, sy + 36), qr.get("fill") or ARC, fill=SURFACE,
+                 outline=PEDGE, width=1)
+    d.text((32, sy + 10), qr["text"], font=display_font(13, True), fill=qr["fill"])
+    d.text((LW / 2, sy + 18), "YOUR TEAM", font=display_font(11, True), fill=GREEN, anchor="rm")
+    d.text((LW / 2 + 4, sy + 18), "  vs  ENEMY", font=display_font(11, True), fill=RED, anchor="lm")
+    if ga and ge:
+        d.text((LW - 30, sy + 10), f"team grades  {ga}  vs  {ge}",
+               font=display_font(12, True), fill=TEXT, anchor="ra")
+
+    # gank scores first, so labels are RELATIVE (see rank_gank_labels)
+    my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0
+    gscores = {}
+    for role, _lbl in ROLES:
+        e_cid = enemy_role.get(role)
+        if not e_cid or role == my_role:
+            continue
+        es = scout_map.get((e_cid, False))
+        a = (es["n"], es["w"], es["cg"], es["cw"], es.get("form")) if es else (0, 0, 0, 0, None)
+        s = gank_score(lanes.get(role), *a, self_kit=my_kit)
+        if live_gank:
+            s += float(live_gank.get(role, 0.0))
+        gscores[role] = s
+    glabels = rank_gank_labels(gscores)
+
+    # ============================ LANE ROWS ============================
+    cxc = LW // 2
+    CTR = 128                                     # center matchup column width
+    half = (LW - 28 - CTR) // 2                   # each team's half-row width
+    AW = 104                                      # art slab width
+
+    def _pill(x, y, txt, col, maxx, anchor="la"):
+        f = font(10, 1)
+        w = d.textlength(txt, font=f) + 14
+        if anchor == "ra":
+            x0 = x - w
+            if x0 < maxx:
+                return None
+        else:
+            x0 = x
+            if x0 + w > maxx:
+                return None
+        _rrect(d, (x0, y, x0 + w, y + 18), 9, fill=SUNKEN, outline=_dim(col, 0.55), width=1)
+        d.text((x0 + 7, y + 3), txt, font=f, fill=col)
+        return (x0 - 6) if anchor == "ra" else (x0 + w + 6)
+
+    def _half(x0, y, cid, sc, ally, is_me, mirror):
+        """One player as a mini profile card half. mirror=True -> enemy side (art far right,
+        text right-anchored toward the center column)."""
+        if not cid:
+            return
+        grade, gcol = player_rating(sc)
+        rail = GOLD if is_me else (GREEN if ally else RED)
+        _rrect(d, (x0, y, x0 + half, y + ROW), 10, fill=SURFACE, outline=PEDGE, width=1)
+        ax = x0 + half - AW if mirror else x0
+        art = get_splash(dd, cid, (AW, ROW))
+        if art:
+            mask = Image.new("L", (AW, ROW), 0)
+            mm = ImageDraw.Draw(mask)
+            mm.rounded_rectangle((0, 0, AW, ROW), radius=10, fill=255)
+            mm.rectangle((0, 0, AW // 2, ROW) if mirror else (AW // 2, 0, AW, ROW), fill=255)
+            img.paste(art, (ax, y), mask)
+            grad = Image.new("L", (AW, 1))
+            ramp = [int(max(0, (i - AW * 0.40) / (AW * 0.60)) * 255) for i in range(AW)]
+            grad.putdata(ramp[::-1] if mirror else ramp)
+            img.paste(Image.new("RGB", (AW, ROW), SURFACE), (ax, y), grad.resize((AW, ROW)))
+        else:
+            ic = get_icon(dd, cid, 44)
+            if ic:
+                img.paste(ic, (ax + (AW - 44) // 2, y + (ROW - 44) // 2), ic)
+        rx = (x0 + half - 4, y + 8, x0 + half, y + ROW - 8) if mirror else (x0, y + 8, x0 + 4, y + ROW - 8)
+        d.rounded_rectangle(rx, 2, fill=rail)
+
+        tx = x0 + half - int(AW * 0.70) if mirror else x0 + int(AW * 0.70)
+        anc = "ra" if mirror else "la"
+        sgn = -1 if mirror else 1
+        name = dd["id2name"].get(cid, "?")
+        nf = display_font(16, True)
+        d.text((tx, y + 8), name, font=nf, fill=(GOLD if is_me else TEXT), anchor=anc)
+        gx = tx + sgn * (d.textlength(name, font=nf) + 22)
+        if is_me:
+            d.text((gx - sgn * 6, y + 11), "YOU", font=font(9, 1), fill=GOLD, anchor=anc)
+            gx += sgn * 38
+        if grade:
+            _grade_chip(d, gx, y + 18, grade, gcol)
+        if (cid, ally) in duo_of:
+            _duo_marker(d, gx + sgn * 22, y + 18, duo_of[(cid, ally)], "R" if mirror else "L")
+        # line 2: riot id + rank
+        who = ((sc or {}).get("riot_id") or "").split("#")[0]
+        rtext, rcol = rank_str((sc or {}).get("rank"))
+        pf = font(11, 1)
+        if who:
+            d.text((tx, y + 34), who[:18], font=pf, fill=MUTED, anchor=anc)
+            rx2 = tx + sgn * (d.textlength(who[:18], font=pf) + 10)
+        else:
+            rx2 = tx
+        if rtext:
+            d.text((rx2, y + 34), rtext, font=display_font(12, True), fill=rcol, anchor=anc)
+        # line 3: L10 record · KDA · mastery
+        if sc:
+            n, w = int(sc.get("n") or 0), int(sc.get("w") or 0)
+            bits = []
+            if n:
+                wr = w / n * 100
+                bits.append((f"L10 {w}-{n - w} {wr:.0f}%", _wr_color(wr)))
+            kda = sc.get("kda") or {}
+            if kda.get("g"):
+                bits.append((f"{(kda['k'] + kda['a']) / max(1, kda['d']):.1f} KDA", TEXT))
+            m = sc.get("mastery") or {}
+            if m.get("points"):
+                bits.append((f"M{m.get('level', 0)} {_abbr_pts(m['points'])}",
+                             _mastery_color(m["points"])))
+            elif int(sc.get("cg") or 0) == 0 and n:
+                bits.append(("off-champ", REDWR))
+            if mirror:
+                bits.reverse()                    # right-anchored chain draws right-to-left
+            bx = tx
+            bf = display_font(11, True)
+            for i, (t, col) in enumerate(bits):
+                # separator goes BETWEEN items: trailing for a left-to-right chain, and
+                # trailing too for the right-to-left chain (it lands against the previous
+                # item's left edge because the string is right-aligned)
+                sep = (i < len(bits) - 1) if not mirror else (i > 0)
+                t2 = t + ("   ·   " if sep else "")
+                d.text((bx, y + 56), t2, font=bf, fill=col, anchor=anc)
+                bx += sgn * d.textlength(t2, font=bf)
+            # tags: the sharpest profile reads that fit between the stats and the center
+            tags = _live_tags(dd, cid, sc, ally)
+            inner = x0 + half - 12 if not mirror else x0 + 12
+            ty = y + 8
+            shown = 0
+            for txt_, tone in tags:
+                if shown >= 3 or ty > y + ROW - 24:
+                    break
+                res = _pill(inner, ty, txt_, _TAG_TONE.get(tone, MUTED),
+                            (bx + 16) if not mirror else (bx - 16),
+                            anchor=("ra" if not mirror else "la"))
+                if res is not None:
+                    shown += 1
+                ty += 22
+            # last-10 form bars under the tags column
+            form = sc.get("form") or []
+            if form:
+                fw = 10 * 11 - 3
+                fx = (x0 + half - 12 - fw) if not mirror else (x0 + 12)
+                fy = y + ROW - 18
+                for i, win in enumerate(form[:10][::-1]):
+                    d.rounded_rectangle([fx + i * 11, fy, fx + i * 11 + 8, fy + 9], 2,
+                                        fill=WSQ if win else LSQ)
+        elif live:
+            d.text((tx, y + 56), "scouting…", font=font(11), fill=FAINT, anchor=anc)
+        # click zone: art + name block -> their profile
+        url = _profile_url((sc or {}).get("riot_id")) if sc else None
+        if url:
+            zone = (x0 + half - AW - 240, y, x0 + half, y + ROW) if mirror else (x0, y, x0 + AW + 240, y + ROW)
+            hits.append((zone[0], zone[1], zone[2], zone[3], url))
+
+    y = rows_y
+    for role, lbl in ROLES:
+        a_cid, e_cid = ally_role.get(role), enemy_role.get(role)
+        _half(14, y, a_cid, scout_map.get((a_cid, True)), True, a_cid == my_cid, False)
+        _half(14 + half + CTR, y, e_cid, scout_map.get((e_cid, False)), False, False, True)
+        d.text((cxc, y + 18), lbl.upper(), font=display_font(10, True), fill=FAINT, anchor="ma")
+        if role in glabels:
+            draw_badge(d, cxc, y + 36, glabels[role])
+        else:
+            d.text((cxc, y + 40), "vs", font=font(10), fill=FAINT, anchor="ma")
+        y += ROW + GAP
+
+    # ============================ LANE PANEL + WIN CONDITION ============================
+    if panel_h:
+        opp = enemy_role.get(my_role)
+        draw_lane_panel(d, img, dd, 14, y, LW - 28, my_cid, my_role, opp,
+                        lanes.get(my_role), scout_map.get((opp, False)) if opp else None,
+                        tip_lines, panel_h)
+        y += panel_h + 10
+    if plan:
+        _railed_card(d, (14, y, LW - 14, y + plan_h - 4), GOLD, fill=SURFACE, outline=PEDGE, width=1)
+        d.text((32, y + 8), "WIN CONDITION", font=display_font(11, True), fill=GOLD)
+        for i, b in enumerate(plan):
+            d.text((32, y + 26 + i * 16), "▸ " + b, font=font(11, text="▸"), fill=TEXT)
+        y += plan_h
+    _legend = ("S-F grade = how they PLAY (role benchmarks, not W/L) · tags read from each account's history · "
+               "form = last 10, oldest → newest · ● duo · ★ gank = matchup edge · click a player → u.gg")
+    d.text((16, y + 6), _legend, font=font(11, text=_legend), fill=FAINT)
+    if note:
+        d.text((16, y + 24), note, font=font(11), fill=EMBER_DEEP)
+    img.hitmap = hits
+    return img
+
+
 def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout_map, source, note="", roles_known=True, live=True, lane_tip=None, champ_select=False, suggestions=None, dodge=None, bans=None, enemy_picks=None, ban_ideas=None, live_gank=None):
+    if roles_known and not champ_select and enemy_role:
+        # the LIVE game board gets the profile-grade renderer; champ select and the
+        # pre-game states keep the compact layout below
+        return render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes,
+                                 scout_map, source, note, live, lane_tip, live_gank)
     panel = bool(roles_known and not champ_select and my_role and my_role != "jungle" and my_role in dict(ROLES))
     tip_lines = _wrap(lane_tip, font(12), (W - 32) - 28) if (panel and lane_tip) else []
     panel_h = (77 + len(tip_lines) * 18) if tip_lines else (108 if panel else 0)
