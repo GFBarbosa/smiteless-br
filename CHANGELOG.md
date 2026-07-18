@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.27
+- **The Death Brief went on a diet — coaching, not coverage.** The team boards, threat card, win read, objective list and kill feed are gone (TAB, the widget and the chat already show all of it). A death now buys you exactly two things, so that's all it draws: the **respawn clock + on-respawn buy/move** and **WHY YOU DIED** on the left, **HOW YOU WIN** on the right — plus one new card that actually serves the climb: **WORKING ON**, your recurring pattern from the behavioral review ledger ("chained deaths (2+ inside 90s) · 3 games running — break it this game"), surfaced at the exact moment you may have just repeated it. Total screen coverage: ~5%.
+
 ## v0.9.26 — the reliability release
 No new features — this one makes what's already there honest.
 - **Coaching reads Ranked Solo only (by default).** The profile pulled ALL queues, so normals and flex distorted your champion pool, session read, and climb advice. Pool/session/climb/patterns now come from ranked solo games (season pool = solo queue only); it falls back to all queues — clearly labelled — only when the solo sample is too thin. Toggle: Settings → "Coach from Ranked Solo games only".

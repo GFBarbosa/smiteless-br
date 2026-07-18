@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """smitedead.py - the fullscreen DEATH BRIEF: a see-through overlay that owns the grey screen.
 
-When you die, this fades in over the whole monitor with the dense read you can't afford to
-process while alive: a giant respawn clock + the one tempo verdict, what to buy on respawn,
-the win read, the scariest enemy spike, the next objectives, and a feed of what you missed.
-Laid out AROUND the game's own death HUD (keep-out map in render_frame): team boards sit
-top-center where TAB lives, the reactive read hangs under the death recap on the left, the
-strategic read hangs under the stats bar on the right — nothing covers the recap, chat,
-respawn portraits, minimap, BACK IN plate, or the TEMPO widget's bottom-left corner. The
-CENTER stays clear (magenta chroma key -> fully transparent AND click-through), so you keep
-watching the fight through it and keep full camera control while dead. It vanishes the
-instant you respawn.
+A death buys you exactly two things: what to do the second you respawn, and one learning
+rep. That's ALL this draws (v0.9.27 cut the team boards / threat / win-read / objectives /
+feed — TAB, the widget and the chat already carry them): the respawn clock + on-respawn
+buy/move, WHY YOU DIED, your recurring PATTERN from the behavior ledger ("working on"),
+and HOW YOU WIN as the one strategic anchor. Laid out around the game's own death HUD
+(keep-out map in render_frame) with the CENTER clear (magenta chroma key -> transparent +
+click-through) so you keep watching the fight. It vanishes the instant you respawn.
 
 100% read-only off the live-client feed (:2999). It never moves your camera or sends a single
 input to the game - that would be automation Riot bans for. It only shows you what's true.
@@ -254,21 +251,10 @@ def render_frame(dd, b, W, H):
             yy += S(20)
         return y + h + S(12)
 
-    # ========== TOP-CENTER: the two team boards, tab-scoreboard position ==========
-    # (the one big free band while dead — the game's own banner sits above, the fight
-    # is usually below; matching the TAB scoreboard's home makes it feel native)
-    board = b.get("board")
-    if board and (board.get("allies") or board.get("enemies")):
-        bw = colw
-        bx = (W - (bw * 2 + S(20))) // 2
-        ty = S(56)
-        if board.get("allies"):
-            _team_block(d, S, bx, ty, bw, board["allies"], "YOUR TEAM", C_GOOD,
-                        lead=board.get("gold_lead"))
-        if board.get("enemies"):
-            _team_block(d, S, bx + bw + S(20), ty, bw, board["enemies"], "ENEMY", C_BAD)
-
     # ========== LEFT LANE: the reactive read (clock, why you died, respawn plan) ==========
+    # (v0.9.27: the team boards / threat / win-read / objectives / feed are GONE — TAB,
+    # the widget and the chat already carry them. A death buys you exactly two things:
+    # what to do on respawn, and one learning rep. That's all this draws now.)
     ly = LY0
     ch = S(100)
     _card(d, lx, ly, colw, ch, _TONE_C.get(b.get("tone"), C_EMBER))
@@ -305,63 +291,44 @@ def render_frame(dd, b, W, H):
                 yy += S(24)
             ly += h + S(12)
 
-    # what you missed, folded into whatever's left of the lane (the game's own chat and
-    # the TEMPO widget live at the bottom-left — never park a card down there again)
-    feed = b.get("feed") or []
-    if feed:
-        rows = min(len(feed), (LY1 - ly - S(40)) // S(22))
-        if rows >= 2:
-            fh = S(40) + S(22) * rows
-            _card(d, lx, ly, colw, fh, C_LINE)
-            d.text((lx + S(22), ly + S(12)), "WHILE YOU WERE DEAD", font=_wfont(S(13), True),
-                   fill=C_MUTED)
-            yy = ly + S(36)
-            for r in feed[:rows]:
-                col = C_GOOD if r.get("ally") else C_BAD
-                d.text((lx + S(22), yy), f"{r.get('ago', 0):>2}s", font=_wfont(S(12)), fill=C_FAINT)
-                d.text((lx + S(60), yy), r.get("text", ""), font=_wfont(S(13)), fill=col)
-                yy += S(22)
-
-    # ========== RIGHT LANE: the strategic read (win con, threat, win%, objectives) ==========
+    # ========== RIGHT LANE: the strategic anchor + the climb lever ==========
     ry = RY0
     if b.get("wincon"):
         ry = _block(rx, ry, "HOW YOU WIN", C_EMBER, b["wincon"], None, C_EMBER, big=True,
                     ymax=RY1)
-    threat = b.get("threat")
-    if threat:
-        ry = _block(rx, ry, "THE THREAT", C_BAD, threat.get("line"), threat.get("sub"), C_BAD,
-                    ymax=RY1)
-    wp = b.get("winprob")
-    if wp:
-        wh = S(62)
-        if ry + wh <= RY1:
-            good = wp.get("ahead")
-            _card(d, rx, ry, colw, wh, C_GOOD if good else C_BAD)
-            _hdr(rx, ry, "WIN READ", C_MUTED)
-            pct = f"~{int(wp.get('pct') or 0)}%"
-            d.text((rx + colw - S(22) - d.textlength(pct, font=_dfont(S(30))), ry + S(20)),
-                   pct, font=_dfont(S(30)), fill=(C_GOOD if good else C_BAD))
-            d.text((rx + S(22), ry + S(34)), wp.get("basis") or "", font=_wfont(S(13)), fill=C_MUTED)
-            ry += wh + S(12)
-    objs = b.get("objectives") or []
-    if objs:
-        rows = min(len(objs), (RY1 - ry - S(34)) // S(22))
-        if rows >= 1:
-            oh = S(34) + S(22) * rows
-            _card(d, rx, ry, colw, oh, C_ARC)
-            _hdr(rx, ry, "NEXT OBJECTIVES", C_MUTED)
-            oy = ry + S(32)
-            for o in objs[:rows]:
-                secs_o = o.get("secs") or 0
-                up = o.get("up") or secs_o <= 0
-                tcol = C_EMBER if (up or o.get("urgent")) else C_TXT
-                when = "UP" if up else _mmss(secs_o)
-                d.text((rx + S(22), oy), o.get("label", "?"), font=_wfont(S(14)), fill=C_TXT)
-                d.text((rx + colw - S(22) - d.textlength(when, font=_wfont(S(14), True)), oy),
-                       when, font=_wfont(S(14), True), fill=tcol)
-                oy += S(22)
+    # your recurring PATTERN from the behavior ledger — surfaced at the exact moment you
+    # may have just repeated it
+    pat = b.get("pattern")
+    if pat:
+        _block(rx, ry, "WORKING ON", C_INFO, pat, "break it this game — the review is watching",
+               C_INFO, ymax=RY1)
 
     return img
+
+
+def _working_pattern():
+    """The behavior tag you're currently repeating (streak >= 2 in the review ledger), as
+    one plain line — or None. Read once per overlay launch; cheap local JSON."""
+    try:
+        import lolprofile as lp
+        led = json.load(open(lp._BEHAVIOR_FILE, encoding="utf-8"))
+        gs = led.get("games") or []
+        last_hits = set((gs[-1].get("hits") if gs else []) or [])
+        best, bn = None, 1
+        for tag in last_hits:
+            n = 0
+            for g in reversed(gs):
+                if tag in (g.get("hits") or []):
+                    n += 1
+                elif tag in (g.get("ev") or []):
+                    break
+            if n > bn:
+                best, bn = tag, n
+        if best:
+            return f"{lp._BEHAVIOR_TAGS.get(best, best)} · {bn} games running"
+    except Exception:
+        pass
+    return None
 
 
 # ---------- click-through / no-activate window styling ----------
@@ -408,7 +375,8 @@ def main():
     hwnd = toplevel_hwnd(root.winfo_id())
     _make_click_through(hwnd)
 
-    state = {"brief": None, "ts": 0.0, "fails": 0, "run": True, "shown": False, "hwnd": hwnd}
+    state = {"brief": None, "ts": 0.0, "fails": 0, "run": True, "shown": False, "hwnd": hwnd,
+             "pattern": _working_pattern()}
 
     def poll():
         while state["run"]:
@@ -443,6 +411,7 @@ def main():
         if b:
             live = dict(b)                          # smooth the clock between polls
             live["secs"] = max(0, (b.get("secs") or 0) - (time.monotonic() - state["ts"]))
+            live["pattern"] = state.get("pattern")
             frame = render_frame(dd, live, W, H)
             ph = ImageTk.PhotoImage(frame)
             label.configure(image=ph)
