@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.19
+- **The loading screen got a real design.** The flat text is gone — every player is now a card with their **champion portrait**, name, role, damage type, a **rank badge in its tier colour** (Diamond blue, Emerald green, Gold amber…), tag pills for streaks/one-tricks, and the champ read, split into two team panels with a game-plan footer. It looks like the profile page now, not a spreadsheet. Portraits load in the background and pop in; after the first game they're instant.
+- **Fix: it no longer vanishes while you're still loading.** It was closing itself the moment the live-game API started responding — but that happens *while you're still on the loading screen*. It now waits for the actual game clock to start before closing, and a momentary hiccup can't make it disappear anymore.
+
 ## v0.9.18
 - **The loading brief actually appears now — root cause found in the logs, not guessed.** It was detecting the loading screen correctly, then trying to scout all ten players through the rate-limited Riot API *on the same thread that draws the window* — which blocked the whole thing, so the loading screen came and went with nothing shown. Now the overlay pops up **instantly** with champions, matchup tags, and the game plan (no network needed, ~0.1s), and the per-player rank/one-trick scout fills in a moment later in the background. It can't be blocked anymore.
 
