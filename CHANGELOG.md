@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.28
+- **The profile truly adapts to its window now.** Resizing or maximizing used to stretch a fixed-width raster (the "800x600 blown up to 1080p" look). The page now **re-renders at the window's actual width** — text stays crisp at its designed size and the layout genuinely gets roomier: wider stat tiles with longer sparklines, wider patterns/bests panels, full-width game rows. Shrink it and it re-fits cleanly too.
+- **The 2nd-monitor board re-targets its monitor live.** It sized itself once at launch; now, if it ends up on (or is dragged to) a different-resolution monitor, the very next frame re-renders crisp at that monitor's size instead of being scaled from the wrong one.
+
 ## v0.9.27
 - **The Death Brief went on a diet — coaching, not coverage.** The team boards, threat card, win read, objective list and kill feed are gone (TAB, the widget and the chat already show all of it). A death now buys you exactly two things, so that's all it draws: the **respawn clock + on-respawn buy/move** and **WHY YOU DIED** on the left, **HOW YOU WIN** on the right — plus one new card that actually serves the climb: **WORKING ON**, your recurring pattern from the behavioral review ledger ("chained deaths (2+ inside 90s) · 3 games running — break it this game"), surfaced at the exact moment you may have just repeated it. Total screen coverage: ~5%.
 

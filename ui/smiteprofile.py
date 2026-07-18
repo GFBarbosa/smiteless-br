@@ -273,20 +273,20 @@ def main():
     _LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
 
     def _blit(force_top=None):
-        """Draw the cached profile image scaled to fit the CURRENT window width, centered.
-        Hit regions stay in image space; clicks divide by st['scale'] and subtract st['ox'].
-        The base image is a fixed-width raster, so this fills the window on maximize (up to a
-        2x cap so upscaled text doesn't get mushy) instead of stranding it top-left."""
+        """Draw the cached profile image, shrink-fitted if the window is somehow narrower
+        than the render (never upscaled — the raster is RE-RENDERED at the window's width
+        by _render, so maximizing gives more crisp content, not stretched pixels). Hit
+        regions stay in image space; clicks divide by st['scale'] and subtract st['ox']."""
         top, bot = st.get("base_top"), st.get("base_bottom")
         if top is None or bot is None:
             return
         cw = canvas.winfo_width()
         if cw <= 1:
             cw = sc.PW                          # not realized yet -> natural width
-        k = max(1.0, min(2.0, cw / sc.PW))      # window is always >= PW (minsize), so only ever up
+        k = min(1.0, cw / max(1, bot.width))    # only ever DOWN; up = re-render, not stretch
         st["scale"] = k
-        top_s = top.resize((round(top.width * k), round(top.height * k)), _LANCZOS) if k != 1.0 else top
-        bot_s = bot.resize((round(bot.width * k), round(bot.height * k)), _LANCZOS) if k != 1.0 else bot
+        top_s = top.resize((round(top.width * k), round(top.height * k)), _LANCZOS) if k < 0.999 else top
+        bot_s = bot.resize((round(bot.width * k), round(bot.height * k)), _LANCZOS) if k < 0.999 else bot
         st["ox"] = ox = max(0, (cw - bot_s.width) // 2)
         ptop, pbot = ImageTk.PhotoImage(top_s), ImageTk.PhotoImage(bot_s)
         st["photo_top"], st["photo_bottom"] = ptop, pbot   # keep refs or Tk GC's them
@@ -301,7 +301,10 @@ def main():
         prof = st["prof"]
         if not prof:
             return
-        pil = sc.render_profile(dd, prof, st["expanded"], st["details"])
+        cw = canvas.winfo_width()
+        rw = int(min(2400, max(sc.PW, cw if cw > 1 else sc.PW)))
+        st["rw"] = rw                            # render AT the window width — adapt, don't stretch
+        pil = sc.render_profile(dd, prof, st["expanded"], st["details"], width=rw)
         split = int(getattr(pil, "profile_split_y", 240))
         split = max(120, min(pil.height - 1, split))
         st["base_top"] = pil.crop((0, 0, pil.width, split))
@@ -540,8 +543,9 @@ def main():
             _player_menu(event, st["prof"]["riot_id"], st["prof"].get("puuid"))
 
     def _on_canvas_resize(event):
-        # window resized (e.g. maximize) -> re-fit the profile to the new width. Debounced so a
-        # drag doesn't re-scale on every intermediate pixel; skipped until content exists.
+        # window resized (e.g. maximize) -> RE-RENDER the profile at the new width (crisp,
+        # more content — never a raster stretch). Debounced so a drag doesn't re-render on
+        # every intermediate pixel; skipped until content exists.
         if st.get("base_bottom") is None or event.width == st.get("_last_w"):
             return
         st["_last_w"] = event.width
@@ -550,7 +554,14 @@ def main():
                 root.after_cancel(st["_resize_after"])
             except Exception:
                 pass
-        st["_resize_after"] = root.after(120, lambda: _blit(force_top=None))
+
+        def _refit():
+            want = int(min(2400, max(sc.PW, event.width)))
+            if want != st.get("rw"):
+                _render(keep_scroll=True)        # width actually changed -> full re-render
+            else:
+                _blit(force_top=None)            # same render width -> just re-center
+        st["_resize_after"] = root.after(150, _refit)
 
     loadbtn.config(command=lambda: _load(True))
     canvas.bind("<Configure>", _on_canvas_resize)

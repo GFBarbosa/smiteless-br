@@ -842,11 +842,11 @@ def _sparkline(d, x0, y0, w, h, vals):
     d.ellipse((ex - 2, ey - 2, ex + 2, ey + 2), fill=col)
 
 
-def _draw_session_coach(d, p, y):
+def _draw_session_coach(d, p, y, W=None):
     """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right.
     For ANOTHER player's profile the session half is meaningless (it's local history) - show
     only their pool read."""
-    W = PW                                        # profile surfaces render at the wide layout
+    W = int(W or PW)                              # profile surfaces render at the window's width
     f = font(11, 1)                                # body bits (sentences, riot id)
     nf = display_font(11, True)                    # header/numeral bits (SESSION, W-L, LP, streak)
     sess = p.get("session") or {}
@@ -1078,13 +1078,15 @@ def _grade_of(avg):
     return "D", GRADE_COLOR["D"]
 
 
-def render_profile(dd, p, expanded=None, details=None):
+def render_profile(dd, p, expanded=None, details=None, width=None):
     """The home page, Duskfall hero edition: a full-bleed splash hero (name, rank, score
     ring, form bars), five sparkline stat tiles, the PATTERNS + PERSONAL BESTS panels, a
     splash-art champion pool, and the graded match list with item builds. Games in
     `expanded` (indices) show the 10-player breakdown from `details` (mid -> parts).
     Sets img.hit_games = [(y0, y1, index)] for click-to-expand."""
-    W = PW                                        # landscape layout: everything below uses the wide width
+    # ADAPTIVE width: the window's real width (clamped) — wider window = wider tiles,
+    # longer sparklines, roomier rows. A true re-render, never a raster stretch.
+    W = int(min(2400, max(PW, width or PW)))
     expanded = expanded or set()
     details = details or {}
     games = p.get("games", [])
@@ -1184,7 +1186,7 @@ def render_profile(dd, p, expanded=None, details=None):
         _area_spark(d, W - 350, 246, 314, 26, trend, ARC)
 
     # ============================ SESSION STRIP ============================
-    _draw_session_coach(d, p, sess_y)
+    _draw_session_coach(d, p, sess_y, W)
 
     # ============================ STAT TILES ============================
     seq = games[:20][::-1]                         # oldest -> newest for every tile spark

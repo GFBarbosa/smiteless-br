@@ -533,6 +533,15 @@ def main():
                 mon = monitor_of(st["pos"][0], st["pos"][1])
             else:
                 mon = target_monitor()
+            # LIVE re-target: if the board is (dragged) on a different-sized monitor than
+            # the renderer assumed, tell it — the next frame re-renders crisp at that size
+            # (ui_scale below shrink-fits the current frame in the meantime).
+            try:
+                want_target = (mon[2] - mon[0], mon[3] - mon[1])
+                if want_target != getattr(sc, "BOARD_TARGET", None):
+                    sc.BOARD_TARGET = want_target
+            except Exception:
+                pass
             s = ui_scale(pil.size, mon, extra_h=0 if want_dock else bar_h)
             disp = pil if s >= 0.999 else pil.resize(
                 (max(1, round(pil.width * s)), max(1, round(pil.height * s))), Image.LANCZOS)
