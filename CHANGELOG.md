@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.18
+- **The loading brief actually appears now — root cause found in the logs, not guessed.** It was detecting the loading screen correctly, then trying to scout all ten players through the rate-limited Riot API *on the same thread that draws the window* — which blocked the whole thing, so the loading screen came and went with nothing shown. Now the overlay pops up **instantly** with champions, matchup tags, and the game plan (no network needed, ~0.1s), and the per-player rank/one-trick scout fills in a moment later in the background. It can't be blocked anymore.
+
 ## v0.9.17
 - **HOTFIX: dying no longer shows a white fullscreen.** v0.9.16's fancy transparency method broke in the real app — the death overlay painted as a solid white sheet over the game. That method is gone; the overlay is back on the same proven rendering the widget has always used, with the whole window at ~88% opacity for the see-through look. Sorry about that one — it was shipped without being exercised in a live game, which is on us.
 - **The loading-screen brief should FINALLY appear** — found the real reason it never did: it was launched at the moment the game went "in progress," which is usually *after* the loading screen is already over, so it started, saw a live game, and closed itself instantly. It now launches at **champ select** and waits, armed, for the loading screen to begin. It also writes a diagnostic log (`~/.claude/smiteless_load.log`) so if it still misbehaves, the log says exactly why instead of anyone guessing.
