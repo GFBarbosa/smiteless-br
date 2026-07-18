@@ -148,6 +148,7 @@ SmiteWatch() {
         if (!g_smiteOpened) {
             g_smiteOpened := true
             OpenSmiteless(true)
+            Run('"' PYW '" "' SCRIPTS '\ui\smiteload.py"', , "Hide")   ; spawn at champ select: waiting BEFORE loading
         }
     } else {
         g_smiteOpened := false                   ; any non-active phase re-arms for the next game

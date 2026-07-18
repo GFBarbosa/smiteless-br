@@ -106,6 +106,17 @@ def _single_instance():
     return ctypes.get_last_error() != 183
 
 
+_LOG = os.path.expanduser("~/.claude/smiteless_load.log")
+
+
+def _log(msg):
+    try:
+        with open(_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+
 def _live_up():
     """True once the live game (:2999) is serving — i.e. the game world has loaded and you're
     past the loading screen. The loading screen is exactly the window where this is FALSE."""
@@ -143,6 +154,11 @@ def main():
     dd = lb.ddragon()
     l, t, r, b = game_monitor()
     W, H = r - l, b - t
+    try:
+        open(_LOG, "w").close()                     # fresh log per launch
+    except Exception:
+        pass
+    _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_brief={cfg.load().get('loading_brief', True)}")
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)
@@ -155,9 +171,10 @@ def main():
     _make_click_through(toplevel_hwnd(root.winfo_id()))
 
     state = {"run": True, "brief": None, "shown": False, "want": False,
-             "deadline": time.monotonic() + 150}
+             "deadline": time.monotonic() + 1200}         # spawned at champ select: cover it + load
 
-    def _done():
+    def _done(why):
+        _log(f"EXIT {why}")
         state["run"] = False
         try:
             root.after(0, root.destroy)
@@ -165,26 +182,35 @@ def main():
             pass
 
     def poll():
+        n = errs = 0
         while state["run"]:
             live = _live_up()
             gf = _gameflow_phase()
+            errs = (errs + 1) if gf == "" else 0           # "" = LCU hiccup; only real after a streak
             # LOADING = the game process is up (GameStart/InProgress/Reconnect) but the live
             # game isn't serving yet. That whole span is the loading screen.
             loading = (gf in ("GameStart", "InProgress", "Reconnect")) and not live
+            n += 1
+            if n <= 4 or loading or n % 10 == 0:           # log the interesting transitions
+                _log(f"poll gf={gf!r} live={live} loading={loading} want={state['want']} shown={state['shown']} brief={state['brief'] is not None}")
             if loading:
                 state["want"] = True
                 if state["brief"] is None:
                     try:
                         state["brief"] = ll.brief(dd)     # scout (cached from champ select -> fast)
-                    except Exception:
+                        _log(f"brief fetched: {'OK' if state['brief'] else 'None'}")
+                    except Exception as e:
                         state["brief"] = None
-            elif live or gf in ("", "None", "WaitingForStats", "PreEndOfGame", "EndOfGame"):
-                _done()                                    # game started, or client/game gone
+                        _log(f"brief ERROR {type(e).__name__}: {e}")
+            elif live or errs >= 3 or gf in ("None", "Lobby", "Matchmaking", "ReadyCheck",
+                                             "WaitingForStats", "PreEndOfGame", "EndOfGame"):
+                # game started, dodge/requeue, or client gone -> this run is over
+                _done(f"over (gf={gf!r} live={live} errs={errs})")
                 return
             else:
-                state["want"] = False                      # still in Lobby/ChampSelect -> wait
+                state["want"] = False                      # ChampSelect -> armed and waiting
             if time.monotonic() > state["deadline"]:
-                _done()
+                _done("deadline")
                 return
             time.sleep(0.8)
 

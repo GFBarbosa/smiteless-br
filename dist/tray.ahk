@@ -305,7 +305,8 @@ SmiteWatch() {
         if (!g_overlayOpened) {
             g_overlayOpened := true
             Launch("overlay --wait")
-        }
+            Launch("load")     ; spawn at CHAMP SELECT so it's already waiting when loading begins
+        }                      ; (spawned at the in-game flip it often arrived after loading ended)
     } else if (!active) {
         g_overlayOpened := false
     }
@@ -316,7 +317,7 @@ SmiteWatch() {
             g_widgetOpened := true
             Launch("widget")
             Launch("dead")                          ; fullscreen death brief (self-gates on its setting)
-            Launch("load")                          ; loading-screen matchup brief (shows during load, exits at game start)
+            Launch("load")                          ; backstop only - single-instance; exits fast if load's over
         }
     } else {
         g_endStreak += 1
