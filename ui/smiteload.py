@@ -70,81 +70,86 @@ def _cached_icon(dd, cid, size):
 
 
 def render_frame(dd, b, W, H):
+    """Compact, dense scouting card, centered on a dark backdrop. Two lines per player:
+    portrait + name + tags + rank, then a detail line (role · dmg · mastery · record · wr · kda)."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (W, H), C_VOID)         # full dark backdrop — loading is a takeover
+    img = Image.new("RGB", (W, H), C_VOID)
     d = ImageDraw.Draw(img)
-    s = max(0.72, min(1.5, H / 1080.0))
+    s = max(0.75, min(1.35, H / 1080.0))
     def S(v): return int(v * s)
-    M, gap = S(48), S(40)
-    colw = (W - 2 * M - gap) // 2
 
-    # subtle top hairline + brand
-    d.rectangle([0, 0, W, S(2)], fill=skin.rgb(skin.EMBER))
-    d.text((M, S(30)), "SMITELESS", font=_dfont(S(28)), fill=C_EMBER)
-    d.text((M + S(210), S(34)), "MATCHUP", font=_dfont(S(24)), fill=C_MUTED)
-    sub = "scouting the lobby…" if not b.get("scouted") else "know them before the first minion"
-    d.text((M, S(72)), sub, font=_wfont(S(14)), fill=C_FAINT)
+    content = min(W - S(160), S(1280))             # a centered block, not a full-width sprawl
+    x0 = (W - content) // 2
+    gap = S(30)
+    colw = (content - gap) // 2
+    rowh = S(52)
+    allies, enemies = b.get("allies") or [], b.get("enemies") or []
+    pnl_h = S(38) + rowh * max(len(allies), len(enemies), 1)
+    plan = b.get("plan") or []
+    plan_h = S(28) + S(20) * min(3, len(plan)) + S(14)
+    block = pnl_h + S(22) + plan_h
+    top = max(S(84), (H - block) // 2)
 
-    top = S(112)
-    pnl_h = H - top - S(178)
+    # header just above the block
+    d.text((x0, top - S(46)), "SMITELESS", font=_dfont(S(19)), fill=C_EMBER)
+    d.text((x0 + S(140), top - S(43)), "MATCHUP", font=_dfont(S(16)), fill=C_MUTED)
+    sub = "scouting the lobby…" if not b.get("scouted") else "know them before the game starts"
+    d.text((x0 + content - S(2) - d.textlength(sub, font=_wfont(S(12))), top - S(40)),
+           sub, font=_wfont(S(12)), fill=C_FAINT)
 
-    def _pill(x, y, txt, col, f):
+    def _pill(x, y, txt, col):
+        f = _wfont(S(10), True)
         w = d.textlength(txt, font=f)
-        d.rounded_rectangle([x, y, x + w + S(16), y + S(22)], S(8), fill=C_SUNKEN)
-        d.text((x + S(8), y + S(3)), txt, font=f, fill=col)
-        return x + w + S(16) + S(8)
+        d.rounded_rectangle([x, y, x + w + S(12), y + S(17)], S(6), fill=C_SUNKEN)
+        d.text((x + S(6), y + S(2)), txt, font=f, fill=col)
+        return x + w + S(12) + S(6)
 
     def _panel(x, title, rows, rail):
-        d.rounded_rectangle([x, top, x + colw, top + pnl_h], S(16), fill=C_SURF)
-        d.rounded_rectangle([x, top + S(10), x + S(6), top + pnl_h - S(10)], S(3), fill=rail)
-        d.text((x + S(28), top + S(16)), title, font=_wfont(S(17), True), fill=rail)
-        rowh = (pnl_h - S(56)) / max(1, len(rows))
+        d.rounded_rectangle([x, top, x + colw, top + pnl_h], S(12), fill=C_SURF)
+        d.text((x + S(16), top + S(11)), title, font=_wfont(S(12), True), fill=rail)
+        d.rectangle([x + S(16), top + S(31), x + colw - S(16), top + S(31) + 1], fill=C_LINE)
         for i, r in enumerate(rows):
-            _player(x + S(16), top + S(52) + i * rowh, colw - S(32), rowh - S(10), r, rail)
+            _row(x, top + S(36) + i * rowh, colw, r)
 
-    def _player(x, y, w, h, r, teamcol):
-        x, y, h = int(x), int(y), int(h)
-        d.rounded_rectangle([x, y, x + w, y + h], S(12), fill=C_RAISED)
-        d.rectangle([x, y + S(6), x + S(4), y + h - S(6)], fill=teamcol)
-        isz = h - S(20)
+    def _row(x, y, w, r):
+        y = int(y)
+        pad, isz = S(16), S(38)
+        ix, iy = x + pad, y + (rowh - isz) // 2
         ic = _cached_icon(dd, r.get("cid", 0), isz)
-        ix, iy = x + S(12), y + S(10)
         if ic:
-            img.paste(ic, (ix, iy), ic)
+            img.paste(ic, (int(ix), int(iy)), ic)
         else:
-            d.rounded_rectangle([ix, iy, ix + isz, iy + isz], S(6), fill=C_SUNKEN)
-        tx = ix + isz + S(16)
-        d.text((tx, y + S(9)), (r["champ"] or "?")[:14], font=_wfont(S(20), True),
-               fill=(C_EMBER if r.get("me") else C_TXT))
-        d.text((tx, y + S(36)), f"{r.get('role','')}   {r.get('dmg','')}",
-               font=_wfont(S(12), True), fill=_DMG_C.get(r.get("dmg"), C_MUTED))
-        if r.get("rank"):
-            rc = _tier_color(r["rank"])
-            rw = d.textlength(r["rank"], font=_wfont(S(15), True))
-            d.text((x + w - S(16) - rw, y + S(11)), r["rank"], font=_wfont(S(15), True), fill=rc)
-        # tags as pills
-        cy = y + S(58)
-        cx = tx
-        for txt, tone in (r.get("ptags") or [])[:3]:
-            cx = _pill(cx, cy, txt, _TONE_C.get(tone, C_MUTED), _wfont(S(11), True))
-        if not (r.get("ptags")) and r.get("phrases"):     # pre-scout: show the champ read instead
-            d.text((tx, cy + S(2)), "· " + r["phrases"][0], font=_wfont(S(12)), fill=C_FAINT)
-        elif r.get("phrases") and h > S(92):
-            d.text((tx, y + S(84)), "· " + r["phrases"][0], font=_wfont(S(12)), fill=C_MUTED)
+            d.rounded_rectangle([ix, iy, ix + isz, iy + isz], S(5), fill=C_SUNKEN)
+        tx = ix + isz + S(12)
+        name = (r["champ"] or "?")[:14]
+        nf = _wfont(S(15), True)
+        d.text((tx, y + S(7)), name, font=nf, fill=(C_EMBER if r.get("me") else C_TXT))
+        if r.get("rank"):                          # rank far right, tier-coloured
+            rf = _wfont(S(13), True)
+            d.text((x + w - pad - d.textlength(r["rank"], font=rf), y + S(8)), r["rank"],
+                   font=rf, fill=_tier_color(r["rank"]))
+        cx = tx + d.textlength(name, font=nf) + S(10)   # tags after the name
+        for txt, tone in (r.get("ptags") or [])[:2]:
+            cx = _pill(cx, y + S(8), txt, _TONE_C.get(tone, C_MUTED))
+        parts = [p for p in (r.get("role"), r.get("dmg"), r.get("mastery"),
+                             r.get("champ_rec"), r.get("wr"), r.get("kda")) if p]
+        if not (r.get("rank") or r.get("mastery")) and r.get("phrases"):   # pre-scout fallback
+            parts = [r.get("role"), r.get("dmg"), r["phrases"][0]]
+            parts = [p for p in parts if p]
+        d.text((tx, y + S(28)), "  ·  ".join(parts), font=_wfont(S(11)), fill=C_MUTED)
 
-    _panel(M, "YOUR TEAM", b.get("allies") or [], C_GOOD)
-    _panel(M + colw + gap, "ENEMY", b.get("enemies") or [], C_BAD)
+    _panel(x0, "YOUR TEAM", allies, C_GOOD)
+    _panel(x0 + colw + gap, "ENEMY", enemies, C_BAD)
 
-    # GAME PLAN footer
-    plan = b.get("plan") or []
-    py, pw = H - S(158), W - 2 * M
-    d.rounded_rectangle([M, py, M + pw, py + S(128)], S(16), fill=C_SURF)
-    d.rounded_rectangle([M, py + S(10), M + S(6), py + S(118)], S(3), fill=C_EMBER)
-    d.text((M + S(28), py + S(14)), "GAME PLAN", font=_wfont(S(17), True), fill=C_EMBER)
-    yy = py + S(46)
+    # GAME PLAN
+    py = top + pnl_h + S(22)
+    d.rounded_rectangle([x0, py, x0 + content, py + plan_h], S(12), fill=C_SURF)
+    d.rounded_rectangle([x0, py + S(8), x0 + S(5), py + plan_h - S(8)], S(2), fill=C_EMBER)
+    d.text((x0 + S(16), py + S(9)), "GAME PLAN", font=_wfont(S(12), True), fill=C_EMBER)
+    yy = py + S(30)
     for line in plan[:3]:
-        d.text((M + S(28), yy), "→ " + line, font=_wfont(S(16)), fill=C_TXT)
-        yy += S(26)
+        d.text((x0 + S(16), yy), "→ " + line, font=_wfont(S(12)), fill=C_TXT)
+        yy += S(20)
     return img
 
 

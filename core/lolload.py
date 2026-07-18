@@ -71,29 +71,43 @@ def _roster():
     return rows(mine), rows(other), (port, hdr)
 
 
-def _player_tags(dd, puuid, cid, key, ally):
-    """(rank_str, [(text, tone)]) — tone is 'good'/'bad'/'neutral' RELATIVE TO YOU (an enemy on
-    a loss streak is 'good'; your ally on one is 'bad')."""
-    rank_str = ""
+def _player_scout(dd, puuid, cid, key, ally):
+    """Full per-player read: {rank, mastery, champ_rec, wr, kda, tags}. tags tone is
+    'good'/'bad' RELATIVE TO YOU (an enemy on a loss streak is 'good')."""
+    out = {"rank": "", "mastery": "", "champ_rec": "", "wr": "", "kda": "", "tags": []}
     try:
         rk = ls.rank(puuid, key)
         if rk and rk.get("tier"):
-            rank_str = f"{_TIER.get(rk['tier'].upper(), rk['tier'].title())} {rk.get('div', '')}".strip()
+            out["rank"] = f"{_TIER.get(rk['tier'].upper(), rk['tier'].title())} {rk.get('div', '')}".strip()
     except Exception:
         pass
     try:
-        n, w, cg, cw, form, _ids, _kda, _perf = ls.scout(dd, puuid, cid, key, 8)
+        n, w, cg, cw, form, _ids, kda, _perf = ls.scout(dd, puuid, cid, key, 10)
     except Exception:
-        n = w = cg = 0
-        form = []
-    tags = []
+        n = w = cg = cw = 0
+        form, kda = [], {}
 
-    def tone(is_good_for_them):
-        # good for them + they're an enemy = bad for you, etc.
-        if is_good_for_them:
-            return "bad" if not ally else "good"
-        return "good" if not ally else "bad"
+    def tone(good_for_them):
+        return ("bad" if not ally else "good") if good_for_them else ("good" if not ally else "bad")
 
+    # champion mastery + this-champ recent record + overall winrate + recent KDA (the DETAIL)
+    try:
+        m = ls.mastery(puuid, cid, key) or {}
+    except Exception:
+        m = {}
+    pts = int(m.get("points", 0))
+    if pts:
+        out["mastery"] = f"M{m.get('level', 0)}·{pts // 1000}k" if pts >= 1000 else f"M{m.get('level', 0)}"
+    if cg >= 2:
+        out["champ_rec"] = f"{cw}-{cg - cw} this champ"
+    if n >= 3:
+        out["wr"] = f"{int(w / n * 100)}% wr ({n})"
+    g = (kda or {}).get("g", 0)
+    if g:
+        k, dd_, a = kda["k"], kda["d"], kda["a"]
+        out["kda"] = f"{(k + a) / max(1, dd_):.1f} KDA"
+
+    # tags: only the sharp signals (streaks + off-champ) — mastery/record shown as data now
     if form:
         lead = 1
         for i in range(1, len(form)):
@@ -102,23 +116,12 @@ def _player_tags(dd, puuid, cid, key, ally):
             else:
                 break
         if lead >= 3:
-            tags.append((f"{lead}W hot" if form[0] else f"{lead}L skid", tone(form[0])))
-    if n >= 5 and not tags:
-        wr = w / n
-        if wr >= 0.65:
-            tags.append((f"{int(wr*100)}% climbing", tone(True)))
-        elif wr <= 0.35:
-            tags.append((f"{int(wr*100)}% struggling", tone(False)))
-    try:
-        m = ls.mastery(puuid, cid, key)
-    except Exception:
-        m = None
-    pts = (m or {}).get("points", 0)
-    if cg >= 6 or pts >= 100000:
-        tags.append(("OTP", "bad" if not ally else "good"))     # a one-trick is dangerous / reliable
+            out["tags"].append((f"{lead}{'W' if form[0] else 'L'}", tone(form[0])))
+    if pts >= 100000 or cg >= 7:
+        out["tags"].append(("OTP", "bad" if not ally else "good"))
     elif pts < 12000 and cg == 0:
-        tags.append(("off-champ", tone(False)))                 # sub-12k mastery pick wins ~44%
-    return rank_str, tags[:3]
+        out["tags"].append(("off-role", tone(False)))
+    return out
 
 
 def _comp_read(dd, rows):
@@ -170,13 +173,16 @@ def brief(dd, key=None, scout=True):
             cid = row["champ_id"]
             rec = {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
                    "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
-                   "rank": "", "ptags": [], "me": row["me"]}
+                   "rank": "", "mastery": "", "champ_rec": "", "wr": "", "kda": "",
+                   "ptags": [], "me": row["me"]}
             if key:
                 try:
                     ign = _ign_for(port, hdr, row["sid"])
                     puuid = ls.resolve_puuid(ign, key) if ign else None
                     if puuid and len(puuid) > 70:
-                        rec["rank"], rec["ptags"] = _player_tags(dd, puuid, cid, key, ally)
+                        sc = _player_scout(dd, puuid, cid, key, ally)
+                        rec.update(rank=sc["rank"], mastery=sc["mastery"], champ_rec=sc["champ_rec"],
+                                   wr=sc["wr"], kda=sc["kda"], ptags=sc["tags"])
                 except Exception:
                     pass
             out.append(rec)
