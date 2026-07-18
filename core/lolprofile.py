@@ -558,6 +558,109 @@ def timeline_review(dd, mid, my_puuid, key, parts):
     return out[:3]
 
 
+# ---------- BEHAVIORAL review: root-cause tags with next-rep tracking ----------
+_BEHAVIOR_FILE = os.path.join(ls.CACHE, "behavior_ledger.json")
+_BEHAVIOR_TAGS = {
+    "weak_first_ten": "weak first-ten economy",
+    "early_bleeding": "early bleeding (3+ deaths pre-14)",
+    "death_cluster": "chained deaths (2+ inside 90s)",
+    "threw_ahead": "coin-flip death while ahead (post-25)",
+    "low_vision": "no vision setup",
+}
+
+
+def behavior_read(dd, mid, my_puuid, key, parts, dur):
+    """Behavioral ROOT-CAUSE tags for one game, provable from the cached timeline + stat
+    line. Stable ids so the ledger can track whether the NEXT rep improved — behavior
+    coaching, not stat scolding. Returns (hits, evaluated): a tag only counts as 'fixed'
+    later if it was actually evaluable this game."""
+    hits, ev = set(), set()
+    try:
+        tl = ls.match_timeline(mid, key)
+    except Exception:
+        tl = None
+    mine = next((p for p in parts if p.get("puuid") == my_puuid), None)
+    if not tl or not tl.get("mins") or not mine or my_puuid not in (tl.get("pids") or []):
+        return hits, ev
+    pids = tl["pids"]
+    my_pid = str(pids.index(my_puuid) + 1)
+    mins_ = tl["mins"]
+    pos = (mine.get("pos") or "").upper()
+    team = int(mine.get("team") or 0)
+    gmins = max(1.0, (dur or 0) / 60.0)
+    if len(mins_) > 10:                            # first-ten economy (supports exempt)
+        if pos != "UTILITY":
+            ev.add("weak_first_ten")
+            if int(mins_[10][my_pid]["cs"]) < 55 and int(mins_[10][my_pid]["g"]) < 3100:
+                hits.add("weak_first_ten")
+    deaths = sorted(d["t"] for d in tl.get("deaths", []) if str(d.get("v")) == my_pid)
+    ev.add("early_bleeding")
+    if sum(1 for t in deaths if t <= 14 * 60) >= 3:
+        hits.add("early_bleeding")
+    ev.add("death_cluster")
+    if any(b - a <= 90 for a, b in zip(deaths, deaths[1:])):
+        hits.add("death_cluster")
+    if len(mins_) > 26:                            # threw while ahead: per-minute TEAM gold
+        ev.add("threw_ahead")
+        tp = [str(pids.index(p["puuid"]) + 1) for p in parts
+              if int(p.get("team") or 0) == team and p.get("puuid") in pids]
+        fp = [str(pids.index(p["puuid"]) + 1) for p in parts
+              if int(p.get("team") or 0) != team and p.get("puuid") in pids]
+
+        def lead(minute):
+            return (sum(int(mins_[minute][p]["g"]) for p in tp)
+                    - sum(int(mins_[minute][p]["g"]) for p in fp))
+        for t in deaths:
+            m = min(len(mins_) - 1, int(t // 60))
+            if t >= 25 * 60 and lead(m) >= 2000:
+                hits.add("threw_ahead")
+                break
+    if pos in ("JUNGLE", "UTILITY"):               # vision setup benchmark (jg/sup only)
+        ev.add("low_vision")
+        if float(mine.get("vision") or 0) / gmins < (1.2 if pos == "UTILITY" else 0.55):
+            hits.add("low_vision")
+    return hits, ev
+
+
+def _behavior_track(mid, ts, hits, ev):
+    """Persist this game's tag outcomes; return PATTERN bullets: 'recurring · N games
+    running' when a tag repeats, 'FIXED ✓' when a previously-hit tag came back clean."""
+    try:
+        led = json.load(open(_BEHAVIOR_FILE, encoding="utf-8"))
+    except Exception:
+        led = {"games": []}
+    gs = led.get("games") or []
+    if any(g.get("mid") == mid for g in gs):       # re-opened profile: don't double-record
+        prev = next((g for g in reversed(gs) if g.get("mid") != mid), None)
+    else:
+        prev = gs[-1] if gs else None
+        gs.append({"mid": mid, "ts": ts, "hits": sorted(hits), "ev": sorted(ev)})
+        led["games"] = gs[-60:]
+        try:
+            os.makedirs(os.path.dirname(_BEHAVIOR_FILE), exist_ok=True)
+            json.dump(led, open(_BEHAVIOR_FILE, "w", encoding="utf-8"))
+        except Exception:
+            pass
+
+    def streak(tag):
+        n = 0
+        for g in reversed(gs):
+            if tag in (g.get("hits") or []):
+                n += 1
+            elif tag in (g.get("ev") or []):
+                break
+        return n
+    out = []
+    for tag in sorted(hits):
+        n = streak(tag)
+        label = _BEHAVIOR_TAGS.get(tag, tag)
+        out.append(f"PATTERN — {label}" + (f" · {n} games running" if n >= 2
+                                           else " · watch the next rep"))
+    for tag in sorted((set((prev or {}).get("hits") or []) & ev) - hits):
+        out.append(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game")
+    return out[:3]
+
+
 def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False):
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,
@@ -582,9 +685,16 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         if force:
             ls.forget_player(puuid)            # Refresh: drop TTL'd caches so a fresh game shows
         rk = ls.rank(puuid, key)
-        # ALL queues, not just ranked solo - normals/flex players have match histories too.
-        # match_detail keeps only Summoner's Rift (CLASSIC) games.
-        ids = ls.recent_ids(puuid, key, count, queue="all") or []
+        # RANKED SOLO by default: normals/flex distort the champion-pool, session and
+        # climb reads (you play differently in a normal). Falls back to all queues —
+        # labelled — only when the solo sample is too thin to coach from.
+        import smiteconfig as _cfg
+        solo = bool(_cfg.load().get("solo_coaching", True))
+        queue_label = "ranked solo"
+        ids = (ls.recent_ids(puuid, key, count, queue="ranked") or []) if solo else []
+        if len(ids) < 5:
+            ids = ls.recent_ids(puuid, key, count, queue="all") or []
+            queue_label = "all queues" + (" — thin solo sample" if solo else "")
     except ls.KeyStale:
         return {"riot_id": rid if 'rid' in dir() else None,
                 "error": "your Riot API key expired — paste a new one in Settings"}
@@ -617,6 +727,14 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
                 tl_bullets = []
             if tl_bullets:
                 tips = tl_bullets + list(tips)
+            if not other:                          # behavior ledger is personal-only
+                try:
+                    bh, bev = behavior_read(dd, mid, puuid, key, d["parts"], d.get("dur", 0))
+                    pat = _behavior_track(mid, d.get("ts", 0), bh, bev)
+                    if pat:
+                        tips = pat + list(tips)
+                except Exception:
+                    pass
         team = int(mine.get("team") or 0)
         team_k = sum(int(p.get("k") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
         team_dmg = sum(float(p.get("dmg") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
@@ -680,7 +798,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
             pass
         climb = {"pool_n": len(champs), "top_share": top_share, "sub12k": sub12k}
     return {"riot_id": rid or "?", "puuid": puuid, "rank": rk, "n": n, "wins": wins,
-            "losses": n - wins, "other": other,
+            "losses": n - wins, "other": other, "queue_label": queue_label,
             "wr": round(wins / n * 100) if n else 0,
             "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
             "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
@@ -825,7 +943,14 @@ def season_champs(dd, puuid, key, cap=60):
         if not res or puuid not in res:
             continue
         q = res.get("_q")
-        if q is not None and q not in _SR_QUEUES:   # skip ARAM/arena (old caches lack _q -> keep)
+        try:
+            import smiteconfig as _cfg
+            _solo = bool(_cfg.load().get("solo_coaching", True))
+        except Exception:
+            _solo = True
+        # solo coaching: season pool = ranked solo only; else any SR queue. Old caches
+        # lack _q -> keep (better slightly-mixed than empty).
+        if q is not None and (q != 420 if _solo else q not in _SR_QUEUES):
             continue
         rec = res[puuid]
         win, cname = rec[0], rec[1]

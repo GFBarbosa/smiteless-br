@@ -44,6 +44,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "auto_ban": False,       # champ select: auto-lock the top recommended ban on your ban turn
          "auto_accept": False,    # auto-accept queue ready checks
          "flash_on_d": True,      # import puts Flash on D (off = put Flash on F)
+         "solo_coaching": True,   # profile/climb/session coaching from RANKED SOLO games only
          "legend_seen": False}    # widget: LEGEND card already auto-opened once (state, not a toggle)
 
 

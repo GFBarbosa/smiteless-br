@@ -248,6 +248,23 @@ def free_objective(dd, data):
             "sub": f"path {_OBJ_SIDE.get(label, 'bot')} river NOW — ward, take it, leave"}
 
 
+def _verdict_conf(e, take_thr, give_thr):
+    """(word, lean) — how much to TRUST a TAKE/GIVE call. The fight edge is an ESTIMATE
+    (items + levels + death timers; :2999 exposes no positions, cooldowns, wave states or
+    real vision), so the margin past the threshold IS the confidence: a thin margin is a
+    lean, not a fact. Death-timer-driven calls (FORCE/FREE) stay categorical — a respawn
+    timer is not a guess."""
+    margin = (e - take_thr) if e >= 0 else (give_thr - e)
+    if margin >= 1200:
+        return "high", False
+    if margin >= 450:
+        return "medium", False
+    return "low", True
+
+
+_EST_NOTE = "edge is estimated (items+levels; no vision/position data)"
+
+
 def tempo_read(dd, data, free_alarm=True):
     """The directive: what YOU should be doing right now relative to the next major
     objective. Returns {phase, line, sub, obj, secs, urgent} or None outside a game.
@@ -350,17 +367,24 @@ def tempo_read(dd, data, free_alarm=True):
         e, bodies, detail = fe
         soul_tag = " · SOUL POINT" if soul_point else ""
         if e >= E_TAKE:
+            conf, lean = _verdict_conf(e, E_TAKE, E_GIVE)
+            head = ("LEAN TAKE" if lean else "TAKE") + f" {label.lower()} ({detail}){soul_tag}"
+            sub = ("you win this read — commit with vision, don't dance" if conf == "high"
+                   else f"{conf} confidence — {_EST_NOTE}; commit only WITH setup")
             return {"phase": "TAKE", "obj": label, "secs": int(T), "urgent": True,
-                    "line": f"TAKE {label.lower()} ({detail}){soul_tag}",
-                    "sub": "you win this fight — commit with vision, don't dance"}
+                    "conf": conf, "line": head, "sub": sub}
         if e <= E_GIVE:
+            conf, lean = _verdict_conf(e, E_TAKE, E_GIVE)
             alt = "trade: grubs" if label == "Drake" and gt < 850 else \
                   "trade: push the opposite lane, take camps/plates"
+            head = ("LEAN GIVE" if lean else "GIVE") + f" {label.lower()} ({detail}){soul_tag}"
+            sub = ((f"you lose this read — {alt}" if conf == "high"
+                    else f"{conf} confidence — {_EST_NOTE}; concede unless you SEE an edge")
+                   if not soul_point else
+                   "SOUL POINT — only contest off a pick; otherwise trade BIG")
             return {"phase": "GIVE", "obj": label, "secs": int(T), "urgent": True,
-                    "line": f"GIVE {label.lower()} ({detail}){soul_tag}",
-                    "sub": (f"you lose this fight — {alt}" if not soul_point else
-                            "SOUL POINT — only contest off a pick; otherwise trade BIG")}
-        return {"phase": "EVEN", "obj": label, "secs": int(T), "urgent": True,
+                    "conf": conf, "line": head, "sub": sub}
+        return {"phase": "EVEN", "obj": label, "secs": int(T), "urgent": True, "conf": "low",
                 "line": f"{label} is a 50/50 ({detail}){soul_tag}",
                 "sub": "only take it with a vision or smite edge — never coinflip blind"}
 
@@ -453,12 +477,17 @@ def respawn_plan(dd, data):
         fe = fight_edge(dd, data, max(T, arrival), travel, gt)
         e = fe[0] if fe else 0.0
         if e >= E_TAKE:
+            conf, lean = _verdict_conf(e, E_TAKE, E_GIVE)
+            verdict = "the read says you win it" if lean else "and you win it"
             return {"secs": secs, "obj": label, "tone": "go",
-                    "line": f"{head} — you make it, and you win it.",
-                    "sub": f"buy fast, path {side} river"}
+                    "line": f"{head} — you make it, {verdict}.",
+                    "sub": (f"buy fast, path {side} river" if conf == "high"
+                            else f"buy fast, path {side} river — {conf}-confidence read, want vision first")}
         if e <= E_GIVE:
+            conf, lean = _verdict_conf(e, E_TAKE, E_GIVE)
+            verdict = "but the read says you lose the 5v5" if lean else "but you lose the 5v5"
             return {"secs": secs, "obj": label, "tone": "hold",
-                    "line": f"{head} — you make it, but you lose the 5v5.",
+                    "line": f"{head} — you make it, {verdict}.",
                     "sub": "don't force it — trade cross-map, take what they leave open"}
         return {"secs": secs, "obj": label, "tone": "plan",
                 "line": f"{head} — you make it. It's a 50/50.",

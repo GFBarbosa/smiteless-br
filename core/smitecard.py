@@ -1417,6 +1417,8 @@ def player_rating(sc):
     n, w = int(sc.get("n") or 0), int(sc.get("w") or 0)
     kda = sc.get("kda") or {}
     kg = int(kda.get("g") or 0)
+    if n < 4:                                         # too thin to label a human — no grade
+        return None, None
 
     if perf is not None:
         # perf ~85 = met role targets (A-caliber game); 100+ = carrying; <55 = off — averaged.
@@ -1502,8 +1504,9 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         if grade:                                     # right after the name -> clearly the player's grade
             gx = tx + d.textlength(nm, font=nf) + 18
             _grade_chip(d, gx, y + 21, grade, gcol)
-            if grade in ("S", "A"):                   # standout skill -> a CARRY flag
-                d.text((gx + 15, y + 15), "GOOD PLAYER", font=font(8, 1), fill=gcol)
+            # evidence, not a verdict: the grade always shows its sample size
+            d.text((gx + 15, y + 15), f"{grade}-like · {int(sc.get('n') or 0)}g",
+                   font=font(8, 1), fill=_dim(gcol, 0.85))
         _wr_line(d, tx, y + 35, sc, "la", live)
         if sc and sc.get("form"):
             draw_form(d, x + cw - 88, y + 38, sc["form"])
@@ -1522,8 +1525,8 @@ def draw_player(d, img, dd, x, y, cid, sc, is_me, side, accent, accent_bg, live=
         if grade:                                     # left of the (right-anchored) name
             gx = tx - d.textlength(name, font=nf) - 18
             _grade_chip(d, gx, y + 21, grade, gcol)
-            if grade in ("S", "A"):
-                d.text((gx - 15, y + 15), "GOOD PLAYER", font=font(8, 1), fill=gcol, anchor="ra")
+            d.text((gx - 15, y + 15), f"{grade}-like · {int(sc.get('n') or 0)}g",
+                   font=font(8, 1), fill=_dim(gcol, 0.85), anchor="ra")
         _wr_line(d, tx, y + 35, sc, "ra", live)
         if sc and sc.get("form"):
             draw_form(d, x - cw + 6, y + 38, sc["form"])
@@ -2613,8 +2616,10 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             gx += sgn * S(38)
         if grade:
             _grade_chip(d, gx, y + S(18), grade, gcol, k=k)
+            d.text((gx + sgn * S(16), y + S(13)), f"{int((sc or {}).get('n') or 0)}g",
+                   font=font(S(8), 1), fill=_dim(gcol, 0.7), anchor=anc)
         if (cid, ally) in duo_of:
-            _duo_marker(d, gx + sgn * S(22), y + S(18), duo_of[(cid, ally)], "R" if mirror else "L")
+            _duo_marker(d, gx + sgn * S(52), y + S(18), duo_of[(cid, ally)], "R" if mirror else "L")
         # line 2: riot id + rank
         who = ((sc or {}).get("riot_id") or "").split("#")[0]
         rtext, rcol = rank_str((sc or {}).get("rank"))
@@ -2712,8 +2717,9 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
         for i, b in enumerate(plan):
             d.text((S(32), y + S(26) + i * S(16)), "▸ " + b, font=font(S(11), text="▸"), fill=TEXT)
         y += plan_h
-    _legend = ("S-F grade = how they PLAY (role benchmarks, not W/L) · tags read from each account's history · "
-               "form = last 10, oldest → newest · ● duo · ★ gank = matchup edge · click a player → u.gg")
+    _legend = ("S-F grade = how they PLAY (role benchmarks, not W/L; shown only with 4+ recent games) · "
+               "tags from each account's history · form = last 10, oldest → newest · ● duo · "
+               "★ gank = matchup edge · click a player → u.gg")
     d.text((S(16), y + S(6)), _legend, font=font(S(11), text=_legend), fill=FAINT)
     if note:
         d.text((S(16), y + S(24)), note, font=font(S(11)), fill=EMBER_DEEP)

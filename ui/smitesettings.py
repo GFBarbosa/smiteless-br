@@ -125,6 +125,13 @@ def main():
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
                        5, 60, 1, s["profile_games"], lambda v: f"{int(v)}")
+    solocoach = tk.BooleanVar(value=s.get("solo_coaching", True))
+    _solo_wrap = tk.Frame(body, bg=VOID)
+    _solo_wrap.pack(fill="x", padx=18, pady=(0, 2))
+    _chk2 = lambda parent, text, var: tk.Checkbutton(parent, text=text, variable=var, bg=VOID,
+        fg=TXT, selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
+        font=skin.body(BODY), bd=0, highlightthickness=0)
+    _chk2(_solo_wrap, "Coach from Ranked Solo games only (pool, session, climb)", solocoach).pack(side="left")
     dvol = scale_row("Audio volume (chime + voice)",
                      "drake chime, voice callouts and the ghost fanfare (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
@@ -573,6 +580,7 @@ def main():
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
+                  "solo_coaching": solocoach.get(),
                   "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()],
                   "auto_pick_swap": ("" if pickswap.get() == "off" else pickswap.get())})
         cfg.set_auto_open(auto.get())
@@ -587,7 +595,7 @@ def main():
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, ghostv,
-                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart):
+                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)

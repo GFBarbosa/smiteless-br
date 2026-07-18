@@ -423,7 +423,7 @@ C_VOID = skin.rgb(skin.VOID); C_SURFACE = skin.rgb(skin.SURFACE); C_LINE = skin.
 C_EMBER = skin.rgb(skin.EMBER)
 C_TXT = skin.rgb(skin.TXT); C_MUTED = skin.rgb(skin.MUTED); C_BAD = skin.rgb(skin.BAD)
 C_GOOD = skin.rgb(skin.GOOD); C_ARC = skin.rgb(skin.ARC); C_INFO = skin.rgb(skin.INFO)
-C_MYSTIC = skin.rgb(skin.MYSTIC); C_WARN = skin.rgb(skin.WARN)
+C_MYSTIC = skin.rgb(skin.MYSTIC); C_WARN = skin.rgb(skin.WARN); C_FAINT = skin.rgb(skin.FAINT)
 # Verdict/phase colors: TAKE/FORCE win a fight -> GOOD, GIVE lose it -> BAD, EVEN is the
 # 50-50 verdict -> WARN (was gold before Duskfall gave 50-50 its own status color); BASE/PUSH
 # stay the action color (EMBER); FREE/MOVE are live reads (ARC); FARM is quiet (MUTED).
@@ -490,12 +490,12 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     return img.crop((0, 0, W, y + 8))
 
 
-def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
-    """Draw the widget body as one image: champ+win header, the tempo directive as a color-
-    coded CARD, the ghost pace row, objective timer chips, aligned intel rows, then the item
-    block. Deduped: a spiked enemy named in an item line isn't announced twice. While the
-    player is DEAD the whole body is replaced by the single RESPAWN card — being dead is
-    the moment to reduce density, not add to it."""
+def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318, ref=False):
+    """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
+    body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
+    safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
+    full reference view: ghost pace, objective chips, all intel rows, recall + items. While
+    the player is DEAD the whole body is the single RESPAWN card."""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (W, 720), C_VOID)
     d = ImageDraw.Draw(img)
@@ -510,7 +510,7 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
     d.text((x, y + 2), name, font=_wfont(15, 1), fill=C_TXT)
     wp = pulse.get("winprob")
     if wp:
-        t = f"{'WIN' if wp['ahead'] else 'BEHIND'} {wp['pct']}%"
+        t = f"{'WIN' if wp['ahead'] else 'BEHIND'} ~{wp['pct']}%"   # estimated, and it says so
         f = _dfont(12, bold=True)                 # a number (win%) - display face, +1pt
         cw = int(d.textlength(t, font=f)) + 14
         _chip(d, W - x - cw, y + 2, t, C_GOOD if wp["ahead"] else C_BAD, C_SURFACE, f)
@@ -544,6 +544,41 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318):
             d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUTED)
             yy += 14
         y += ch + 7
+
+    # ---- collapsed (NOW / NEXT) view: everything below the directive is REFERENCE and
+    # appears only while the cursor is over the widget ----
+    if not ref:
+        objs2 = pulse.get("objectives") or []
+        nxt = objs2[0] if objs2 else None
+        parts = []
+        if nxt:
+            parts.append(f"{nxt['label']} " + ("UP" if nxt["secs"] <= 0
+                                               else f"{nxt['secs'] // 60}:{nxt['secs'] % 60:02d}"))
+        if recall and recall.get("gap", 1) == 0 and not parts:
+            parts.append(recall["text"])
+        if parts:
+            f2 = _dfont(11, bold=True)
+            d.text((x + 2, y), "NEXT", font=_wfont(9, 1), fill=C_MUTED)
+            d.text((x + 40, y - 1), "  ·  ".join(parts), font=f2,
+                   fill=(C_EMBER if (nxt and (nxt["secs"] <= 0 or nxt.get("urgent"))) else C_ARC))
+            y += 18
+        # one urgent safety line, most pressing first (everything else waits in reference)
+        jg2, gk2 = pulse.get("jungle"), pulse.get("gank")
+        urgent = None
+        if gk2:
+            urgent = (f"◎ gank {gk2['lane'].lower()} — {gk2['champ']} {gk2['lvl']} vs {gk2['vs_lvl']}", C_GOOD)
+        elif jg2 and jg2.get("state") == "nosign":
+            urgent = (f"⌖ {jg2['champ']} NO SIGN {jg2['idle']}s — respect the gank", C_BAD)
+        elif jg2 and jg2.get("state") == "dead":
+            r2 = jg2.get("respawn") or 0
+            urgent = (f"⌖ {jg2['champ']} DEAD{f' — back {r2}s' if r2 else ''} · free map", C_GOOD)
+        if urgent:
+            txt2, col2 = urgent
+            for ln in _wwrap(d, txt2, _tfont(txt2, 10, 1), wrapw - 4):
+                d.text((x + 2, y), ln, font=_tfont(ln, 10, 1), fill=col2)
+                y += 15
+        d.text((x + 2, y + 2), "hover = full detail", font=_wfont(8), fill=C_FAINT)
+        return img.crop((0, 0, W, y + 16))
 
     # ---- GHOST pace row: you vs your best game on this champ (speedrun-timer style).
     # One ambient line: glows ember while ahead, dims to a whisper when behind (a timer,
@@ -853,7 +888,7 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=VOID, bd=0)
 
-    def render(rec, pulse=None, recall=None, ghost=None, dead=None):
+    def render(rec, pulse=None, recall=None, ghost=None, dead=None, ref=False):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -879,7 +914,7 @@ def main():
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall, ghost, dead)
+            im = _render_body(dd, rec, pulse, recall, ghost, dead, ref=ref)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1182,8 +1217,9 @@ def main():
                     return
                 try:                                     # a render bug must never kill the pump
                     if isinstance(msg, dict) and "rec" in msg:
+                        st["last_msg"] = msg             # kept so hover can re-render in place
                         render(msg["rec"], msg.get("pulse"), msg.get("recall"), msg.get("ghost"),
-                               msg.get("dead"))
+                               msg.get("dead"), ref=st.get("ref_view", False))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:
@@ -1212,6 +1248,17 @@ def main():
                 root.attributes("-alpha", a)
             # hover-reveal: the volume slider when the widget is touchable, the ctrl+alt
             # hint when it's click-through (nothing while the cursor is elsewhere)
+            # hover = REFERENCE view: the widget expands to full detail under the cursor
+            # and collapses back to NOW/NEXT when you leave
+            if inside != st.get("ref_view"):
+                st["ref_view"] = inside
+                m = st.get("last_msg")
+                if m:
+                    try:
+                        render(m["rec"], m.get("pulse"), m.get("recall"), m.get("ghost"),
+                               m.get("dead"), ref=inside)
+                    except Exception:
+                        pass
             mode = ("hint" if st.get("ct") else "vol") if inside else None
             if mode != st.get("hdr_mode"):
                 st["hdr_mode"] = mode

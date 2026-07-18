@@ -338,7 +338,7 @@ def render_frame(dd, b, W, H):
             good = wp.get("ahead")
             _card(d, rx, ry, colw, wh, C_GOOD if good else C_BAD)
             _hdr(rx, ry, "WIN READ", C_MUTED)
-            pct = f"{int(wp.get('pct') or 0)}%"
+            pct = f"~{int(wp.get('pct') or 0)}%"
             d.text((rx + colw - S(22) - d.textlength(pct, font=_dfont(S(30))), ry + S(20)),
                    pct, font=_dfont(S(30)), fill=(C_GOOD if good else C_BAD))
             d.text((rx + S(22), ry + S(34)), wp.get("basis") or "", font=_wfont(S(13)), fill=C_MUTED)

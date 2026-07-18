@@ -250,16 +250,16 @@ def render_frame(dd, b, W, H):
             elif r.get("scouted"):
                 d.text((fx, y + S(52)), "champ not in recents", font=_wfont(S(10)), fill=C_FAINT)
 
-        # ---- grade pill (far right) ----
+        # ---- grade pill (far right): evidence-labelled, and only with a real sample ----
         gx = x0 + CW - S(64)
-        if r.get("perf") is not None:
+        if r.get("perf") is not None and r.get("n", 0) >= 4:
             letter, col = _grade_of(r["perf"])
             d.rounded_rectangle([gx, y + S(12), gx + S(48), y + RH - S(12)], S(8),
                                 fill=tuple(int(c * 0.18) for c in col),
                                 outline=tuple(int(c * 0.5) for c in col), width=1)
             d.text((gx + S(24), y + RH // 2 - S(7)), letter, font=_dfont(S(19)), fill=col, anchor="mm")
-            d.text((gx + S(24), y + RH // 2 + S(12)), f"{int(r['perf'])}", font=_dfont(S(11)),
-                   fill=tuple(int(c * 0.8) for c in col), anchor="mm")
+            d.text((gx + S(24), y + RH // 2 + S(12)), f"{int(r['perf'])} · {r['n']}g",
+                   font=_dfont(S(10)), fill=tuple(int(c * 0.8) for c in col), anchor="mm")
 
         # ---- profile tags (two rows of pills) ----
         tx0, txmax = x0 + S(818), gx - S(14)
