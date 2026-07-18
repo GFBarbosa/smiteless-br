@@ -1,5 +1,10 @@
 # Smiteless — Patch Notes
 
+## v0.9.17
+- **HOTFIX: dying no longer shows a white fullscreen.** v0.9.16's fancy transparency method broke in the real app — the death overlay painted as a solid white sheet over the game. That method is gone; the overlay is back on the same proven rendering the widget has always used, with the whole window at ~88% opacity for the see-through look. Sorry about that one — it was shipped without being exercised in a live game, which is on us.
+- **The loading-screen brief should FINALLY appear** — found the real reason it never did: it was launched at the moment the game went "in progress," which is usually *after* the loading screen is already over, so it started, saw a live game, and closed itself instantly. It now launches at **champ select** and waits, armed, for the loading screen to begin. It also writes a diagnostic log (`~/.claude/smiteless_load.log`) so if it still misbehaves, the log says exactly why instead of anyone guessing.
+- Intended looks for both overlays are in `docs/preview_loading_ui.png` and `docs/preview_death_ui.png`.
+
 ## v0.9.16
 - **The Death Brief is glass now, not solid blocks.** The panels were fully opaque and walled off whatever they sat over. They're now **semi-transparent** (~80%) with true per-pixel alpha — the game tints through them while the text stays fully crisp and opaque on top. Painted via `UpdateLayeredWindow` instead of a binary chroma key, so it's a real glassy HUD, still click-through and still keeping the middle of the screen clear.
 
