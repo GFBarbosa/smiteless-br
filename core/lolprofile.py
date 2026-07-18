@@ -622,9 +622,35 @@ def behavior_read(dd, mid, my_puuid, key, parts, dur):
     return hits, ev
 
 
-def _behavior_track(mid, ts, hits, ev):
-    """Persist this game's tag outcomes; return PATTERN bullets: 'recurring · N games
-    running' when a tag repeats, 'FIXED ✓' when a previously-hit tag came back clean."""
+def _behavior_ledger():
+    try:
+        return json.load(open(_BEHAVIOR_FILE, encoding="utf-8")).get("games") or []
+    except Exception:
+        return []
+
+
+def pattern_evidence(tag, gs=None):
+    """YOUR OWN W/L split for a habit — 'with: 1W-6L · without: 8W-3L' — from ledger games
+    where the tag was evaluable AND the result recorded. None until both sides have >= 2
+    games (a split with no sample is a lie with numbers)."""
+    gs = _behavior_ledger() if gs is None else gs
+    ww = wl = cw = cl = 0
+    for g in gs:
+        win = g.get("win")
+        if win is None or tag not in (g.get("ev") or []):
+            continue
+        if tag in (g.get("hits") or []):
+            ww, wl = ww + (1 if win else 0), wl + (0 if win else 1)
+        else:
+            cw, cl = cw + (1 if win else 0), cl + (0 if win else 1)
+    if (ww + wl) >= 2 and (cw + cl) >= 2:
+        return f"with it: {ww}W-{wl}L · without: {cw}W-{cl}L"
+    return None
+
+
+def _behavior_track(mid, ts, hits, ev, win=None):
+    """Persist this game's tag outcomes (+ result); return PATTERN bullets — with YOUR
+    OWN win-rate split per habit once the ledger has the sample to prove it."""
     try:
         led = json.load(open(_BEHAVIOR_FILE, encoding="utf-8"))
     except Exception:
@@ -634,7 +660,7 @@ def _behavior_track(mid, ts, hits, ev):
         prev = next((g for g in reversed(gs) if g.get("mid") != mid), None)
     else:
         prev = gs[-1] if gs else None
-        gs.append({"mid": mid, "ts": ts, "hits": sorted(hits), "ev": sorted(ev)})
+        gs.append({"mid": mid, "ts": ts, "hits": sorted(hits), "ev": sorted(ev), "win": win})
         led["games"] = gs[-60:]
         try:
             os.makedirs(os.path.dirname(_BEHAVIOR_FILE), exist_ok=True)
@@ -654,8 +680,12 @@ def _behavior_track(mid, ts, hits, ev):
     for tag in sorted(hits):
         n = streak(tag)
         label = _BEHAVIOR_TAGS.get(tag, tag)
-        out.append(f"PATTERN — {label}" + (f" · {n} games running" if n >= 2
-                                           else " · watch the next rep"))
+        line = f"PATTERN — {label}" + (f" · {n} games running" if n >= 2
+                                       else " · watch the next rep")
+        evd = pattern_evidence(tag, gs)
+        if evd:
+            line += f" · {evd}"                    # the LP cost, in your own games
+        out.append(line)
     for tag in sorted((set((prev or {}).get("hits") or []) & ev) - hits):
         out.append(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game")
     return out[:3]
@@ -730,7 +760,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
             if not other:                          # behavior ledger is personal-only
                 try:
                     bh, bev = behavior_read(dd, mid, puuid, key, d["parts"], d.get("dur", 0))
-                    pat = _behavior_track(mid, d.get("ts", 0), bh, bev)
+                    pat = _behavior_track(mid, d.get("ts", 0), bh, bev, win=bool(mine["win"]))
                     if pat:
                         tips = pat + list(tips)
                 except Exception:

@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.29
+- **Habits now show what they cost YOU.** The behavior ledger records each game's result, so every recurring pattern carries your own win-rate split as soon as there's a real sample: the death screen's WORKING ON card and the profile's PATTERN bullets now read like *"chained deaths (2+ inside 90s) · 3 games running · with it: 1W-4L · without: 3W-1L"* — the LP cost of the habit, proven from your own games, shown at the moment you just repeated it. Splits stay hidden until both sides have 2+ games (no lying with tiny samples).
+
 ## v0.9.28
 - **The profile truly adapts to its window now.** Resizing or maximizing used to stretch a fixed-width raster (the "800x600 blown up to 1080p" look). The page now **re-renders at the window's actual width** — text stays crisp at its designed size and the layout genuinely gets roomier: wider stat tiles with longer sparklines, wider patterns/bests panels, full-width game rows. Shrink it and it re-fits cleanly too.
 - **The 2nd-monitor board re-targets its monitor live.** It sized itself once at launch; now, if it ends up on (or is dragged to) a different-resolution monitor, the very next frame re-renders crisp at that monitor's size instead of being scaled from the wrong one.

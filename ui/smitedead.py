@@ -300,7 +300,8 @@ def render_frame(dd, b, W, H):
     # may have just repeated it
     pat = b.get("pattern")
     if pat:
-        _block(rx, ry, "WORKING ON", C_INFO, pat, "break it this game — the review is watching",
+        _block(rx, ry, "WORKING ON", C_INFO, pat,
+               b.get("pattern_sub") or "break it this game — the review is watching",
                C_INFO, ymax=RY1)
 
     return img
@@ -325,10 +326,13 @@ def _working_pattern():
             if n > bn:
                 best, bn = tag, n
         if best:
-            return f"{lp._BEHAVIOR_TAGS.get(best, best)} · {bn} games running"
+            line = f"{lp._BEHAVIOR_TAGS.get(best, best)} · {bn} games running"
+            evd = lp.pattern_evidence(best)
+            return line, (f"in YOUR games — {evd}" if evd
+                          else "break it this game — the review is watching")
     except Exception:
         pass
-    return None
+    return None, None
 
 
 # ---------- click-through / no-activate window styling ----------
@@ -376,7 +380,8 @@ def main():
     _make_click_through(hwnd)
 
     state = {"brief": None, "ts": 0.0, "fails": 0, "run": True, "shown": False, "hwnd": hwnd,
-             "pattern": _working_pattern()}
+             "pattern": None, "pattern_sub": None}
+    state["pattern"], state["pattern_sub"] = _working_pattern()
 
     def poll():
         while state["run"]:
@@ -412,6 +417,7 @@ def main():
             live = dict(b)                          # smooth the clock between polls
             live["secs"] = max(0, (b.get("secs") or 0) - (time.monotonic() - state["ts"]))
             live["pattern"] = state.get("pattern")
+            live["pattern_sub"] = state.get("pattern_sub")
             frame = render_frame(dd, live, W, H)
             ph = ImageTk.PhotoImage(frame)
             label.configure(image=ph)
