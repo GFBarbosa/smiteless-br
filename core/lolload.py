@@ -168,7 +168,7 @@ def brief(dd, key=None, scout=True):
         out = []
         for row in rows:
             cid = row["champ_id"]
-            rec = {"champ": dd.get("id2name", {}).get(cid, "?"), "role": row["role"],
+            rec = {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
                    "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
                    "rank": "", "ptags": [], "me": row["me"]}
             if key:
