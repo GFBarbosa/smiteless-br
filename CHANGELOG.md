@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.30
+- **The Live Draft Link — give the whole lobby the scout, even the four people who'll never install anything.** In champ select, Smiteless now posts **one URL into the lobby chat**; anyone who clicks it lands on a live web board of the current draft: both teams, bans, and per-seat **champion suggestions with runes** for this exact game. They tap "This is me" on their seat and the picks + rune cards keep updating live as the draft evolves — no app, no account, no refresh. Runs on GitHub Pages + a free Firebase database ($0/month, ~5-minute one-time setup: Settings → LIVE DRAFT LINK, guide in docs/DRAFTLINK.md). Publishes champion/rune IDs only — no names, no ranks, nothing personal — and each draft is retired the moment champ select ends.
+
 ## v0.9.29
 - **Habits now show what they cost YOU.** The behavior ledger records each game's result, so every recurring pattern carries your own win-rate split as soon as there's a real sample: the death screen's WORKING ON card and the profile's PATTERN bullets now read like *"chained deaths (2+ inside 90s) · 3 games running · with it: 1W-4L · without: 3W-1L"* — the LP cost of the habit, proven from your own games, shown at the moment you just repeated it. Splits stay hidden until both sides have 2+ games (no lying with tiny samples).
 

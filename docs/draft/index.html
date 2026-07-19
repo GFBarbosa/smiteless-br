@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smiteless — Live Draft</title>
+<meta name="description" content="Live champ-select board: picks, bans, and per-seat champion suggestions with runes. Sent from Smiteless.">
+<style>
+/* Duskfall (the Smiteless design system, see docs/UIDESIGN.md) — deliberately dark-only:
+   League client at dusk, lit by an ember. Tokens mirror core/smiteskin.py. */
+:root{
+  --void:#0c0a13; --surface:#15121f; --raised:#1e1930; --hover:#2a2342; --sunken:#07060b;
+  --line:#2b2444; --line-soft:#1c1730;
+  --txt:#e8e3f4; --muted:#9a92b4; --faint:#5e5678;
+  --ember:#ffb454; --ember-deep:#c77f2e; --arc:#5ad1dc;
+  --good:#5fe0a0; --bad:#ff6478; --warn:#ffd166; --info:#8fa9ef; --mystic:#b98bf5;
+  --disp:"Bahnschrift","Segoe UI Semibold","Arial Narrow",system-ui,sans-serif;
+  --body:"Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html{background:var(--void)}
+body{margin:0;background:var(--void);color:var(--txt);font-family:var(--body);
+     font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+a{color:var(--info);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--arc);outline-offset:2px;border-radius:6px}
+img{max-width:100%}
+.num{font-family:var(--disp);font-variant-numeric:tabular-nums}
+
+.wrap{max-width:980px;margin:0 auto;padding:20px 18px 48px}
+
+/* ---- header ---- */
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(140deg,var(--ember),var(--ember-deep));
+      display:grid;place-items:center;font-family:var(--disp);font-weight:700;font-size:21px;color:#1a1206}
+.title{font-family:var(--disp);font-size:20px;letter-spacing:.02em}
+.title small{display:block;font-family:var(--body);font-size:12px;color:var(--muted);
+             letter-spacing:.08em;text-transform:uppercase}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--surface);
+      border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12px;
+      color:var(--muted);letter-spacing:.06em;text-transform:uppercase;font-family:var(--disp)}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.chip.live{color:var(--arc);border-color:color-mix(in srgb,var(--arc) 35%,var(--line))}
+.chip.live .dot{background:var(--arc);animation:pulse 1.6s ease-in-out infinite}
+.chip.over{color:var(--warn)}
+.chip.err{color:var(--bad)}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.chip.live .dot{animation:none}}
+.tagline{color:var(--muted);font-size:13px;margin:2px 0 18px}
+
+/* ---- bans ---- */
+.bans{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px}
+.bangroup{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+          padding:8px 12px 10px;flex:1;min-width:230px;overflow-x:auto}
+.bangroup h3{margin:0 0 6px;font-family:var(--disp);font-size:11px;letter-spacing:.1em;
+             color:var(--faint);text-transform:uppercase;font-weight:600}
+.bangroup.theirs h3{text-align:right}
+.banrow{display:flex;gap:6px}
+.bangroup.theirs .banrow{justify-content:flex-end}
+.ban{position:relative;width:30px;height:30px;border-radius:7px;overflow:hidden;
+     filter:grayscale(1) brightness(.62);flex:0 0 auto}
+.ban::after{content:"";position:absolute;left:-4px;right:-4px;top:50%;height:2px;
+            background:var(--bad);transform:rotate(-45deg);opacity:.9}
+.ban-none{color:var(--faint);font-size:12px;padding:5px 0}
+
+/* ---- columns ---- */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:14px}
+@media (max-width:760px){.cols{grid-template-columns:minmax(0,1fr)}}
+
+/* ---- seats ---- */
+.seat{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line);
+      border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.seat.mine{border-left-color:var(--ember)}
+.seatrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rolechip{font-family:var(--disp);font-size:11px;letter-spacing:.1em;color:var(--muted);
+          background:var(--raised);border-radius:6px;padding:3px 8px;min-width:44px;
+          text-align:center;text-transform:uppercase}
+.pname{font-family:var(--disp);font-size:15px}
+.pname .picking{color:var(--faint);font-style:italic;font-family:var(--body);font-size:13px}
+.wr{font-family:var(--disp);font-variant-numeric:tabular-nums;font-size:12px}
+.wr.good{color:var(--good)} .wr.bad{color:var(--bad)} .wr.mid{color:var(--muted)}
+.tier{font-family:var(--disp);font-size:10px;padding:1px 6px;border-radius:5px;
+      background:var(--raised);color:var(--mystic);letter-spacing:.05em}
+.claim{margin-left:auto;background:none;border:1px solid var(--line);color:var(--muted);
+       border-radius:8px;padding:4px 12px;font-size:12.5px;letter-spacing:.02em}
+.claim:hover{border-color:var(--ember);color:var(--ember);background:var(--hover)}
+.claim.on{border-color:var(--ember-deep);color:var(--ember)}
+
+/* portraits: image when the CDN answers, monogram disc when it can't */
+.face{width:44px;height:44px;border-radius:10px;overflow:hidden;flex:0 0 auto;
+      display:grid;place-items:center;font-family:var(--disp);font-size:15px;color:var(--txt);
+      background:var(--raised);border:1px solid var(--line-soft)}
+.face img{width:100%;height:100%;object-fit:cover;display:block}
+.face.s{width:30px;height:30px;border-radius:7px;font-size:11px}
+.face.xs{width:24px;height:24px;border-radius:6px;font-size:9px}
+
+/* suggestion chips (collapsed seats) */
+.suggline{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+.sugglabel{font-family:var(--disp);font-size:10px;letter-spacing:.1em;color:var(--faint);
+           text-transform:uppercase}
+.schip{display:inline-flex;align-items:center;gap:7px;background:var(--raised);
+       border:1px solid var(--line-soft);border-radius:8px;padding:3px 9px 3px 4px;font-size:12.5px}
+.schip .nm{font-family:var(--disp)}
+
+/* expanded (claimed) suggestion cards */
+.cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.card{background:var(--raised);border:1px solid var(--line-soft);border-radius:9px;padding:9px 11px}
+.cardhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.vs{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);
+    background:var(--surface);border-radius:6px;padding:2px 7px}
+.runes{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px}
+.rt{font-family:var(--disp);font-size:10px;letter-spacing:.08em;color:var(--faint);
+    text-transform:uppercase;margin-right:2px}
+.rune{display:inline-flex;align-items:center;gap:5px;background:var(--surface);
+      border-radius:6px;padding:2px 8px;font-size:12px}
+.rune img{width:18px;height:18px}
+.rune.key{border:1px solid color-mix(in srgb,var(--mystic) 45%,var(--line));color:var(--mystic)}
+.rune.shard{color:var(--muted);font-size:11px}
+.loadout{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:7px}
+.item{display:inline-flex;align-items:center;gap:5px;background:var(--surface);border-radius:6px;
+      padding:2px 8px;font-size:12px;color:var(--muted)}
+.item img{width:20px;height:20px;border-radius:4px}
+.summ{color:var(--arc)}
+.ownlabel{color:var(--ember)}
+
+/* ---- enemy rail ---- */
+.rail{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+      padding:12px;align-self:start}
+.rail h3{margin:0 0 4px;font-family:var(--disp);font-size:11px;letter-spacing:.1em;
+         color:var(--bad);text-transform:uppercase;font-weight:600}
+.rail .hint{color:var(--faint);font-size:12px;margin:0 0 10px}
+.foe{display:flex;align-items:center;gap:9px;padding:5px 0}
+.foe .pname{font-size:14px}
+.foe-none{color:var(--faint);font-size:13px;font-style:italic}
+
+/* ---- states + footer ---- */
+.notice{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+        padding:26px 20px;text-align:center;color:var(--muted);margin-top:24px}
+.notice b{color:var(--txt);font-family:var(--disp);letter-spacing:.02em}
+footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
+       flex-wrap:wrap;align-items:center}
+.demo-banner{background:color-mix(in srgb,var(--warn) 12%,var(--surface));
+             border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);
+             border-radius:10px;padding:7px 12px;font-size:12.5px;margin-bottom:14px;
+             letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">S</div>
+    <div class="title">SMITELESS<small>live draft</small></div>
+    <div class="spacer"></div>
+    <span class="chip" id="patch" hidden><span id="patchtxt"></span></span>
+    <span class="chip" id="status"><span class="dot"></span><span id="statustxt">connecting</span></span>
+  </header>
+  <p class="tagline">Sent from champ select by a teammate running
+    <a href="https://github.com/bobbyroylee/smiteless" rel="noopener">Smiteless</a> (free, open
+    source). Hit <b style="color:var(--ember)">This is me</b> on your seat for picks &amp; runes
+    tuned to this draft — it updates live as the lobby locks in.</p>
+  <div id="app"></div>
+  <footer>
+    <span>No accounts, no tracking — this page only reads the draft your teammate published.</span>
+    <span>·</span><a href="https://github.com/bobbyroylee/smiteless" rel="noopener">get Smiteless</a>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ============ config / hash ============ */
+const DD = "https://ddragon.leagueoflegends.com";
+const H = (() => {
+  const out = {d:"", db:"", demo:location.hash.replace("#","") === "demo"};
+  for (const kv of location.hash.replace(/^#/,"").split("&")) {
+    const [k, v] = kv.split("=");
+    if (k === "d") out.d = decodeURIComponent(v || "");
+    if (k === "db") out.db = decodeURIComponent(v || "");
+    if (k === "demo") out.demo = true;
+  }
+  return out;
+})();
+const dbOk = h => /^[a-z0-9.-]+\.(firebaseio\.com|firebasedatabase\.app)$/i.test(h || "");
+
+const ROLES = {top:"TOP", jungle:"JG", mid:"MID", adc:"BOT", support:"SUP"};
+const ROLE_FULL = {top:"Top", jungle:"Jungle", mid:"Mid", adc:"Bot / ADC", support:"Support"};
+const SPELLS = {1:"Cleanse",3:"Exhaust",4:"Flash",6:"Ghost",7:"Heal",11:"Smite",12:"Teleport",
+                13:"Clarity",14:"Ignite",21:"Barrier",32:"Snowball"};
+const SHARDS = {5001:"+HP",5002:"+Armor",5003:"+MR",5005:"+AS",5007:"+AH",5008:"+AF",
+                5010:"+MS",5011:"+HP",5013:"+Tenacity"};
+const TREES = {8000:"Precision",8100:"Domination",8200:"Sorcery",8300:"Inspiration",8400:"Resolve"};
+
+/* state.meta hydrates from ddragon (or from the demo script); everything renders through it
+   so a blocked CDN degrades to names + monograms instead of broken images. */
+const state = {pay:null, meta:{champ:{}, rune:{}, spellImg:{}, ver:""}, metaReady:false,
+               claimed:null, live:"connecting", noArt:H.demo};
+const claimKey = "smiteless-claim-" + (H.d || "demo");
+try { const c = localStorage.getItem(claimKey); if (c !== null) state.claimed = +c; } catch (e) {}
+
+/* ============ ddragon hydration (viewer-side; Riot's public CDN, CORS-open) ============ */
+async function j(url){ const r = await fetch(url); if (!r.ok) throw new Error(url); return r.json(); }
+async function loadMeta(patch){
+  if (state.metaReady || H.demo) return;
+  try {
+    let ver = (patch || "").trim();
+    if (!/^\d+\.\d+/.test(ver)) ver = (await j(DD + "/api/versions.json"))[0];
+    state.meta.ver = ver;
+    const [champs, runes, spells] = await Promise.all([
+      j(`${DD}/cdn/${ver}/data/en_US/champion.json`),
+      j(`${DD}/cdn/${ver}/data/en_US/runesReforged.json`),
+      j(`${DD}/cdn/${ver}/data/en_US/summoner.json`)]);
+    for (const c of Object.values(champs.data))
+      state.meta.champ[+c.key] = {name:c.name, img:`${DD}/cdn/${ver}/img/champion/${c.image.full}`};
+    for (const tree of runes) {
+      state.meta.rune[tree.id] = {name:tree.name, icon:`${DD}/cdn/img/${tree.icon}`};
+      for (const slot of tree.slots) for (const r of slot.runes)
+        state.meta.rune[r.id] = {name:r.name, icon:`${DD}/cdn/img/${r.icon}`};
+    }
+    for (const s of Object.values(spells.data))
+      state.meta.spellImg[+s.key] = `${DD}/cdn/${ver}/img/spell/${s.image.full}`;
+    state.metaReady = true;
+    render();
+  } catch (e) { state.noArt = true; render(); }   // CDN unreachable -> monogram mode
+}
+
+/* ============ lookups + tiny render helpers ============ */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const champName = c => (state.meta.champ[c] || {}).name || ("#" + c);
+const runeName = r => (state.meta.rune[r] || {}).name || "";
+const initials = n => { const w = n.replace(/[^A-Za-z' ]/g,"").split(/[\s']+/).filter(Boolean);
+  return ((w[0]||"?")[0] + (w[1] ? w[1][0] : (w[0]||" ").slice(1,2))).toUpperCase(); };
+const HUES = [265, 210, 32, 180, 340, 150, 55, 290];
+function face(cid, cls){
+  const m = state.meta.champ[cid] || {};
+  const nm = champName(cid);
+  if (!state.noArt && m.img)
+    return `<span class="face ${cls}"><img src="${m.img}" alt="${esc(nm)}"
+      onerror="this.parentNode.textContent='${esc(initials(nm))}'"></span>`;
+  const h = HUES[cid % HUES.length];
+  return `<span class="face ${cls}" style="background:linear-gradient(140deg,
+    hsl(${h} 38% 30%),hsl(${h} 45% 16%))">${esc(initials(nm))}</span>`;
+}
+function wrChip(wr){
+  if (!wr) return "";
+  const cls = wr >= 51 ? "good" : wr <= 49 ? "bad" : "mid";
+  return `<span class="wr ${cls}">${wr.toFixed(1)}%</span>`;
+}
+const tierChip = t => t ? `<span class="tier">${esc(t)} tier</span>` : "";
+function runeIcon(id){
+  const m = state.meta.rune[id] || {};
+  return (!state.noArt && m.icon) ? `<img src="${m.icon}" alt="" onerror="this.remove()">` : "";
+}
+
+/* ============ sections ============ */
+function bansHtml(p){
+  const b = p.bans || {};
+  const row = ids => (ids && ids.length)
+    ? ids.map(c => `<span class="ban" title="${esc(champName(c))}">${face(c, "s")}</span>`).join("")
+    : `<span class="ban-none">none yet</span>`;
+  return `<div class="bans">
+    <div class="bangroup"><h3>Our bans</h3><div class="banrow">${row(b.a)}</div></div>
+    <div class="bangroup theirs"><h3>Their bans</h3><div class="banrow">${row(b.e)}</div></div>
+  </div>`;
+}
+
+function buildBlock(card, label){
+  const r = card.r || {};
+  let h = "";
+  if (r.pr && r.pr.length){
+    const [key, ...minors] = r.pr;
+    h += `<div class="runes"><span class="rt">${esc(TREES[r.pp] || runeName(r.pp) || "Runes")}</span>
+      <span class="rune key">${runeIcon(key)}${esc(runeName(key) || "keystone")}</span>` +
+      minors.map(x => `<span class="rune">${runeIcon(x)}${esc(runeName(x) || "")}</span>`).join("") +
+      `</div>`;
+    if (r.sr && r.sr.length)
+      h += `<div class="runes"><span class="rt">${esc(TREES[r.sp] || runeName(r.sp) || "+")}</span>` +
+        r.sr.map(x => `<span class="rune">${runeIcon(x)}${esc(runeName(x) || "")}</span>`).join("") +
+        ((r.st || []).map(x => `<span class="rune shard">${esc(SHARDS[x] || "")}</span>`).join("")) +
+        `</div>`;
+  }
+  const bits = [];
+  for (const sid of (r.sm || []))
+    bits.push(`<span class="item summ">${esc(SPELLS[sid] || "spell")}</span>`);
+  for (const iid of (r.it || [])){
+    const src = state.meta.ver && !state.noArt
+      ? `<img src="${DD}/cdn/${state.meta.ver}/img/item/${iid}.png" alt="" onerror="this.remove()">` : "";
+    bits.push(`<span class="item">${src}${esc((window.DEMO_ITEMS || {})[iid] || (src ? "" : "item"))}</span>`);
+  }
+  if (bits.length) h += `<div class="loadout">${bits.join("")}</div>`;
+  return h;
+}
+
+function suggCard(card, ownLabel){
+  const vs = (card.vs || []).map(v =>
+    `<span class="vs">vs ${esc(champName(v.c))} ${wrChip(v.wr)}</span>`).join("");
+  return `<div class="card">
+    <div class="cardhead">${face(card.c, "s")}
+      <span class="pname">${esc(champName(card.c))}</span>
+      ${wrChip(card.wr)} ${tierChip(card.t)}
+      ${ownLabel ? `<span class="rt ownlabel">your lock</span>` : ""} ${vs}
+    </div>${buildBlock(card)}</div>`;
+}
+
+function seatHtml(seat, i){
+  const mine = state.claimed === i;
+  const role = ROLES[seat.role] || (seat.role || "?").toUpperCase();
+  const locked = seat.c > 0;
+  const own = seat.own || null;
+  const name = locked
+    ? `<span class="pname">${esc(champName(seat.c))}</span>`
+    : `<span class="pname"><span class="picking">picking…</span></span>`;
+  const head = `<div class="seatrow">
+      <span class="rolechip">${esc(role)}</span>
+      ${locked ? face(seat.c, "") : `<span class="face" style="color:var(--faint)">·</span>`}
+      ${name} ${locked && own ? wrChip(own.wr) + tierChip(own.t) : ""}
+      <button class="claim ${mine ? "on" : ""}" data-claim="${i}">
+        ${mine ? "✓ me — unclaim" : "This is me"}</button>
+    </div>`;
+  let body = "";
+  const sugg = seat.sugg || [];
+  if (mine){
+    const cards = [];
+    if (own) cards.push(suggCard(own, true));
+    for (const cd of sugg) if (!own || cd.c !== own.c) cards.push(suggCard(cd));
+    body = cards.length
+      ? `<div class="cards">${cards.join("")}</div>`
+      : `<div class="suggline"><span class="sugglabel">crunching suggestions…</span></div>`;
+  } else if (sugg.length){
+    body = `<div class="suggline"><span class="sugglabel">good here:</span>` +
+      sugg.map(cd => `<span class="schip">${face(cd.c, "xs")}
+        <span class="nm">${esc(champName(cd.c))}</span>${wrChip(cd.wr)}</span>`).join("") +
+      `</div>`;
+  }
+  return `<div class="seat ${mine ? "mine" : ""}">${head}${body}</div>`;
+}
+
+function render(){
+  const app = document.getElementById("app");
+  const st = document.getElementById("status"), stt = document.getElementById("statustxt");
+  st.className = "chip " + ({live:"live", over:"over", err:"err"}[state.live] || "");
+  stt.textContent = {connecting:"connecting", live:"live", over:"draft ended",
+                     err:"draft not found"}[state.live] || state.live;
+  const p = state.pay;
+  if (!p){
+    app.innerHTML = state.live === "err"
+      ? `<div class="notice"><b>Draft not found.</b><br>The lobby may be over — drafts are
+         published only while champ select is open, then retired.</div>`
+      : `<div class="notice">Loading the draft…</div>`;
+    return;
+  }
+  const patch = document.getElementById("patch");
+  if (p.patch){ patch.hidden = false;
+    document.getElementById("patchtxt").textContent = "patch " + p.patch.split(".").slice(0,2).join("."); }
+  const seats = (p.seats || []).map(seatHtml).join("");
+  const foes = (p.enemy || []).length
+    ? p.enemy.map(c => `<div class="foe">${face(c, "s")}<span class="pname">${esc(champName(c))}</span></div>`).join("")
+    : `<div class="foe-none">no enemy locks yet</div>`;
+  app.innerHTML = (H.demo ? `<div class="demo-banner">DEMO — a simulated champ select. In a real
+      lobby this page streams the live draft (art loads from Riot's CDN).</div>` : "")
+    + bansHtml(p)
+    + `<div class="cols"><div>${seats}</div>
+       <div class="rail"><h3>Enemy locks</h3>
+         <p class="hint">Riot hides enemy roles &amp; names in champ select — locked picks only.</p>
+         ${foes}</div></div>`;
+  for (const b of app.querySelectorAll("[data-claim]"))
+    b.addEventListener("click", () => {
+      const i = +b.dataset.claim;
+      state.claimed = state.claimed === i ? null : i;
+      try { state.claimed === null ? localStorage.removeItem(claimKey)
+                                   : localStorage.setItem(claimKey, state.claimed); } catch (e) {}
+      render();
+    });
+}
+
+/* ============ live feed: Firebase SSE notifies, a plain GET reads ============ */
+let refetching = false;
+async function refetch(base){
+  if (refetching) return; refetching = true;
+  try {
+    const p = await j(base + ".json");
+    if (p && p.v){
+      state.pay = p;
+      state.live = p.end ? "over" : "live";
+      loadMeta(p.patch);
+    } else if (!state.pay) state.live = "err";
+  } catch (e) { if (!state.pay) state.live = "err"; }
+  refetching = false;
+  render();
+}
+function connect(){
+  const base = `https://${H.db}/drafts/${encodeURIComponent(H.d)}`;
+  refetch(base);
+  let es;
+  try { es = new EventSource(base + ".json"); } catch (e) { es = null; }
+  let pollTimer = 0;
+  const poll = () => { if (!pollTimer) pollTimer = setInterval(() => refetch(base), 7000); };
+  if (es){
+    const onchange = () => refetch(base);
+    es.addEventListener("put", onchange);
+    es.addEventListener("patch", onchange);
+    es.onerror = () => poll();                     // SSE refused/dropped -> quiet 7s polling
+  } else poll();
+}
+
+/* ============ demo: a champ select that plays itself ============ */
+function demoMeta(){
+  const names = {54:"Malphite",254:"Vi",103:"Ahri",412:"Thresh",122:"Darius",64:"Lee Sin",
+    157:"Yasuo",238:"Zed",53:"Blitzcrank",141:"Kayn",35:"Shaco",222:"Jinx",145:"Kai'Sa",
+    21:"Miss Fortune",516:"Ornn",150:"Gnar",897:"K'Sante",56:"Nocturne",59:"Jarvan IV",
+    113:"Sejuani",61:"Orianna",3:"Galio",1:"Annie",111:"Nautilus",497:"Rakan",201:"Braum"};
+  for (const [k, v] of Object.entries(names)) state.meta.champ[+k] = {name:v};
+  const runes = {8112:"Electrocute",8126:"Cheap Shot",8138:"Eyeball Collection",8135:"Relentless Hunter",
+    8229:"Arcane Comet",8226:"Manaflow Band",8210:"Transcendence",8237:"Scorch",
+    8437:"Grasp of the Undying",8446:"Demolish",8444:"Second Wind",8451:"Overgrowth",
+    8008:"Lethal Tempo",9101:"Absorb Life",9103:"Legend: Bloodline",8014:"Coup de Grace",
+    8351:"Glacial Augment",8306:"Hextech Flashtraption",8345:"Biscuit Delivery",8347:"Cosmic Insight",
+    8465:"Guardian",8463:"Font of Life",8453:"Revitalize",8242:"Unflinching",8010:"Conqueror",
+    9111:"Triumph",9104:"Legend: Alacrity"};
+  for (const [k, v] of Object.entries(runes)) state.meta.rune[+k] = {name:v};
+  window.DEMO_ITEMS = {3068:"Sunfire",3075:"Thornmail",3110:"Frozen Heart",6672:"Kraken",
+    3031:"IE",3094:"RFC",3157:"Zhonya's",6653:"Liandry's",4645:"Shadowflame",
+    3190:"Locket",3107:"Redemption",3222:"Mikael's",6692:"Eclipse",6698:"Profane",3142:"Hubris"};
+}
+function demoPayloads(){
+  const R = (pp, pr, sp, sr, st, sm, it) => ({pp, pr, sp, sr, st, sm, it});
+  const malph = {c:54, wr:51.8, t:"A", vs:[{c:122, wr:53.4}],
+    r:R(8400,[8437,8446,8444,8451],8200,[8226,8210],[5008,5010,5001],[4,12],[3068,3075,3110])};
+  const ahri = {c:103, wr:52.1, t:"S", vs:[{c:157, wr:52.7}],
+    r:R(8100,[8112,8126,8138,8135],8200,[8226,8210],[5008,5008,5011],[4,14],[6653,3157,4645])};
+  const thresh = {c:412, wr:50.9, t:"A",
+    r:R(8400,[8465,8463,8444,8453],8300,[8306,8347],[5008,5010,5011],[4,14],[3190,3107,3222])};
+  const vi = {c:254, wr:51.4, t:"A", vs:[{c:64, wr:52.5}],
+    r:R(8000,[8010,9111,9104,8014],8100,[8138,8135],[5005,5008,5011],[4,11],[6692,3110,3075])};
+  const sugTop = [{c:516, wr:52.0, t:"A", vs:[{c:122, wr:52.2}],
+      r:R(8400,[8437,8446,8444,8451],8300,[8345,8347],[5008,5002,5001],[4,12],[3068,3110,3075])},
+    {c:897, wr:50.4, t:"B", vs:[{c:122, wr:51.1}]}, {c:150, wr:49.8, t:"B"}];
+  const sugJg = [{c:113, wr:52.6, t:"S", vs:[{c:64, wr:53.0}],
+      r:R(8400,[8437,8446,8444,8451],8000,[9111,9104],[5005,5010,5001],[4,11],[3068,3110,3075])},
+    {c:59, wr:51.2, t:"A", vs:[{c:64, wr:51.6}]}, {c:56, wr:52.9, t:"A"}];
+  const sugMid = [{c:61, wr:51.5, t:"A", vs:[{c:157, wr:53.8}]},
+    {c:3, wr:51.0, t:"A", vs:[{c:157, wr:54.1}]}, {c:1, wr:52.3, t:"B"}];
+  const sugAdc = [{c:222, wr:52.4, t:"S",
+      r:R(8000,[8008,9101,9103,8014],8100,[8138,8135],[5005,5008,5011],[4,7],[6672,3031,3094])},
+    {c:145, wr:50.8, t:"A",
+      r:R(8000,[8010,9101,9103,8014],8100,[8138,8135],[5005,5008,5011],[4,7],[6672,3031,3094])},
+    {c:21, wr:52.0, t:"A",
+      r:R(8000,[8008,9101,9103,8014],8100,[8138,8135],[5008,5008,5011],[4,7],[6692,6698,3142])}];
+  const sugSup = [{c:111, wr:51.7, t:"A"}, {c:497, wr:51.9, t:"A"}, {c:201, wr:50.6, t:"B"}];
+  const seat = (role, c, own, sugg) => {
+    const s = {role, c}; if (own) s.own = own; if (sugg) s.sugg = sugg; return s; };
+  const base = p => Object.assign({v:1, ts:0, patch:"15.14.1"}, p);
+  return [
+    base({bans:{a:[238], e:[141]}, enemy:[],
+      seats:[seat("top",0,null,null), seat("jungle",0), seat("mid",0), seat("adc",0), seat("support",0)]}),
+    base({bans:{a:[238,53], e:[141,35]}, enemy:[122],
+      seats:[seat("top",54,malph,sugTop), seat("jungle",0,null,sugJg), seat("mid",0,null,sugMid),
+             seat("adc",0,null,sugAdc), seat("support",0,null,sugSup)]}),
+    base({bans:{a:[238,53], e:[141,35]}, enemy:[122,64],
+      seats:[seat("top",54,malph,sugTop), seat("jungle",254,vi,sugJg), seat("mid",103,ahri,sugMid),
+             seat("adc",0,null,sugAdc), seat("support",0,null,sugSup)]}),
+    base({bans:{a:[238,53], e:[141,35]}, enemy:[122,64,157],
+      seats:[seat("top",54,malph,sugTop), seat("jungle",254,vi,sugJg), seat("mid",103,ahri,sugMid),
+             seat("adc",0,null,sugAdc), seat("support",412,thresh,sugSup)]})];
+}
+function runDemo(){
+  demoMeta();
+  const frames = demoPayloads();
+  if (state.claimed === null) state.claimed = 3;      // open on the empty ADC seat's cards
+  let i = 0;
+  const step = () => {
+    state.pay = frames[Math.min(i, frames.length - 1)];
+    state.live = "live";
+    render();
+    i = i >= frames.length + 1 ? 0 : i + 1;           // hold the final frame, then loop
+    setTimeout(step, i === 0 ? 1200 : 3500);
+  };
+  step();
+}
+
+/* ============ boot ============ */
+if (H.demo) runDemo();
+else if (H.d && dbOk(H.db)) connect();
+else { state.live = "err"; render(); }
+</script>
+</body>
+</html>

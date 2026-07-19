@@ -30,6 +30,7 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **Scouts everyone live** — rank, form, player grades (S–F from how they actually *play*), duo detection, and a **dodge read** that flags tilted or struggling teammates *while you can still dodge*
 - **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, with optional **auto-ban** that waits until the last seconds for maximum hover intel
 - **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
+- **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
 - **One-click (or automatic) runes + summoners import**, multiple rune sets, favourite picks
 - **Climb guards** — warns when you hover a champ you barely play (sub-12k-mastery picks win ~44%, per a 1M-game study), and only suggests champs you actually main — pooled across all your accounts
 
