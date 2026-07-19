@@ -30,14 +30,27 @@ jobs:
 
       - name: Install AutoHotkey v2 + Ahk2Exe (at the paths build.ps1 expects)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # autohotkey.com sits behind a Cloudflare bot challenge that blocks CI downloads,
+          # so fetch both tools from their GitHub release assets instead.
           $ErrorActionPreference = "Stop"
-          Invoke-WebRequest https://www.autohotkey.com/download/ahk-v2.zip -OutFile ahk2.zip
+          $hdr = @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $rel = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest" -Headers $hdr
+          $url = ($rel.assets | Where-Object { $_.name -match "^AutoHotkey_2.*\.zip$" })[0].browser_download_url
+          Invoke-WebRequest $url -OutFile ahk2.zip
           Expand-Archive ahk2.zip -DestinationPath ahk2
           New-Item -ItemType Directory -Force "C:\Program Files\AutoHotkey\v2" | Out-Null
-          Copy-Item ahk2\* "C:\Program Files\AutoHotkey\v2\" -Recurse -Force
-          Invoke-WebRequest https://github.com/AutoHotkey/Ahk2Exe/releases/latest/download/Ahk2Exe.zip -OutFile ahk2exe.zip
-          Expand-Archive ahk2exe.zip -DestinationPath "C:\Program Files\AutoHotkey\Compiler"
+          $exe = Get-ChildItem ahk2 -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          Copy-Item (Join-Path $exe.DirectoryName "*") "C:\Program Files\AutoHotkey\v2\" -Recurse -Force
+          $rel2 = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest" -Headers $hdr
+          $url2 = ($rel2.assets | Where-Object { $_.name -match "^Ahk2Exe.*\.zip$" })[0].browser_download_url
+          Invoke-WebRequest $url2 -OutFile ahk2exe.zip
+          Expand-Archive ahk2exe.zip -DestinationPath ahk2exe
+          New-Item -ItemType Directory -Force "C:\Program Files\AutoHotkey\Compiler" | Out-Null
+          $c = Get-ChildItem ahk2exe -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
+          Copy-Item (Join-Path $c.DirectoryName "*") "C:\Program Files\AutoHotkey\Compiler\" -Recurse -Force
           if (-not (Test-Path "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe")) { throw "AHK v2 missing" }
           if (-not (Test-Path "C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe")) { throw "Ahk2Exe missing" }
 
