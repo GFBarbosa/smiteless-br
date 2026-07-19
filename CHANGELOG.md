@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.31
+- **The 2nd-monitor board is smaller by default and can't get clipped anymore.** The scout board used to render large enough to fill the whole monitor — way too big on bigger screens. There's now a **Board size** slider in Settings (default 70%, applies to the next frame) so you can size it however you like. And the board no longer had a hard "never shrink below 50%" floor that made it spill off the edges of smaller monitors — it now always scales down to fit the screen it's on, so nothing gets cut off.
+
 ## v0.9.30
 - **The Live Draft Link — give the whole lobby the scout, even the four people who'll never install anything.** In champ select, Smiteless now posts **one URL into the lobby chat**; anyone who clicks it lands on a live web board of the current draft: both teams, bans, and per-seat **champion suggestions with runes** for this exact game. They tap "This is me" on their seat and the picks + rune cards keep updating live as the draft evolves — no app, no account, no refresh. Runs on GitHub Pages + a free Firebase database ($0/month, ~5-minute one-time setup: Settings → LIVE DRAFT LINK, guide in docs/DRAFTLINK.md). Publishes champion/rune IDs only — no names, no ranks, nothing personal — and each draft is retired the moment champ select ends.
 

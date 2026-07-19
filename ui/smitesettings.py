@@ -125,6 +125,10 @@ def main():
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
                        5, 60, 1, s["profile_games"], lambda v: f"{int(v)}")
+    bsize = scale_row("Board size (2nd-monitor scout)",
+                      "how big the champ-select / in-game board renders. Lower it if the default "
+                      "fills too much of the screen; applies to the next frame.",
+                      40, 100, 5, s.get("board_size", 70), lambda v: f"{int(v)}%")
     solocoach = tk.BooleanVar(value=s.get("solo_coaching", True))
     _solo_wrap = tk.Frame(body, bg=VOID)
     _solo_wrap.pack(fill="x", padx=18, pady=(0, 2))
@@ -625,7 +629,7 @@ def main():
                   "gank_threshold": cfg.DEFAULTS["gank_threshold"],
                   "gank_kit": cfg.BOOLS["gank_kit"],
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
-                  "dragon_volume": int(dvol.get()),
+                  "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
@@ -651,6 +655,7 @@ def main():
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
+        bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, ghostv,
                   respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach,
                   draftlink):

@@ -16,7 +16,7 @@ Key behaviors:
   python smiteoverlay.py --wait     # auto-open: stay hidden until champs are present
   python smiteoverlay.py --count 10
 """
-import sys, os, threading, ctypes, webbrowser, json, ssl, urllib.request
+import sys, os, threading, ctypes, webbrowser, json, ssl, urllib.request, time
 from ctypes import wintypes
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -154,17 +154,18 @@ def move_window(hwnd, x, y):
         return False
 
 
-def ui_scale(size, mon, extra_h=0):
+def ui_scale(size, mon, extra_h=0, user=1.0):
     """Resolution-adaptive display scale for a rendered frame. The boards are drawn for a
     1080p-tall screen: on a shorter screen (lower in-game display resolution, a laptop)
-    they shrink proportionally, and every frame is additionally hard-clamped to FIT its
-    monitor (the champ-select panel is taller than a 1080p screen at full size). Never
-    upscales — text stays crisp on big monitors."""
+    they shrink proportionally. `user` (0.4–1.0, the Board size setting) shrinks the target
+    further so the board isn't forced to fill a big monitor. Every frame is then hard-clamped
+    to FIT its monitor — the fit clamp always wins, so a small monitor can never clip the
+    board off (the old 0.5 floor did exactly that). Never upscales — text stays crisp."""
     w, h = size
     mw, mh = max(1, mon[2] - mon[0]), max(1, mon[3] - mon[1])
-    s = min(1.0, mh / 1080.0)
-    s = min(s, (mh - 16 - extra_h) / max(1, h), (mw - 16) / max(1, w))
-    return max(0.5, s)
+    s = min(1.0, mh / 1080.0) * max(0.4, min(1.0, user))
+    s = min(s, (mh - 16 - extra_h) / max(1, h), (mw - 16) / max(1, w))   # fit wins -> never clips
+    return max(0.15, s)
 
 
 def _open_profile():
@@ -363,8 +364,21 @@ def main():
 
     st = {"img": None, "dirty": False, "ref": None, "size": None, "hitmap": [],
           "pos": None, "shown": False, "closing": False, "done": False,
-          "docked": False, "client_moved": None, "barh": bar_h}
+          "docked": False, "client_moved": None, "barh": bar_h,
+          "usize": cfg.load().get("board_size", 70) / 100.0, "usize_ts": 0.0}
     lock = threading.Lock()
+
+    def board_size():
+        """Board-size setting as a 0.4–1.0 factor, re-read at most once/sec so dragging the
+        Board size slider in Settings takes effect on the very next frame (no relaunch)."""
+        now = time.time()
+        if now - st["usize_ts"] > 1.0:
+            try:
+                st["usize"] = cfg.load().get("board_size", 70) / 100.0
+            except Exception:
+                pass
+            st["usize_ts"] = now
+        return st["usize"]
 
     def emit(pil_img):                           # called from the worker thread (no Tk here!)
         with lock:
@@ -542,7 +556,10 @@ def main():
                     sc.BOARD_TARGET = want_target
             except Exception:
                 pass
-            s = ui_scale(pil.size, mon, extra_h=0 if want_dock else bar_h)
+            # Board size only shrinks the free-floating board (the 2nd-monitor scout); the
+            # docked champ-select panel already fits itself to the client's height.
+            s = ui_scale(pil.size, mon, extra_h=0 if want_dock else bar_h,
+                         user=1.0 if want_dock else board_size())
             disp = pil if s >= 0.999 else pil.resize(
                 (max(1, round(pil.width * s)), max(1, round(pil.height * s))), Image.LANCZOS)
             ref = ImageTk.PhotoImage(disp)       # build on the Tk (main) thread
