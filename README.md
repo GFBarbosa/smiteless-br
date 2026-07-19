@@ -16,6 +16,10 @@
 
 ![Death brief](docs/preview_death_ui.png)
 
+**The Live Draft Link** — one URL posted into champ-select chat; teammates click it and get the live draft with pick + rune suggestions for their seat, no install needed ([setup](docs/DRAFTLINK.md)):
+
+![Live draft board](docs/draft_board.png)
+
 > ⚠️ **Small personal project — Windows + NA only, no warranty.** Not affiliated with or endorsed by Riot Games; respect the [Riot API terms](https://developer.riotgames.com/policies/general). The player scout needs your own free Riot API key.
 
 ## ⬇️ Install
