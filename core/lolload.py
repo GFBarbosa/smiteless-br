@@ -288,6 +288,23 @@ def _plan(dd, my, en):
     return out[:4] or ["Even comps — play your matchup, track the enemy jungler, trade objectives."]
 
 
+def _wincons(dd, my, en):
+    """The pre-game WIN/LOSE condition pair (§5): the one thing the loading screen can say
+    that the live board doesn't — how this specific comp matchup is won and thrown."""
+    mc, ec = _comp_read(dd, my), _comp_read(dd, en)
+    if mc["scalers"] > ec["scalers"]:
+        return {"win": "drag it late — farm, stall, don't coinflip; you out-scale at 3 items",
+                "lose": "bleeding early kills before your spikes come online"}
+    if ec["scalers"] > mc["scalers"]:
+        return {"win": "end before 25 — turn every kill into towers and objectives",
+                "lose": "letting it go late — their comp outgrows yours"}
+    if mc["divers"] > ec["divers"]:
+        return {"win": "force fights and picks — your comp hits harder in chaos",
+                "lose": "letting them poke and siege on their own terms"}
+    return {"win": "take the next neutral objective off a pick — trade cross-map",
+            "lose": "coin-flipping 5v5s without vision or a numbers edge"}
+
+
 def brief(dd, key=None, scout=True):
     """The loading brief. scout=False returns FAST (champs + tags + damage + plan, no Riot API)
     so the overlay can appear instantly; scout=True additionally pulls each player's rank/form/
@@ -329,4 +346,5 @@ def brief(dd, key=None, scout=True):
         _duo_pass(allies, key)
         _duo_pass(enemies, key)
     return {"allies": allies, "enemies": enemies,
-            "plan": _plan(dd, my, en), "scouted": bool(key)}
+            "plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en),
+            "scouted": bool(key)}

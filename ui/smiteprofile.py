@@ -170,7 +170,8 @@ def main():
     dd = lb.ddragon()
     key = ls.read_key()
     st = {"count": cfg.load().get("profile_games", 30), "busy": False, "photo_top": None, "photo_bottom": None,
-          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "hit": [], "hit_reviews": [],
+          "split_y": 0, "prof": None, "expanded": set(), "details": {}, "nav": [],
+          "hit": [], "hit_reviews": [],
           "hit_players": [], "view": None, "own_prof": None,   # view None = my profile; else {puuid, riot_id}
           "scale": 1.0, "ox": 0, "_last_w": 0}                 # display scale + x-offset for window-fit
 
@@ -223,7 +224,7 @@ def main():
     status.pack(fill="x", padx=14, pady=(0, 6))
     bar = tk.Frame(root, bg=skin.SURFACE)
     bar.pack(side="bottom", fill="x")
-    backbtn = tk.Button(bar, text="← my profile", bg=skin.RAISED, fg=skin.EMBER, activebackground=skin.HOVER,
+    backbtn = tk.Button(bar, text="← back", bg=skin.RAISED, fg=skin.EMBER, activebackground=skin.HOVER,
                         activeforeground=skin.EMBER, relief="flat", font=skin.body(skin.SMALL, bold=True),
                         padx=12, pady=4, cursor="hand2")
     search = tk.Entry(bar, bg=skin.SUNKEN, fg=skin.TXT, insertbackground=skin.TXT, relief="flat",
@@ -398,11 +399,19 @@ def main():
     refreshbtn.config(command=lambda: _load(force=True))
 
     def _open_view(riot_id=None, puuid=None):
-        """Switch the window to another player's profile (search / clicked a name)."""
+        """Switch the window to another player's profile (search / clicked a name).
+        Pushes the CURRENT page — profile, expanded games, scroll position — onto a nav
+        stack, so back returns EXACTLY where you were (§9: deep-diving accounts is a
+        stack walk, not a reset). Match details are match-keyed and immutable, so the
+        shared details cache survives every hop and re-expands are instant."""
         if st["busy"]:
             return
-        if st["view"] is None and st["prof"]:
-            st["own_prof"] = st["prof"]                   # keep mine for the back button
+        if st["prof"]:
+            st["nav"].append({"view": st["view"], "prof": st["prof"],
+                              "expanded": set(st["expanded"]), "count": st["count"],
+                              "scroll": canvas.yview()[0] if canvas.yview() else 0.0})
+            if st["view"] is None:
+                st["own_prof"] = st["prof"]               # still kept as a safety net
         st["view"] = {"riot_id": riot_id, "puuid": puuid}
         st["expanded"] = set()
         st["count"] = cfg.load().get("profile_games", 30)
@@ -411,13 +420,27 @@ def main():
         _load(False)
 
     def _go_back():
-        st["view"] = None
-        st["expanded"] = set()
-        backbtn.pack_forget()
-        if st["own_prof"]:
-            _apply(st["own_prof"])                        # instant; no refetch
-        else:
-            _load(False)
+        if not st["nav"]:                                 # nothing to pop -> classic reset home
+            st["view"] = None
+            st["expanded"] = set()
+            backbtn.pack_forget()
+            if st["own_prof"]:
+                _apply(st["own_prof"])
+            else:
+                _load(False)
+            return
+        fr = st["nav"].pop()
+        st["view"] = fr["view"]
+        st["expanded"] = fr["expanded"]
+        st["count"] = fr["count"]
+        st["prof"] = fr["prof"]
+        st["busy"] = False
+        if not st["nav"]:
+            backbtn.pack_forget()
+        _render()
+        canvas.yview_moveto(fr.get("scroll") or 0.0)      # land on the exact row you left
+        who = (fr["view"] or {}).get("riot_id") or "your profile"
+        status.config(text=f"back to {who}")
 
     def _do_search(_e=None):
         q = search.get().strip()
@@ -444,6 +467,23 @@ def main():
                 pass
             st["details"][mid] = det
             root.after(0, _render)
+            # each player's CURRENT rank (§9): 10 cached league-v4 reads, filled in after
+            # the detail is already on screen so the expand never waits on them
+            try:
+                if det.get("parts"):
+                    ranks = {}
+                    for pl in det["parts"]:
+                        pu = pl.get("puuid")
+                        if not pu:
+                            continue
+                        rk = ls.rank(pu, key)
+                        if rk and rk.get("tier"):
+                            ranks[pu] = rk
+                    if ranks:
+                        det["ranks"] = ranks
+                        root.after(0, _render)
+            except Exception:
+                pass
         threading.Thread(target=work, daemon=True).start()
 
     def _show_review(game):

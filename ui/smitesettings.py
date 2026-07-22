@@ -107,7 +107,7 @@ def main():
         sc.pack(fill="x", padx=10)
         descv = tk.StringVar()
         tk.Label(fr, textvariable=descv, bg=SURFACE, fg=MUTED, font=skin.body(SMALL),
-                 anchor="w", justify="left").pack(fill="x", padx=12, pady=(0, 8))
+                 anchor="w", justify="left", wraplength=430).pack(fill="x", padx=12, pady=(0, 8))
 
         def upd(_=None):
             v = sc.get()
@@ -187,34 +187,50 @@ def main():
     draftlink = tk.BooleanVar(value=s.get("draft_link", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
+    # FEATURES, grouped (§15): one card per surface family instead of a flat two-column
+    # dump of 19 checkboxes — you find a toggle by asking "where does it live", and each
+    # card's rail marks the group.
     skin.section_rule(body, "FEATURES").pack(fill="x", padx=18, pady=(10, 2))
-    ffr = tk.Frame(body, bg=VOID)
-    ffr.pack(fill="x", padx=16)
-    _c1 = skin.card(ffr, rail=LINE)
-    _c1.pack(side="left", fill="both", expand=True, padx=(0, 5))
-    _c2 = skin.card(ffr, rail=LINE)
-    _c2.pack(side="left", fill="both", expand=True, padx=(5, 0))
-    col1 = tk.Frame(_c1.body, bg=SURFACE); col1.pack(fill="both", expand=True, padx=10, pady=8)
-    col2 = tk.Frame(_c2.body, bg=SURFACE); col2.pack(fill="both", expand=True, padx=10, pady=8)
-    _chk(col1, "In-game item widget", widget, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Live game intel (timers + win read)", intel, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Tempo coach (objective setup windows)", tempo, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Free-objective alarm (enemy jg can't contest)", freev, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Tempo voice callouts (base / rotate / take)", tempov, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Dragon spawn audio (45/30/15s)", dragon, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Ghost race (chase your best game)", ghostv, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Respawn plan (death-screen card)", respawnv, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Death brief (fullscreen while dead)", deadbrief, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Loading brief (matchup on load screen)", loadbrief, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Matchup lane tips (written guides)", tips, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Auto-accept queue", autoq, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Auto-import runes + summs on lock", autoimp, bg=SURFACE).pack(anchor="w")
-    _chk(col1, "Auto-ban top recommended (champ select)", autoban, bg=SURFACE).pack(anchor="w")
-    _chk(col2, "Duo / premade detection", duo, bg=SURFACE).pack(anchor="w")
-    _chk(col2, "Dodge alerts (champ select)", dodge, bg=SURFACE).pack(anchor="w")
-    _chk(col2, "Dock champ-select panel by client", dock, bg=SURFACE).pack(anchor="w")
-    _chk(col2, "Keep live board always on top", boardtop, bg=SURFACE).pack(anchor="w")
-    _chk(col2, "Live draft link (post board URL in chat)", draftlink, bg=SURFACE).pack(anchor="w")
+
+    def _feat_group(title, items):
+        card = skin.card(body, rail=LINE)
+        card.pack(fill="x", padx=14, pady=4)
+        inner = tk.Frame(card.body, bg=SURFACE)
+        inner.pack(fill="x", padx=10, pady=(6, 8))
+        tk.Label(inner, text=title, bg=SURFACE, fg=EMBER,
+                 font=skin.body(SMALL, bold=True)).grid(row=0, column=0, columnspan=2,
+                                                        sticky="w", pady=(0, 2))
+        inner.columnconfigure(0, weight=1, uniform="feat")
+        inner.columnconfigure(1, weight=1, uniform="feat")
+        for i, (lbl, var) in enumerate(items):
+            _chk(inner, lbl, var, bg=SURFACE).grid(row=1 + i // 2, column=i % 2,
+                                                   sticky="w", padx=(0, 8))
+
+    _feat_group("IN-GAME WIDGET", [
+        ("Item widget", widget),
+        ("Live intel (timers + win read)", intel),
+        ("Tempo coach (objective windows)", tempo),
+        ("Free-objective alarm", freev),
+        ("Voice callouts (base / take)", tempov),
+        ("Dragon spawn audio", dragon),
+        ("Ghost race (chase your best)", ghostv),
+        ("Respawn plan (death card)", respawnv),
+    ])
+    _feat_group("OVERLAYS & BOARDS", [
+        ("Death brief (while dead)", deadbrief),
+        ("Loading brief (load screen)", loadbrief),
+        ("Matchup lane tips", tips),
+        ("Duo / premade detection", duo),
+        ("Keep live board always on top", boardtop),
+        ("Dock champ-select panel by client", dock),
+    ])
+    _feat_group("CHAMP-SELECT AUTOMATION", [
+        ("Auto-accept queue", autoq),
+        ("Auto-import runes + summs on lock", autoimp),
+        ("Auto-ban (perma-ban list first)", autoban),
+        ("Dodge alerts", dodge),
+        ("Live draft link (URL in chat)", draftlink),
+    ])
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}

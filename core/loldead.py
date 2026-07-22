@@ -218,13 +218,46 @@ def _scalers(dd, rows):
     return n
 
 
+def _comeback(dd, me, board):
+    """The DOOMED-game line (§12): when the gold says you're clearly behind, the generic
+    win-con isn't enough — give ONE concrete stabilizing line, gated to what YOUR champ
+    and role can actually execute (a support doesn't get told to split-push). Grounded in
+    the standard behind-game macro canon: behind teams win off enemy mistakes and picks,
+    not called fights; stall to your item spike; give what you can't win and take waves
+    for it; vision on YOUR side of the map, not theirs."""
+    cid = dd["name2id"].get(dd["norm"]((me or {}).get("championName", "")))
+    cls = _cls(dd, cid)
+    pos = ((me or {}).get("position") or "").upper()
+    if pos in ("UTILITY", "SUPPORT") or cls == "Support":
+        return ("Behind — play for PICKS: sweep + ward YOUR side, catch a face-check. "
+                "One pick = your next objective.")
+    if pos == "TOP" and cls in ("Fighter", "Tank") or dd.get("id2name", {}).get(cid) in (
+            "Jax", "Tryndamere", "Fiora", "Camille", "Yorick", "Trundle"):
+        return ("Behind — take a side lane: catch waves, drag their sidelaner, don't "
+                "flip mid. Join for soul/Baron only.")
+    if cls == "Marksman":
+        return ("Behind — stall to your item spike: farm safe, defend at YOUR tower, "
+                "don't contest without numbers.")
+    if cls == "Assassin":
+        return ("Behind — don't group front-to-front: flank from fog; one pick on a "
+                "carry makes the next fight 5v4.")
+    if cls == "Mage":
+        return ("Behind — waveclear and stall at your towers; poke, don't engage. "
+                "Fight only off a pick or their mistake.")
+    return ("Behind — give what you can't win, take waves for it; engage only on "
+            "their mistake. Picks win from behind.")
+
+
 def _wincon(dd, data, me, allies, enemies, wp, board):
     """How YOU win this specific game — the strategic anchor to hold onto on the grey screen."""
     ahead = bool(wp and wp.get("ahead"))
     my_s, en_s = _scalers(dd, allies), _scalers(dd, enemies)
     myrow = next((r for r in (board.get("allies") or []) if r.get("me")), None)
+    lead = int(board.get("gold_lead") or 0)
     if myrow and myrow.get("fed"):
         return "You're the win condition — take objectives with your lead and close before they scale."
+    if lead <= -2500:                        # clearly losing on gold -> the champ-gated comeback line
+        return _comeback(dd, me, board)
     if ahead and my_s <= en_s:
         return "You're ahead — force tempo NOW: take towers and objectives, end before it evens out."
     if my_s > en_s:
@@ -246,6 +279,49 @@ def _threat(dd, board):
             "sub": _COUNTER.get(cls, "shut him down — deny him kills, group and focus him")}
 
 
+def _chain_risk(dd, data, me, gt):
+    """PRE-EMPTIVE chained-death read (§13): the reactive 'you died again' is useless —
+    this fires while you're STILL DEAD, from conditions that precede a repeat death, so
+    the warning lands before you walk back in. One line + one instruction, or None.
+    Conditions (all from the live events feed): this death chained off the last one
+    (<90s), the same enemy has killed you repeatedly, or the enemy team just took an
+    objective (= they're grouped and moving) right before you respawn."""
+    myg = _gname(me)
+    evs = (data.get("events") or {}).get("Events") or []
+    my_deaths = [e for e in evs if e.get("EventName") == "ChampionKill"
+                 and lg_gname(e.get("VictimName")) == myg]
+    if not my_deaths:
+        return None
+    risks = []
+    if len(my_deaths) >= 2:
+        gap = float(my_deaths[-1].get("EventTime") or 0) - float(my_deaths[-2].get("EventTime") or 0)
+        if 0 < gap <= 90:
+            risks.append((f"CHAINING — this death came {int(gap)}s after the last",
+                          "walk to a WAVE, not to the fight. Break the loop this respawn."))
+    killers = [lg_gname(e.get("KillerName")) for e in my_deaths[-3:]]
+    killers = [k for k in killers if k and not _env_killer(k)]
+    if killers and len(killers) >= 2 and killers.count(killers[-1]) >= 2:
+        nm = _short(my_deaths[-1].get("KillerName"))
+        risks.append((f"{nm} has killed you {killers.count(killers[-1])} of your last {len(killers)}",
+                      "path AWAY from them — they're playing to snowball on you"))
+    for e in reversed(evs):
+        if e.get("EventName") in ("DragonKill", "BaronKill", "HeraldKill") \
+                and gt - float(e.get("EventTime") or 0) <= 25:
+            ally_names = set()          # killer ally? caller ctx unavailable -> check vs my team below
+            k = lg_gname(e.get("KillerName") or "")
+            split = ll.team_split(data)
+            if split and not any(_gname(p) == k for p in split[1]):   # enemy took it
+                obj = {"DragonKill": "the drake", "BaronKill": "BARON",
+                       "HeraldKill": "the Herald"}[e["EventName"]]
+                risks.append((f"They just took {obj} — they're 5, grouped, and moving",
+                              "do NOT walk mid alone; group or cross-map for a wave"))
+            break
+    if not risks:
+        return None
+    line, sub = risks[0]
+    return {"line": line, "sub": sub}
+
+
 def lg_gname(name):
     return lg._gname(name or "")
 
@@ -260,7 +336,7 @@ def brief(dd, data):
            "verdict": dead.get("line") or "", "verdict_sub": dead.get("sub") or "",
            "gametime": gt, "buy": None, "winprob": None, "spike": None,
            "jungle": None, "objectives": [], "feed": [], "board": None,
-           "why": None, "wincon": None, "threat": None}
+           "why": None, "wincon": None, "threat": None, "chain": None}
     try:
         rc = li.recall_advice(dd, data)
         out["buy"] = rc.get("text") if rc else None
@@ -295,6 +371,10 @@ def brief(dd, data):
             out["why"] = _death_cause(dd, data, me, enemies, gt)
         except Exception:
             out["why"] = None
+        try:
+            out["chain"] = _chain_risk(dd, data, me, gt)
+        except Exception:
+            out["chain"] = None
         try:
             out["wincon"] = _wincon(dd, data, me, allies, enemies, out.get("winprob"), out["board"])
         except Exception:

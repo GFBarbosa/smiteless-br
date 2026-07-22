@@ -668,6 +668,25 @@ def rank_gank_labels(scores):
     return out
 
 
+def gank_directive(dd, gscores, glabels, enemy_role):
+    """The gank read as ONE CALL, not a table of numbers (§6): where to go right now, or
+    the honest fallback when nothing clears the bar. (text, color) or None. The scores
+    already carry the live shift (deaths + level leads), so 'GO TOP' means top *now*."""
+    if not gscores:
+        return None
+    best = max(gscores, key=gscores.get)
+    s = gscores[best]
+    champ = dd["id2name"].get(enemy_role.get(best, 0), "")
+    vs = f" (vs {champ})" if champ else ""
+    if s >= GANK_T:
+        if glabels.get(best) == "BEST":
+            return f"GO {best.upper()} — best gank on the map{vs}", GREEN
+        return f"gank {best.upper()} when it's pushed{vs}", ARC
+    worst = min(gscores, key=gscores.get)
+    tail = f" — and stay out of {worst.upper()}" if gscores[worst] <= -GANK_T else ""
+    return f"NO GOOD GANKS — farm tempo, set up the next objective{tail}", TAN
+
+
 def queue_prediction(my_cid, scout_map, duo_map):
     """Winners/losers queue read from recent team WR vs enemy WR.
     Excludes you and your detected duo partner(s) from the ally average."""
@@ -963,15 +982,53 @@ def _champ_id_from_name(dd, name):
 DETAIL_H = 258          # height of an expanded game's 10-player breakdown + quick review
 
 
-def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve", duos=None):
+DEMON = (222, 40, 52)     # the "demise of us all" step below BAD — reserved for catastrophic games
+
+
+def _perf_color(score):
+    """Performance color ramp for the match-detail stat lines (§16): grade-driven (the
+    _grade_game score — role-benchmarked play, not raw KDA), five steps
+    great/good/okay/bad/catastrophic. None (ungradeable) stays neutral."""
+    if score is None:
+        return TAN
+    if score >= 92:
+        return ARC
+    if score >= 78:
+        return GREEN
+    if score >= 58:
+        return TAN
+    if score >= 42:
+        return WARN
+    if score >= 30:
+        return RED
+    return DEMON
+
+
+def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve",
+                       duos=None, dur=0, ranks=None):
     """The 10-player breakdown for an expanded game: name (clickable -> their profile),
-    KDA, full item build as icons, damage/cs/gold/vision, duo markers - both teams, plus
-    the review panel. Returns {'review': box, 'players': [(x0,y0,x1,y1,puuid,name)]}."""
+    current rank, perf-colored KDA, full item build as icons, damage/cs/gold/vision, duo
+    markers - both teams, plus the review panel. KDA color comes from each player's
+    _grade_game score for THIS game (role-benchmarked), so a 2/11 top laner reads demon
+    red at a glance while a quiet 6/7 stays neutral.
+    Returns {'review': box, 'players': [(x0,y0,x1,y1,puuid,name)]}."""
     duos = duos or {}
+    ranks = ranks or {}
     _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=SURFACE, outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
     myteam = me["team"] if me else 100
     maxd = max((pl["dmg"] for pl in parts), default=1) or 1
+    scores = {}
+    try:
+        import lolprofile as lp
+        for pl in parts:
+            try:
+                s, _lt, _lb = lp._grade_game(parts, pl, dur)
+                scores[pl["puuid"]] = s
+            except Exception:
+                pass
+    except Exception:
+        pass
     pad, rw = 16, 232
     colw = (w - (pad * 2) - rw - 24) // 2
     teams = [[pl for pl in parts if pl["team"] == myteam],
@@ -991,10 +1048,16 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
             if pl["puuid"] in duos:                       # premade marker (same color = same duo)
                 _duo_marker(d, cx - 6, ry + 6, duos[pl["puuid"]], "L")
             name = (pl.get("name") or pl.get("champ") or "?").split("#")[0][:14]
-            d.text((cx + 32, ry), name, font=font(10, 1 if mine else 0),
-                   fill=GOLD if mine else TEXT)
+            nf = font(10, 1 if mine else 0)
+            d.text((cx + 32, ry), name, font=nf, fill=GOLD if mine else TEXT)
+            rk = ranks.get(pl["puuid"])
+            if rk:                                        # current rank beside the name (§9)
+                rtxt, rcol = rank_str(rk)
+                d.text((cx + 36 + d.textlength(name, font=nf), ry + 1),
+                       rtxt.split(" ")[0], font=font(9, 1), fill=rcol)
             d.text((cx + colw - 2, ry), f"{pl['k']}/{pl['d']}/{pl['a']}",
-                   font=display_font(10, True), fill=GOLD if mine else TAN, anchor="ra")
+                   font=display_font(10, True),
+                   fill=_perf_color(scores.get(pl["puuid"])), anchor="ra")
             # damage bar under the name, then items + economy line
             bx, bw_ = cx + 32, 92
             _rrect(d, (bx, ry + 14, bx + bw_, ry + 18), 2, fill=SUNKEN)
@@ -1381,7 +1444,8 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
             if parts:
                 rb = _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
                                         g.get("review"), g.get("review_kind", "improve"),
-                                        duos=det.get("duos"))
+                                        duos=det.get("duos"), dur=det.get("dur", 0),
+                                        ranks=det.get("ranks"))
                 if rb:
                     r = rb["review"]
                     hit_reviews.append((r[0], r[1], r[2], r[3], i))
@@ -2518,7 +2582,7 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
     plan = game_plan(dd, list(ally_role.values()), list(enemy_role.values()))
     plan_h = (S(26) + len(plan) * S(16) + S(8)) if plan else 0
     ROW, GAP = S(92), S(8)
-    rows_y = HERO + S(8) + S(36) + S(8)
+    rows_y = HERO + S(8) + S(58) + S(8)      # strip carries the queue read + the gank CALL
     H = rows_y + 5 * (ROW + GAP) + (panel_h + S(10) if panel_h else 0) + plan_h + S(42)
     img = Image.new("RGB", (BW, H), BG)
     d = ImageDraw.Draw(img)
@@ -2560,22 +2624,8 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
                suffix_col=FAINT)
     d.line([(0, HERO - 1), (BW, HERO - 1)], fill=_dim(GOLD, 0.55), width=1)
 
-    # ============================ VERDICT STRIP ============================
-    duo_all = detect_duos(scout_map)
-    duo_of = duo_all if DUO_ON else {}
-    qr = queue_prediction(my_cid, scout_map, duo_all)
-    ga, ge = team_avg_grades(scout_map)
-    sy = HERO + S(8)
-    _railed_card(d, (S(14), sy, BW - S(14), sy + S(36)), qr.get("fill") or ARC, fill=SURFACE,
-                 outline=PEDGE, width=1)
-    d.text((S(32), sy + S(10)), qr["text"], font=display_font(S(13), True), fill=qr["fill"])
-    d.text((BW / 2, sy + S(18)), "YOUR TEAM", font=display_font(S(11), True), fill=GREEN, anchor="rm")
-    d.text((BW / 2 + S(4), sy + S(18)), "  vs  ENEMY", font=display_font(S(11), True), fill=RED, anchor="lm")
-    if ga and ge:
-        d.text((BW - S(30), sy + S(10)), f"team grades  {ga}  vs  {ge}",
-               font=display_font(S(12), True), fill=TEXT, anchor="ra")
-
-    # gank scores first, so labels are RELATIVE (see rank_gank_labels)
+    # gank scores first: the labels are RELATIVE (see rank_gank_labels) and the verdict
+    # strip's CALL line needs them before it draws
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0
     gscores = {}
     for role, _lbl in ROLES:
@@ -2589,6 +2639,26 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             s += float(live_gank.get(role, 0.0))
         gscores[role] = s
     glabels = rank_gank_labels(gscores)
+
+    # ============================ VERDICT STRIP ============================
+    duo_all = detect_duos(scout_map)
+    duo_of = duo_all if DUO_ON else {}
+    qr = queue_prediction(my_cid, scout_map, duo_all)
+    ga, ge = team_avg_grades(scout_map)
+    sy = HERO + S(8)
+    _railed_card(d, (S(14), sy, BW - S(14), sy + S(58)), qr.get("fill") or ARC, fill=SURFACE,
+                 outline=PEDGE, width=1)
+    d.text((S(32), sy + S(8)), qr["text"], font=display_font(S(13), True), fill=qr["fill"])
+    d.text((BW / 2, sy + S(16)), "YOUR TEAM", font=display_font(S(11), True), fill=GREEN, anchor="rm")
+    d.text((BW / 2 + S(4), sy + S(16)), "  vs  ENEMY", font=display_font(S(11), True), fill=RED, anchor="lm")
+    if ga and ge:
+        d.text((BW - S(30), sy + S(8)), f"team grades  {ga}  vs  {ge}",
+               font=display_font(S(12), True), fill=TEXT, anchor="ra")
+    call = gank_directive(dd, gscores, glabels, enemy_role)
+    if call:                                     # §6: the decision, not the math
+        ctxt, ccol = call
+        d.text((S(32), sy + S(32)), "CALL", font=display_font(S(11), True), fill=FAINT)
+        d.text((S(78), sy + S(31)), ctxt, font=display_font(S(13), True), fill=ccol)
 
     # ============================ LANE ROWS ============================
     cxc = BW // 2

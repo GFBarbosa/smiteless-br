@@ -139,7 +139,8 @@ def render_frame(dd, b, W, H):
     plan = b.get("plan") or []
 
     hdr_h, sect_h, gap = S(46), S(26), S(6)
-    plan_h = S(30) + S(19) * min(3, len(plan)) + S(8) if plan else 0
+    wc = b.get("wincons") or {}
+    plan_h = (S(30) + S(19) * min(3, len(plan)) + (S(40) if wc else 0) + S(8)) if plan else 0
     block = hdr_h + 2 * sect_h + (RH + gap) * (len(allies) + len(enemies)) + S(14) + plan_h
     top = max(S(28), (H - block) // 2)
 
@@ -318,6 +319,13 @@ def render_frame(dd, b, W, H):
         for line in plan[:3]:
             d.text((x0 + S(16), py), "→ " + line, font=_wfont(S(12)), fill=C_TXT)
             py += S(19)
+        if wc:                                   # the pre-game WIN/LOSE pair (§5)
+            wf = _wfont(S(12), True)
+            d.text((x0 + S(16), py + S(2)), "WIN", font=wf, fill=C_GOOD)
+            d.text((x0 + S(58), py + S(2)), wc.get("win", ""), font=_wfont(S(12)), fill=C_TXT)
+            py += S(19)
+            d.text((x0 + S(16), py + S(2)), "LOSE", font=wf, fill=C_BAD)
+            d.text((x0 + S(58), py + S(2)), wc.get("lose", ""), font=_wfont(S(12)), fill=C_MUTED)
     return img
 
 

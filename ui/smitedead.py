@@ -274,6 +274,13 @@ def render_frame(dd, b, W, H):
         ly = _block(lx, ly, "WHY YOU DIED", C_BAD, why.get("line"), why.get("sub"), C_BAD,
                     ymax=LY1)
 
+    # PRE-EMPTIVE chain read (§13): fires while you're still dead, from conditions that
+    # precede a repeat death — so the warning lands BEFORE you walk back in
+    chain = b.get("chain")
+    if chain:
+        ly = _block(lx, ly, "BEFORE YOU WALK BACK", C_WARN, chain.get("line"),
+                    chain.get("sub"), C_WARN, ymax=LY1)
+
     buy, verdict = b.get("buy"), b.get("verdict")
     if buy or verdict:
         lines = _wrap(d, "→ " + buy, _wfont(S(15), True), colw - S(44))[:1] if buy else []
