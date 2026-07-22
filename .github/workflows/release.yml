@@ -1,0 +1,89 @@
+# Cut a Smiteless release entirely in the cloud — no local checkout needed.
+# Actions tab -> "Release" -> Run workflow -> enter the version (e.g. 0.9.30).
+# Mirrors dist\make-release.ps1: bumps VERSION, builds SmitelessSetup.exe on a
+# Windows runner, commits + tags, and publishes the GitHub Release the in-app
+# updater looks for.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.9.30) — CHANGELOG.md entry should exist first"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install pyinstaller -r requirements.txt
+
+      - name: Install AutoHotkey v2 + Ahk2Exe (at the paths build.ps1 expects)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # autohotkey.com sits behind a Cloudflare bot challenge that blocks CI downloads,
+          # so fetch both tools from their GitHub release assets instead.
+          $ErrorActionPreference = "Stop"
+          $hdr = @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $rel = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest" -Headers $hdr
+          $url = ($rel.assets | Where-Object { $_.name -match "^AutoHotkey_2.*\.zip$" })[0].browser_download_url
+          Invoke-WebRequest $url -OutFile ahk2.zip
+          Expand-Archive ahk2.zip -DestinationPath ahk2
+          New-Item -ItemType Directory -Force "C:\Program Files\AutoHotkey\v2" | Out-Null
+          $exe = Get-ChildItem ahk2 -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          Copy-Item (Join-Path $exe.DirectoryName "*") "C:\Program Files\AutoHotkey\v2\" -Recurse -Force
+          $rel2 = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest" -Headers $hdr
+          $url2 = ($rel2.assets | Where-Object { $_.name -match "^Ahk2Exe.*\.zip$" })[0].browser_download_url
+          Invoke-WebRequest $url2 -OutFile ahk2exe.zip
+          Expand-Archive ahk2exe.zip -DestinationPath ahk2exe
+          New-Item -ItemType Directory -Force "C:\Program Files\AutoHotkey\Compiler" | Out-Null
+          $c = Get-ChildItem ahk2exe -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
+          Copy-Item (Join-Path $c.DirectoryName "*") "C:\Program Files\AutoHotkey\Compiler\" -Recurse -Force
+          if (-not (Test-Path "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe")) { throw "AHK v2 missing" }
+          if (-not (Test-Path "C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe")) { throw "Ahk2Exe missing" }
+
+      - name: Set VERSION
+        shell: pwsh
+        run: |
+          $ver = "${{ github.event.inputs.version }}".TrimStart("v")
+          [IO.File]::WriteAllText("VERSION", $ver)
+          "VER=$ver" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Build SmitelessSetup.exe
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File dist\build.ps1
+
+      - name: Commit VERSION + tag
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "Release v$env:VER"
+          git tag "v$env:VER"
+          git push origin HEAD:main --tags
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Release notes = this version's CHANGELOG section (feeds the update prompt)
+          $md = Get-Content CHANGELOG.md -Raw
+          $m = [regex]::Match($md, "(?s)## v$([regex]::Escape($env:VER))\s*(.*?)(\r?\n## v|\z)")
+          $notes = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "Smiteless v$env:VER" }
+          Set-Content notes.md $notes
+          gh release create "v$env:VER" build\SmitelessSetup.exe `
+            --title "Smiteless v$env:VER" --notes-file notes.md

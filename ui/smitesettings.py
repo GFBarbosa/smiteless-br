@@ -125,6 +125,10 @@ def main():
     pgames = scale_row("Profile: games to load",
                        "how many recent games the home/profile page loads (and per 'Load more')",
                        5, 60, 1, s["profile_games"], lambda v: f"{int(v)}")
+    bsize = scale_row("Board size (2nd-monitor scout)",
+                      "how big the champ-select / in-game board renders. Lower it if the default "
+                      "fills too much of the screen; applies to the next frame.",
+                      40, 100, 5, s.get("board_size", 70), lambda v: f"{int(v)}%")
     solocoach = tk.BooleanVar(value=s.get("solo_coaching", True))
     _solo_wrap = tk.Frame(body, bg=VOID)
     _solo_wrap.pack(fill="x", padx=18, pady=(0, 2))
@@ -180,6 +184,7 @@ def main():
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
     autoban = tk.BooleanVar(value=s.get("auto_ban", False))
     boardtop = tk.BooleanVar(value=s.get("board_topmost", True))
+    draftlink = tk.BooleanVar(value=s.get("draft_link", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     skin.section_rule(body, "FEATURES").pack(fill="x", padx=18, pady=(10, 2))
@@ -209,6 +214,7 @@ def main():
     _chk(col2, "Dodge alerts (champ select)", dodge, bg=SURFACE).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock, bg=SURFACE).pack(anchor="w")
     _chk(col2, "Keep live board always on top", boardtop, bg=SURFACE).pack(anchor="w")
+    _chk(col2, "Live draft link (post board URL in chat)", draftlink, bg=SURFACE).pack(anchor="w")
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
@@ -552,6 +558,60 @@ def main():
     _chk(afr, "Open profile/home on startup", homeonstart).pack(side="left", padx=(18, 0))
     _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
 
+    # ---- Live draft link: the shareable champ-select board (docs/DRAFTLINK.md) ----
+    skin.section_rule(body, "LIVE DRAFT LINK").pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text="Posts ONE link into champ-select chat; anyone who clicks it sees the live "
+             "draft with pick suggestions + runes per seat. Needs your own free Firebase Realtime "
+             "Database URL (5-minute setup, $0 — see docs/DRAFTLINK.md). Empty = off.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    dbfr = skin.card(body, rail=LINE)
+    dbfr.pack(fill="x", padx=14, pady=(0, 5))
+    dbrow = tk.Frame(dbfr.body, bg=SURFACE)
+    dbrow.pack(fill="x", padx=10, pady=(8, 2))
+    tk.Label(dbrow, text="Database URL:", bg=SURFACE, fg=MUTED,
+             font=skin.body(SMALL)).pack(side="left")
+    db_entry = tk.Entry(dbrow, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
+                        font=skin.mono(SMALL))
+    db_entry.pack(side="left", fill="x", expand=True, padx=(6, 0), ipady=3)
+    db_entry.insert(0, s.get("draft_db", ""))
+    db_status = tk.Label(dbfr.body, text="", bg=SURFACE, fg=MUTED, font=skin.body(SMALL),
+                         anchor="w", justify="left")
+    db_status.pack(fill="x", padx=12, pady=(2, 8))
+
+    def _test_draft():
+        # publish a demo draft to the pasted DB and open the resulting page — proves the
+        # whole pipeline (Firebase rules + Pages hosting) without needing a lobby
+        db_status.config(text="publishing a test draft…", fg=MUTED)
+
+        def work():
+            try:
+                import loldraft as ldr
+                cfg.save({"draft_db": db_entry.get().strip()})
+                dbu = ldr._db_url()
+                if not dbu:
+                    raise RuntimeError("that doesn't look like a firebaseio.com / "
+                                       "firebasedatabase.app URL")
+                dd = _lb.ddragon()
+                did = ldr._new_id()
+                ldr.publish(dbu, did, ldr.build_payload(dd, ldr._demo(dd)))
+                url = ldr.link_for(did)
+                webbrowser.open(url)
+                root.after(0, lambda: db_status.config(text="test draft published ✓ — opened in "
+                                                            "your browser", fg=GOOD))
+            except Exception as e:
+                msg = f"test failed: {str(e)[:70]}"
+                root.after(0, lambda: db_status.config(text=msg, fg=BAD))
+        import threading
+        threading.Thread(target=work, daemon=True).start()
+
+    dbbtns = tk.Frame(dbfr.body, bg=SURFACE)
+    dbbtns.pack(fill="x", padx=10, pady=(0, 8))
+    skin.button(dbbtns, "Setup guide ↗", lambda: webbrowser.open(
+        "https://github.com/bobbyroylee/smiteless/blob/main/docs/DRAFTLINK.md")).pack(
+        side="left", padx=(0, 4))
+    skin.button(dbbtns, "Save + test", _test_draft, primary=True).pack(side="left", padx=4)
+
     skin.section_rule(body, "RIOT API KEY").pack(fill="x", padx=18, pady=(12, 2))
     keyfr = skin.card(body, rail=WARN)
     keyfr.pack(fill="x", padx=14, pady=(0, 5))
@@ -634,7 +694,7 @@ def main():
                   "gank_threshold": cfg.DEFAULTS["gank_threshold"],
                   "gank_kit": cfg.BOOLS["gank_kit"],
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
-                  "dragon_volume": int(dvol.get()),
+                  "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
@@ -647,6 +707,7 @@ def main():
                   "ban_list": bans, "board_topmost": boardtop.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
+                  "draft_link": draftlink.get(), "draft_db": db_entry.get().strip(),
                   "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()],
                   "auto_pick_swap": ("" if pickswap.get() == "off" else pickswap.get())})
         cfg.set_auto_open(auto.get())
@@ -660,8 +721,10 @@ def main():
         scout.set(cfg.DEFAULTS["scout_games"])
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
+        bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, ghostv,
-                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach):
+                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach,
+                  draftlink):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)

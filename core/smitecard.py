@@ -3216,6 +3216,14 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 # actually changes, via the signature below, so it doesn't flicker/grab focus.
                 bans_my = info.get("bans_my") or []
                 bans_their = info.get("bans_their") or []
+                # LIVE DRAFT LINK: publish this champ select to the user's Firebase and
+                # drop the shareable board URL in chat (own thread; dormant unless the
+                # user configured a database — see loldraft.py / docs/DRAFTLINK.md).
+                try:
+                    import loldraft
+                    loldraft.tick(dd)
+                except Exception:
+                    pass
                 # AUTO-IMPORT: the moment the champ is LOCKED (not hovered), push runes+summs
                 # once. A different lock (re-pick) imports again; failures show on the panel.
                 if (settings.get("auto_import", False) and info.get("locked")
