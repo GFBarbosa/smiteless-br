@@ -145,18 +145,68 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
              border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);
              border-radius:10px;padding:7px 12px;font-size:12.5px;margin-bottom:14px;
              letter-spacing:.04em}
+
+/* ---- scout scoreboard (loading + in-game view) ---- */
+.scout-h{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
+.scout-h h3{margin:0;font-family:var(--disp);font-size:13px;letter-spacing:.08em;
+            text-transform:uppercase}
+.scout-h.ally h3{color:var(--good)} .scout-h.enemy h3{color:var(--bad)}
+.scout-h .sub{color:var(--faint);font-size:12px}
+.srow{display:grid;grid-template-columns:34px minmax(96px,1.3fr) auto 1fr;gap:10px;align-items:center;
+      background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line);
+      border-radius:9px;padding:8px 11px;margin-bottom:7px}
+.srow.me{border-left-color:var(--ember)}
+.srow .face{width:34px;height:34px;border-radius:8px;font-size:12px}
+.who{min-width:0}
+.who .nm{font-family:var(--disp);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .sub{font-size:11px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap}
+.rank{font-family:var(--disp);font-size:12px;font-variant-numeric:tabular-nums}
+.rank.unranked{color:var(--faint)}
+.mid-col{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.form{display:flex;gap:2px}
+.form i{width:8px;height:11px;border-radius:2px;display:block}
+.form i.w{background:var(--good)} .form i.l{background:var(--bad)}
+.rec{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rec b{color:var(--txt);font-weight:600}
+.rec .cw.good{color:var(--good)} .rec .cw.bad{color:var(--bad)}
+.right{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.grade{font-family:var(--disp);font-weight:700;font-size:15px;min-width:20px;text-align:center}
+.gp{font-size:10px;color:var(--faint);font-family:var(--disp)}
+.tags{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.tg{font-size:11px;padding:2px 8px;border-radius:8px;border:1px solid var(--line-soft);
+    background:var(--sunken);color:var(--muted);white-space:nowrap}
+.tg.good{color:var(--good)} .tg.bad{color:var(--bad)} .tg.info{color:var(--info)}
+.tg.p{border:none}                         /* primary (sharpest) tag: filled, no outline */
+.tg.p.good{background:color-mix(in srgb,var(--good) 22%,transparent)}
+.tg.p.bad{background:color-mix(in srgb,var(--bad) 22%,transparent)}
+.tg.p.neutral{background:color-mix(in srgb,var(--muted) 20%,transparent);color:var(--txt)}
+.tg.p.info{background:color-mix(in srgb,var(--info) 22%,transparent)}
+.plan{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ember);
+      border-radius:10px;padding:10px 14px;margin-top:14px}
+.plan h3{margin:0 0 6px;font-family:var(--disp);font-size:12px;letter-spacing:.08em;
+         color:var(--ember);text-transform:uppercase}
+.plan .ln{font-size:13px;margin:2px 0;color:var(--txt)}
+.plan .wl{font-size:13px;margin:3px 0}
+.plan .wl .k{font-family:var(--disp);font-size:11px;letter-spacing:.06em;margin-right:8px}
+.plan .wl.win .k{color:var(--good)} .plan .wl.lose .k{color:var(--bad)}
+.plan .wl.lose{color:var(--muted)}
+@media (max-width:640px){
+  .srow{grid-template-columns:30px 1fr;row-gap:6px}
+  .srow .mid-col,.srow .right{grid-column:1 / -1;justify-content:flex-start}
+  .tags{justify-content:flex-start}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div class="mark">D</div>
-    <div class="title">DRAFTBOARD<small>live champ select</small></div>
+    <div class="title">DRAFTBOARD<small id="headsub">live champ select</small></div>
     <div class="spacer"></div>
     <span class="chip" id="patch" hidden><span id="patchtxt"></span></span>
     <span class="chip" id="status"><span class="dot"></span><span id="statustxt">connecting</span></span>
   </header>
-  <p class="tagline">Sent from champ select by a teammate running
+  <p class="tagline" id="tagline">Sent from champ select by a teammate running
     <a href="https://github.com/bobbyroylee/smiteless" rel="noopener">Smiteless</a> (free, open
     source). Hit <b style="color:var(--ember)">This is me</b> on your seat for picks &amp; runes
     tuned to this draft — it updates live as the lobby locks in.</p>
@@ -340,6 +390,75 @@ function seatHtml(seat, i){
   return `<div class="seat ${mine ? "mine" : ""}">${head}${body}</div>`;
 }
 
+/* ============ scout scoreboard (loading + in-game) ============ */
+const TIER_COL = {IRON:"var(--faint)", BRONZE:"var(--ember-deep)", SILVER:"var(--muted)",
+  GOLD:"var(--ember)", PLATINUM:"var(--arc)", EMERALD:"var(--good)", DIAMOND:"var(--info)",
+  MASTER:"var(--mystic)", GRANDMASTER:"var(--bad)", CHALLENGER:"var(--warn)"};
+const TIER_AB = {IRON:"I", BRONZE:"B", SILVER:"S", GOLD:"G", PLATINUM:"P", EMERALD:"E",
+  DIAMOND:"D", MASTER:"M", GRANDMASTER:"GM", CHALLENGER:"C"};
+const DIVNUM = {I:"1", II:"2", III:"3", IV:"4"};
+function rankBadge(rk){
+  if (!rk || !rk.t) return `<span class="rank unranked">Unranked</span>`;
+  const t = rk.t.toUpperCase(), ab = TIER_AB[t] || t[0];
+  const hi = t === "MASTER" || t === "GRANDMASTER" || t === "CHALLENGER";
+  const txt = hi ? `${ab} ${rk.lp||0}LP` : `${ab}${DIVNUM[rk.d]||""} ${rk.lp||0}LP`;
+  return `<span class="rank" style="color:${TIER_COL[t]||"var(--muted)"}">${esc(txt)}</span>`;
+}
+function gradeChip(p){
+  if (p == null) return "";
+  const L = p>=92?"S":p>=82?"A":p>=70?"B":p>=58?"C":p>=45?"D":"F";
+  const col = p>=82?"var(--arc)":p>=70?"var(--good)":p>=58?"var(--warn)":
+              p>=38?"var(--bad)":"#de2834";
+  return `<span class="grade" style="color:${col}" title="performance grade (how they play, not W/L)">${L}</span>
+          <span class="gp">${Math.round(p)}</span>`;
+}
+function formBars(f){
+  if (!f || !f.length) return "";
+  return `<div class="form">` + f.slice().reverse()
+    .map(w => `<i class="${w ? "w" : "l"}"></i>`).join("") + `</div>`;
+}
+function tagChips(t){
+  if (!t || !t.length) return "";
+  return `<div class="tags">` + t.map((tg, i) => {
+    const tone = tg[1] || "neutral";
+    return `<span class="tg ${tone}${i === 0 ? " p" : ""}">${esc(tg[0])}</span>`;
+  }).join("") + `</div>`;
+}
+function scoutRow(r){
+  const champ = r.c ? champName(r.c) : "";
+  const sub = [r.role ? ROLE_FULL[r.role.toLowerCase()] || r.role : "", champ].filter(Boolean).join(" · ");
+  const rec = [];
+  if (r.g) rec.push(`<b>${r.w}-${r.g - r.w}</b>`);
+  if (r.kda != null) rec.push(`${r.kda} KDA`);
+  let recLine = rec.join(" · ");
+  if (r.cg) {
+    const good = r.cw * 2 >= r.cg;
+    recLine += ` · <span class="cw ${good ? "good" : "bad"}">${r.cw}-${r.cg - r.cw} on ${esc(champ)}</span>`;
+  }
+  return `<div class="srow ${r.me ? "me" : ""}">
+    ${face(r.c, "")}
+    <div class="who"><div class="nm">${esc(r.n || champ || "?")}</div>
+      <div class="sub">${esc(sub)}</div></div>
+    <div class="mid-col">${formBars(r.f)}<div class="rec">${recLine}</div></div>
+    <div class="right">${gradeChip(r.p)}${tagChips(r.t)}</div>
+  </div>`;
+}
+function scoutHtml(sc){
+  const team = (rows, cls, title) => `<div class="scout-h ${cls}"><h3>${title}</h3>
+      <span class="sub">rank · last 10 · this-champ record · grade · reads from each account</span></div>`
+    + (rows || []).map(scoutRow).join("");
+  let h = team(sc.allies, "ally", "Your team") + team(sc.enemies, "enemy", "Enemy team");
+  const wc = sc.wincons || {};
+  if ((sc.plan && sc.plan.length) || wc.win) {
+    h += `<div class="plan"><h3>Game plan</h3>` +
+      (sc.plan || []).map(l => `<div class="ln">→ ${esc(l)}</div>`).join("") +
+      (wc.win ? `<div class="wl win"><span class="k">WIN</span>${esc(wc.win)}</div>` : "") +
+      (wc.lose ? `<div class="wl lose"><span class="k">LOSE</span>${esc(wc.lose)}</div>` : "") +
+      `</div>`;
+  }
+  return h;
+}
+
 function render(){
   const app = document.getElementById("app");
   const st = document.getElementById("status"), stt = document.getElementById("statustxt");
@@ -357,6 +476,17 @@ function render(){
   const patch = document.getElementById("patch");
   if (p.patch){ patch.hidden = false;
     document.getElementById("patchtxt").textContent = "patch " + p.patch.split(".").slice(0,2).join("."); }
+  const sub = document.getElementById("headsub"), tag = document.getElementById("tagline");
+  // once the game loads, the champ-select draft becomes the full SCOUT scoreboard
+  if (p.scout && (((p.scout.allies||[]).length) || ((p.scout.enemies||[]).length))){
+    if (sub) sub.textContent = "live scout";
+    if (tag) tag.innerHTML = "The whole lobby, scouted — rank, recent form, and how each "
+      + "account actually plays, read from public match history. Shared from "
+      + '<a href="https://github.com/bobbyroylee/smiteless" rel="noopener">Smiteless</a>.';
+    app.innerHTML = scoutHtml(p.scout);
+    return;
+  }
+  if (sub) sub.textContent = "live champ select";
   const seats = (p.seats || []).map(seatHtml).join("");
   const foes = (p.enemy || []).length
     ? p.enemy.map(c => `<div class="foe">${face(c, "s")}<span class="pname">${esc(champName(c))}</span></div>`).join("")
@@ -466,7 +596,40 @@ function demoPayloads(){
              seat("adc",0,null,sugAdc), seat("support",0,null,sugSup)]}),
     base({bans:{a:[238,53], e:[141,35]}, enemy:[122,64,157],
       seats:[seat("top",54,malph,sugTop), seat("jungle",254,vi,sugJg), seat("mid",103,ahri,sugMid),
-             seat("adc",0,null,sugAdc), seat("support",412,thresh,sugSup)]})];
+             seat("adc",0,null,sugAdc), seat("support",412,thresh,sugSup)]}),
+    // final frame: the game loaded -> the draft becomes the live SCOUT scoreboard
+    base({bans:{a:[238,53], e:[141,35]}, scout:demoScout()})];
+}
+function demoScout(){
+  const sr = (c, role, n, t, d, lp, f, w, g, cg, cw, kda, p, pts, tg, me) =>
+    ({c, role, n, me:!!me, rk:{t, d, lp}, f, w, g, cg, cw, kda, p, pts, t:tg});
+  return {
+    allies:[
+      sr(254,"JG","You","GOLD","II",66,[1,1,0,1,1],7,10,6,4,3.1,82,140000,
+         [["Vi main · 140k pts","good"],["7W in last 10","good"]],1),
+      sr(54,"TOP","RockSolid","SILVER","I",88,[1,0,0,1,0],4,10,8,4,2.0,61,42000,
+         [["comfort · 4-4 on Malphite","neutral"]]),
+      sr(103,"MID","faker fan99","PLATINUM","IV",12,[1,1,1,1,0],8,10,2,1,4.2,88,9000,
+         [["off-champ · 7 of last 10 on Yasuo","bad"],["4W heater · on Yasuo","neutral"]]),
+      sr(222,"BOT","adcdiff","GOLD","III",40,[0,0,1,0,0],2,10,6,2,1.6,44,88000,
+         [["cold on Jinx · 2-6 recent","bad"],["bleeds · 6.8 deaths/game","bad"]]),
+      sr(412,"SUP","wardbot","GOLD","II",55,[1,1,0,1,1],6,10,9,6,2.9,74,210000,
+         [["Thresh OTP · 210k pts","good"]])],
+    enemies:[
+      sr(122,"TOP","smurfander","GOLD","IV",38,[1,1,1,1,1],9,10,3,3,5.1,88,18000,
+         [["smurf? · lvl 41 · 9-1","bad"],["5W heater","bad"]]),
+      sr(64,"JG","jgandiff","GOLD","IV",30,[1,0,1,0,1],5,10,0,0,2.0,55,60000,
+         [["off-champ · 8 of last 10 on Viego","bad"]]),
+      sr(157,"MID","midbeast","GOLD","III",44,[0,1,0,1,1],6,10,7,5,3.4,79,120000,
+         [["Yasuo main · 120k pts","bad"]]),
+      sr(145,"BOT","botlaner","SILVER","II",61,[0,0,0,1,0],3,10,4,1,1.5,45,30000,
+         [["cold on Kai'Sa · 1-3 recent","good"],["4L skid · tilt risk","good"]]),
+      sr(111,"SUP","supdiff","GOLD","IV",20,[1,0,0,0,0],2,10,2,1,2.1,52,15000,
+         [["off-role · MID main","good"]])],
+    plan:["Enemy is AD-heavy — rush armor, Randuin's on tanks.",
+          "They out-scale — force early tempo and objectives, end before 3 items."],
+    wincons:{win:"end before 25 — turn every kill into towers and objectives",
+             lose:"letting it go late — their comp outgrows yours"}};
 }
 function runDemo(){
   demoMeta();

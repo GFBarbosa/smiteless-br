@@ -243,6 +243,80 @@ def build_payload(dd, info, with_suggestions=True):
             "bans": {"a": bans_my, "e": bans_their}}
 
 
+# ---------- scout mirror: turn the page into the loading/in-game scoreboard ----------
+def _scout_row(r):
+    """One player from lolload.brief -> the compact web-scout shape (IDs + short strings;
+    the page hydrates art/names from ddragon just like the draft view)."""
+    rk = r.get("rank_full") or {}
+    row = {"c": r.get("cid") or 0, "role": r.get("role") or "", "me": bool(r.get("me"))}
+    if r.get("player"):
+        row["n"] = r["player"].split("#")[0][:16]
+    if rk.get("tier"):
+        row["rk"] = {"t": rk.get("tier"), "d": rk.get("div", ""), "lp": rk.get("lp", 0)}
+    form = r.get("form") or []
+    if form:
+        row["f"] = [1 if x else 0 for x in form[:10]]
+    row["g"], row["w"] = int(r.get("n", 0)), int(r.get("w", 0))
+    if r.get("cg"):
+        row["cg"], row["cw"] = int(r["cg"]), int(r.get("cw", 0))
+    if r.get("kdar") is not None:
+        row["kda"] = r["kdar"]
+    if r.get("perf") is not None:
+        row["p"] = r["perf"]
+    if r.get("pts"):
+        row["pts"] = int(r["pts"])
+    tags = r.get("tags") or []
+    if tags:
+        row["t"] = [[str(t), tone] for t, tone in tags[:4]]
+    return row
+
+
+def _scout_payload(dd, brief):
+    return {"allies": [_scout_row(r) for r in (brief.get("allies") or [])],
+            "enemies": [_scout_row(r) for r in (brief.get("enemies") or [])],
+            "plan": (brief.get("plan") or [])[:4],
+            "wincons": brief.get("wincons") or {}}
+
+
+_GAME_PHASES = ("GameStart", "InProgress", "Reconnect")
+
+
+def _scout_phase(dd, db, cap_s=25 * 60):
+    """After champ select ends, keep the SAME draft node alive and PATCH a full scout onto
+    it — both teams' rank, last-10 form, this-champ record, performance grade, and the
+    profile-read tags — so the shared page becomes the live scoreboard the moment the game
+    loads. Ends when the client leaves the game (or a 25-min safety cap)."""
+    import lolload
+    last, t0, seen = "", time.time(), False
+    while not _ST["stop"] and time.time() - t0 < cap_s:
+        if not cfg.load().get("draft_link", True):
+            return
+        in_game = phasecheck.phase() in _GAME_PHASES
+        if in_game:
+            seen = True
+        elif seen:
+            return                                     # game ended -> retire (in the caller)
+        elif time.time() - t0 > 180:
+            return                                     # never loaded within 3 min (dodge) -> stop
+        brief = None
+        if in_game:
+            try:
+                brief = lolload.brief(dd, scout=True)   # same scout the loading overlay draws
+            except Exception:
+                brief = None
+        if brief and (brief.get("allies") or brief.get("enemies")):
+            payload = _scout_payload(dd, brief)
+            blob = json.dumps(payload, sort_keys=True)
+            if blob != last:
+                try:
+                    _fb("PATCH", db, f"drafts/{_ST['draft_id']}",
+                        {"scout": payload, "sts": int(time.time())})
+                    last = blob
+                except Exception:
+                    pass
+        time.sleep(6)
+
+
 # ---------- the per-lobby publisher thread ----------
 def _worker(dd):
     db = ""
@@ -253,7 +327,7 @@ def _worker(dd):
             if not db or not settings.get("draft_link", True):
                 return
             if phasecheck.phase() != "ChampSelect":
-                break                                  # lobby over -> retire below
+                break                                  # champ select over -> scout phase below
             info = lg._from_champ_select(dd)
             if not info:
                 time.sleep(PUBLISH_POLL)
@@ -280,6 +354,9 @@ def _worker(dd):
                         except Exception:
                             pass
             time.sleep(PUBLISH_POLL)
+        # champ select ended (not a dodge/stop) -> mirror the loading + in-game scoreboard
+        if db and _ST["draft_id"] and not _ST["stop"]:
+            _scout_phase(dd, db)
     finally:
         if db and _ST["draft_id"]:
             retire(db, _ST["draft_id"])
@@ -325,6 +402,49 @@ def _demo(dd):
     return dict(my=0, pos="", allies=allies, enemies=enemies, **bans)
 
 
+def _demo_scout(dd):
+    """A believable scout payload for verifying the page's scoreboard view without a game."""
+    def cid(nm):
+        return dd["name2id"].get(dd["norm"](nm)) or 0
+
+    def row(nm, champ, role, tier, div, lp, form, w, g, cg, cw, kda, perf, pts, tags, me=False):
+        r = {"c": cid(champ), "role": role, "n": nm, "me": me,
+             "rk": {"t": tier, "d": div, "lp": lp}, "f": form, "w": w, "g": g,
+             "kda": kda, "p": perf, "pts": pts, "t": tags}
+        if cg:
+            r["cg"], r["cw"] = cg, cw
+        return r
+    allies = [
+        row("You", "Kha'Zix", "JG", "GOLD", "II", 66, [1, 1, 0, 1, 1], 7, 10, 6, 4, 3.1, 82,
+            140000, [["Kha'Zix main · 140k pts", "good"], ["7W in last 10", "good"]], me=True),
+        row("Sett Enjoyer", "Sett", "TOP", "SILVER", "I", 88, [1, 0, 0, 1, 0], 4, 10, 8, 4, 2.0, 61,
+            42000, [["comfort · 4-4 on Sett", "neutral"]]),
+        row("faker fan99", "Ahri", "MID", "PLATINUM", "IV", 12, [1, 1, 1, 1, 0], 8, 10, 2, 1, 4.2, 88,
+            9000, [["off-champ · 7 of last 10 on Yasuo", "bad"], ["4W heater · on Yasuo", "neutral"]]),
+        row("adcdiff", "Jinx", "BOT", "GOLD", "III", 40, [0, 0, 1, 0, 0], 2, 10, 6, 2, 1.6, 44,
+            88000, [["cold on Jinx · 2-6 recent", "bad"], ["bleeds · 6.8 deaths/game", "bad"]]),
+        row("wardbot", "Thresh", "SUP", "GOLD", "II", 55, [1, 1, 0, 1, 1], 6, 10, 9, 6, 2.9, 74,
+            210000, [["Thresh OTP · 210k pts", "good"]]),
+    ]
+    enemies = [
+        row("smurfander", "Darius", "TOP", "GOLD", "IV", 38, [1, 1, 1, 1, 1], 9, 10, 3, 3, 5.1, 88,
+            18000, [["smurf? · lvl 41 · 9-1 · 88 perf", "bad"], ["5W heater", "bad"]]),
+        row("jgandiff", "Graves", "JG", "GOLD", "IV", 30, [1, 0, 1, 0, 1], 5, 10, 0, 0, 2.0, 55,
+            60000, [["off-champ · 8 of last 10 on Viego", "bad"]]),
+        row("midbeast", "Zed", "MID", "GOLD", "III", 44, [0, 1, 0, 1, 1], 6, 10, 7, 5, 3.4, 79,
+            120000, [["Zed main · 120k pts", "bad"], ["comfort · 5-2 on Zed", "bad"]]),
+        row("botlaner", "Caitlyn", "BOT", "SILVER", "II", 61, [0, 0, 0, 1, 0], 3, 10, 4, 1, 1.5, 45,
+            30000, [["cold on Caitlyn · 1-3 recent", "good"], ["4L skid · tilt risk", "good"]]),
+        row("supdiff", "Lux", "SUP", "GOLD", "IV", 20, [1, 0, 0, 0, 0], 2, 10, 2, 1, 2.1, 52,
+            15000, [["off-role · MID main", "good"]]),
+    ]
+    return {"allies": allies, "enemies": enemies,
+            "plan": ["Enemy is AD-heavy — rush armor / Seeker's, Randuin's on tanks.",
+                     "They out-scale — force early tempo and objectives, end before 3 items."],
+            "wincons": {"win": "end before 25 — turn every kill into towers and objectives",
+                        "lose": "letting it go late — their comp outgrows yours"}}
+
+
 def main():
     if "test" not in sys.argv:
         print(__doc__)
@@ -338,6 +458,9 @@ def main():
     dd = lb.ddragon()
     _ST["draft_id"] = _new_id()
     payload = build_payload(dd, _demo(dd))
+    if "scout" in sys.argv:                    # `test scout` -> also attach the scoreboard view
+        payload["scout"] = _demo_scout(dd)
+        payload["sts"] = int(time.time())
     publish(db, _ST["draft_id"], payload)
     print("published test draft ->", link_for(_ST["draft_id"], settings))
 

@@ -24,6 +24,14 @@ automatically grows a `&db=<host>` suffix so your page still knows where to stre
 The chat message and whether it auto-opens for you are both in Settings → Champ-select
 automation (and `draft_msg` in the settings JSON overrides the message text).
 
+**It becomes the scoreboard in-game.** During champ select the page shows the draft (picks,
+bans, per-seat suggestions). The moment the game loads, `loldraft._scout_phase` PATCHes a
+full scout onto the same node (`scout: {allies, enemies, plan, wincons}`) — rank, last-10
+form, this-champ record, performance grade, and the profile-read tags for all ten — and the
+page swaps to the scoreboard view. Same link, no refresh. It publishes public match-history
+facts (names visible on the loading screen, ranks public on op.gg); nothing private. Turn
+the whole feature off with the "Live draft link" toggle if you don't want to share it.
+
 ## One-time setup (~5 minutes)
 
 The feature stays dormant until you give Smiteless a database to publish to.
