@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.36 — DraftBoard scoreboard goes wide
+- **The in-game scout board is horizontal now.** Your team and the enemy team sit **side by side** like a real scoreboard instead of one long top-to-bottom stack — the page uses the full width. Collapses back to a single column on phones.
+
 ## v0.9.35 — DraftBoard becomes the whole-lobby scout
 - **When the game loads, DraftBoard turns into the full scoreboard.** The link you (and your teammates) already have in chat stops being just the champ-select draft — the moment loading hits, the same page fills with the **complete scout of all ten players**: rank, last-10 form bars, record on the champ they locked, an S–F performance grade (how they actually play, not W/L), and the evidence-cited read tags (`smurf? · lvl 41`, `off-champ · 7 of last 10 on Yasuo`, `Thresh OTP · 210k pts`, `4L skid · tilt risk`) — the exact intel your own loading screen shows, now on every teammate's phone. Plus the game plan and the WIN/LOSE lines underneath. No refresh; the same URL just upgrades itself.
 - It's live for the whole game and retires when you leave. Try it without a game: `python core/loldraft.py test scout` publishes a demo scoreboard, or open the hosted page with `#demo` to watch a draft resolve all the way into the scout board.

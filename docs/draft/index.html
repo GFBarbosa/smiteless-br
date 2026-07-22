@@ -29,6 +29,7 @@ img{max-width:100%}
 .num{font-family:var(--disp);font-variant-numeric:tabular-nums}
 
 .wrap{max-width:980px;margin:0 auto;padding:20px 18px 48px}
+body.scout .wrap{max-width:1320px}     /* the scoreboard wants room to run wide (horizontal) */
 
 /* ---- header ---- */
 header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
@@ -147,6 +148,10 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
              letter-spacing:.04em}
 
 /* ---- scout scoreboard (loading + in-game view) ---- */
+.scout-legend{color:var(--faint);font-size:12px;margin:0 0 12px}
+.scoutcols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media (max-width:720px){.scoutcols{grid-template-columns:1fr}}
+.scol{min-width:0}
 .scout-h{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
 .scout-h h3{margin:0;font-family:var(--disp);font-size:13px;letter-spacing:.08em;
             text-transform:uppercase}
@@ -444,10 +449,13 @@ function scoutRow(r){
   </div>`;
 }
 function scoutHtml(sc){
-  const team = (rows, cls, title) => `<div class="scout-h ${cls}"><h3>${title}</h3>
-      <span class="sub">rank · last 10 · this-champ record · grade · reads from each account</span></div>`
-    + (rows || []).map(scoutRow).join("");
-  let h = team(sc.allies, "ally", "Your team") + team(sc.enemies, "enemy", "Enemy team");
+  const col = (rows, cls, title) =>
+    `<div class="scol"><div class="scout-h ${cls}"><h3>${title}</h3></div>`
+    + (rows || []).map(scoutRow).join("") + `</div>`;
+  let h = `<p class="scout-legend">rank · last 10 · record on this champ · grade (how they play) `
+    + `· reads from each account</p>`
+    + `<div class="scoutcols">` + col(sc.allies, "ally", "Your team")
+    + col(sc.enemies, "enemy", "Enemy team") + `</div>`;
   const wc = sc.wincons || {};
   if ((sc.plan && sc.plan.length) || wc.win) {
     h += `<div class="plan"><h3>Game plan</h3>` +
@@ -479,6 +487,7 @@ function render(){
   const sub = document.getElementById("headsub"), tag = document.getElementById("tagline");
   // once the game loads, the champ-select draft becomes the full SCOUT scoreboard
   if (p.scout && (((p.scout.allies||[]).length) || ((p.scout.enemies||[]).length))){
+    document.body.classList.add("scout");
     if (sub) sub.textContent = "live scout";
     if (tag) tag.innerHTML = "The whole lobby, scouted — rank, recent form, and how each "
       + "account actually plays, read from public match history. Shared from "
@@ -486,6 +495,7 @@ function render(){
     app.innerHTML = scoutHtml(p.scout);
     return;
   }
+  document.body.classList.remove("scout");
   if (sub) sub.textContent = "live champ select";
   const seats = (p.seats || []).map(seatHtml).join("");
   const foes = (p.enemy || []).length
