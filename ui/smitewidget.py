@@ -399,18 +399,17 @@ def _dfont(sz, bold=False):
     return _WFONTS[key]
 
 
-_SYM_CHARS = set("⌖◎⚠⌂⚑✓✗⟳✦◆★●▸")
-
-
 def _tfont(text, sz, bold=False):
     """Font for a line: Segoe UI Symbol when it carries glyphs segoeui can't draw (they
-    render as tofu boxes otherwise), plain/semibold Segoe UI everywhere else."""
+    render as tofu boxes otherwise), plain/semibold Segoe UI everywhere else. Coverage is
+    PROBED from the font itself (skin.needs_symbol) — the old hand-typed symbol allowlist
+    silently missed new glyphs (✚, ⇩), which is exactly how the v0.9.29 tofu regressed."""
     from PIL import ImageFont
-    if any(c in _SYM_CHARS for c in (text or "")):
+    if skin.needs_symbol(text):
         key = (sz, "sym")
         if key not in _WFONTS:
             try:
-                _WFONTS[key] = ImageFont.truetype("seguisym.ttf", sz)
+                _WFONTS[key] = ImageFont.truetype(skin.FONT_SYMBOL_TTF, sz)
             except Exception:
                 return _wfont(sz, bold)
         return _WFONTS[key]

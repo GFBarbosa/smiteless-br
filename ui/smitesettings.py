@@ -179,6 +179,7 @@ def main():
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
     autoban = tk.BooleanVar(value=s.get("auto_ban", False))
+    boardtop = tk.BooleanVar(value=s.get("board_topmost", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     skin.section_rule(body, "FEATURES").pack(fill="x", padx=18, pady=(10, 2))
@@ -207,6 +208,7 @@ def main():
     _chk(col2, "Duo / premade detection", duo, bg=SURFACE).pack(anchor="w")
     _chk(col2, "Dodge alerts (champ select)", dodge, bg=SURFACE).pack(anchor="w")
     _chk(col2, "Dock champ-select panel by client", dock, bg=SURFACE).pack(anchor="w")
+    _chk(col2, "Keep live board always on top", boardtop, bg=SURFACE).pack(anchor="w")
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
@@ -347,6 +349,68 @@ def main():
     skin.button(favbtns, "Remove", _rm_fav).pack(fill="x", pady=1)
     skin.button(favbtns, "↑", lambda: _move(-1)).pack(fill="x", pady=1)
     skin.button(favbtns, "↓", lambda: _move(1)).pack(fill="x", pady=1)
+
+    skin.section_rule(body, "PERMA-BAN LIST").pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text="With auto-ban on, your ban locks the highest champ on this list that's "
+             "still available (skipping anything a teammate is hovering), falling back to the "
+             "live recommended bans if the whole list is gone. Order is priority (use ↑/↓).",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
+    banfr = skin.card(body, rail=LINE)
+    banfr.pack(fill="x", padx=14, pady=(0, 6))
+    ban_addrow = tk.Frame(banfr.body, bg=SURFACE)
+    ban_addrow.pack(fill="x", padx=8, pady=(8, 4))
+    ban_var = tk.StringVar()
+    ban_cb = ttk.Combobox(ban_addrow, textvariable=ban_var, values=_champ_names, width=18,
+                          style="Fav.TCombobox", font=skin.body(SMALL))
+    ban_cb.pack(side="left")
+    ban_listfr = tk.Frame(banfr.body, bg=SURFACE)
+    ban_listfr.pack(fill="x", padx=8, pady=(0, 8))
+    ban_list = tk.Listbox(ban_listfr, height=4, bg=SUNKEN, fg=TXT, selectbackground=HOVER,
+                          selectforeground=TXT, relief="flat", highlightthickness=0, bd=0,
+                          font=skin.mono(SMALL), activestyle="none")
+    ban_list.pack(side="left", fill="x", expand=True)
+    for _entry in (s.get("ban_list") or []):
+        ban_list.insert("end", _entry)
+
+    def _filter_bans(_e=None):
+        t = ban_var.get().strip().lower()
+        ban_cb["values"] = [n for n in _champ_names if t in n.lower()] if t else _champ_names
+
+    def _add_ban(_e=None):
+        nm = _canon(ban_var.get())
+        if not nm:
+            return
+        if nm.lower() not in [ban_list.get(i).lower() for i in range(ban_list.size())]:
+            ban_list.insert("end", nm)
+        ban_var.set("")
+        ban_cb["values"] = _champ_names
+
+    def _rm_ban():
+        sel = ban_list.curselection()
+        if sel:
+            ban_list.delete(sel[0])
+
+    def _move_ban(delta):
+        sel = ban_list.curselection()
+        if not sel:
+            return
+        i = sel[0]
+        j = i + delta
+        if 0 <= j < ban_list.size():
+            v = ban_list.get(i)
+            ban_list.delete(i)
+            ban_list.insert(j, v)
+            ban_list.selection_set(j)
+
+    skin.button(ban_addrow, "+ Add", _add_ban).pack(side="left", padx=(6, 0))
+    ban_cb.bind("<KeyRelease>", _filter_bans)
+    ban_cb.bind("<Return>", _add_ban)
+    banbtns = tk.Frame(ban_listfr, bg=SURFACE)
+    banbtns.pack(side="left", fill="y", padx=(6, 0))
+    skin.button(banbtns, "Remove", _rm_ban).pack(fill="x", pady=1)
+    skin.button(banbtns, "↑", lambda: _move_ban(-1)).pack(fill="x", pady=1)
+    skin.button(banbtns, "↓", lambda: _move_ban(1)).pack(fill="x", pady=1)
 
     skin.section_rule(body, "YOUR ACCOUNTS").pack(fill="x", padx=18, pady=(12, 2))
     tk.Label(body, text="One Riot ID per line (Name#TAG). Accounts you log into are remembered "
@@ -560,6 +624,7 @@ def main():
 
     def save():
         favs = [fav_list.get(i) for i in range(fav_list.size())]
+        bans = [ban_list.get(i) for i in range(ban_list.size())]
         try:
             ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
         except Exception:
@@ -579,6 +644,7 @@ def main():
                   "loading_brief": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
+                  "ban_list": bans, "board_topmost": boardtop.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
                   "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()],

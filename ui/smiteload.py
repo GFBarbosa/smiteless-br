@@ -162,14 +162,22 @@ def render_frame(dd, b, W, H):
            sub, font=_wfont(S(12), True), fill=scol)
     yy = top + hdr_h
 
-    def _pill(x, y, txt, col, maxx):
+    def _pill(x, y, txt, col, maxx, primary=False):
+        """Tag chip. The FIRST tag is the sharpest read (spec orders them), so it gets a
+        filled chip; the rest sit quiet (dim ink, faint outline) — one loud thing per row
+        instead of a string of equally-screaming outlines."""
         f = _wfont(S(11), True)
         w = int(d.textlength(txt, font=f))
         if x + w + S(16) > maxx:
             return None
-        d.rounded_rectangle([x, y, x + w + S(14), y + S(19)], S(9), fill=C_SUNKEN,
-                            outline=tuple(int(c * 0.55) for c in col), width=1)
-        d.text((x + S(7), y + S(3)), txt, font=f, fill=col)
+        if primary:
+            d.rounded_rectangle([x, y, x + w + S(14), y + S(19)], S(9),
+                                fill=tuple(int(c * 0.24) for c in col))
+            d.text((x + S(7), y + S(3)), txt, font=f, fill=col)
+        else:
+            d.rounded_rectangle([x, y, x + w + S(14), y + S(19)], S(9), fill=C_SUNKEN,
+                                outline=tuple(int(c * 0.35) for c in col), width=1)
+            d.text((x + S(7), y + S(3)), txt, font=f, fill=tuple(int(c * 0.82) for c in col))
         return x + w + S(14) + S(7)
 
     def _row(y, r):
@@ -272,7 +280,7 @@ def render_frame(dd, b, W, H):
             cx2 = tx0
             while ti < len(tags):
                 txt, tone = tags[ti]
-                nx = _pill(cx2, ry, txt, _TONE_C.get(tone, C_MUTED), txmax)
+                nx = _pill(cx2, ry, txt, _TONE_C.get(tone, C_MUTED), txmax, primary=(ti == 0))
                 if nx is None:
                     break
                 cx2 = nx

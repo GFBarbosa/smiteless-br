@@ -16,7 +16,7 @@ Key behaviors:
   python smiteoverlay.py --wait     # auto-open: stay hidden until champs are present
   python smiteoverlay.py --count 10
 """
-import sys, os, threading, ctypes, webbrowser, json, ssl, urllib.request
+import sys, os, time, threading, ctypes, webbrowser, json, ssl, urllib.request
 from ctypes import wintypes
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +40,7 @@ WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_TOPMOST = 0x00000008
 HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
@@ -82,19 +83,45 @@ def target_monitor():
     return mons[0]
 
 
-def make_no_activate(hwnd):
+def make_no_activate(hwnd, topmost=True):
     try:
         ex = _user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        _user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
-                               ex | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)
+        ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+        ex = (ex | WS_EX_TOPMOST) if topmost else (ex & ~WS_EX_TOPMOST)
+        _user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex)
     except Exception:
         pass
 
 
-def show_no_activate(hwnd):
+def show_no_activate(hwnd, topmost=True):
     try:
-        _user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+        _user32.SetWindowPos(hwnd, HWND_TOPMOST if topmost else HWND_NOTOPMOST, 0, 0, 0, 0,
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+    except Exception:
+        pass
+
+
+POS_FILE = os.path.expanduser("~/.claude/smiteless_board_pos.json")
+
+
+def load_board_pos():
+    """The user's last dragged board position, if it's still on a real monitor —
+    'I had to drag it to my main monitor' should only ever happen once (§10)."""
+    try:
+        p = json.load(open(POS_FILE, encoding="utf-8"))
+        x, y = int(p["x"]), int(p["y"])
+        for l, t, r, b in monitors():
+            if l <= x < r and t <= y < b:
+                return (x, y)
+    except Exception:
+        pass
+    return None
+
+
+def save_board_pos(pos):
+    try:
+        with open(POS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"x": int(pos[0]), "y": int(pos[1])}, f)
     except Exception:
         pass
 
@@ -234,7 +261,9 @@ def main():
 
     root = tk.Tk()
     root.overrideredirect(True)                 # borderless, no taskbar button
-    root.attributes("-topmost", True)
+    # always-on-top is now a live SETTING (§8: "the board sits on top of everything") —
+    # default on (the in-game behavior people expect), untick to let other windows cover it
+    root.attributes("-topmost", bool(cfg.load().get("board_topmost", True)))
     root.configure(bg=BG)
     root.geometry("1x1+-4000+-4000")            # park off-screen until the first frame
     label = tk.Label(root, bd=0, bg=BG)
@@ -363,7 +392,8 @@ def main():
 
     st = {"img": None, "dirty": False, "ref": None, "size": None, "hitmap": [],
           "pos": None, "shown": False, "closing": False, "done": False,
-          "docked": False, "client_moved": None, "barh": bar_h}
+          "docked": False, "client_moved": None, "barh": bar_h,
+          "top": bool(cfg.load().get("board_topmost", True)), "top_ts": 0.0}
     lock = threading.Lock()
 
     def emit(pil_img):                           # called from the worker thread (no Tk here!)
@@ -447,6 +477,8 @@ def main():
         root.geometry(f"{w}x{h + st['barh']}+{st['pos'][0]}+{st['pos'][1]}")
 
     def on_release(e):
+        if st["moved"] and st["pos"] and not st["docked"]:
+            save_board_pos(st["pos"])            # a dragged board keeps its spot next session
         if st.get("press") and not st["moved"]:  # a click, not a drag
             cx, cy = st["press"][2], st["press"][3]
             for x0, y0, x1, y1, url in st["hitmap"]:
@@ -506,9 +538,13 @@ def main():
     def place(size):
         w, h = size
         wh = h + st["barh"]                      # window = board image + the key bar (when shown)
-        if st["pos"] is None:                    # center on the target monitor, once
-            l, t, r, b = target_monitor()
-            st["pos"] = (l + ((r - l) - w) // 2, t + ((b - t) - wh) // 2)
+        if st["pos"] is None:                    # last dragged spot first, else center on target
+            saved = load_board_pos()
+            if saved and not st["docked"]:
+                st["pos"] = saved
+            else:
+                l, t, r, b = target_monitor()
+                st["pos"] = (l + ((r - l) - w) // 2, t + ((b - t) - wh) // 2)
         x, y = st["pos"]
         root.geometry(f"{w}x{wh}+{x}+{y}")
 
@@ -518,7 +554,11 @@ def main():
         with lock:
             dirty, pil = st["dirty"], st["img"]
             st["dirty"] = False
-        if dirty and pil is not None:
+        if dirty and isinstance(pil, str):       # "hide" sentinel (dodge teardown): park
+            root.geometry("1x1+-4000+-4000")     # off-screen — the proven startup pattern —
+            st["size"] = None                    # and re-place/reveal on the next real frame
+            st["shown"] = False
+        elif dirty and pil is not None:
             prev_fg = _user32.GetForegroundWindow()     # whatever had focus (the game/client)
             want_dock = bool(getattr(pil, "dock_left", False))
             # Resolution-adaptive display: find the monitor this frame will live on and
@@ -559,13 +599,28 @@ def main():
             if st["size"] != disp.size:
                 st["size"] = disp.size
                 place(disp.size)
-            make_no_activate(hwnd)               # keep the no-activate style (Tk can clear it)
+            make_no_activate(hwnd, st["top"])    # keep the no-activate style (Tk can clear it)
             if not st["shown"]:
-                show_no_activate(hwnd)           # reveal without taking focus
+                show_no_activate(hwnd, st["top"])   # reveal without taking focus
                 st["shown"] = True
             # HARD GUARANTEE: never hold focus. If updating grabbed it, hand it right back.
             if prev_fg and prev_fg != hwnd and _user32.GetForegroundWindow() == hwnd:
                 restore_foreground(prev_fg)
+        # live topmost toggle: re-read the setting every ~2s so flipping it in Settings
+        # takes effect on the running board (no restart), matching the "updates live" promise
+        now = time.time()
+        if now - st["top_ts"] > 2.0:
+            st["top_ts"] = now
+            want_top = bool(cfg.load().get("board_topmost", True))
+            if want_top != st["top"]:
+                st["top"] = want_top
+                try:
+                    root.attributes("-topmost", want_top)
+                except Exception:
+                    pass
+                make_no_activate(hwnd, want_top)
+                if st["shown"]:
+                    show_no_activate(hwnd, want_top)
         if st["done"] and not dirty:             # worker finished (match over) -> close out
             close()
             return

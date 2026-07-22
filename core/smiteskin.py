@@ -51,6 +51,46 @@ FONT_BODY_BOLD = "Segoe UI Semibold"
 FONT_MONO = "Consolas"
 # PIL file paths (smitecard.font() owns the load-with-fallback logic)
 FONT_DISPLAY_TTF = r"C:\Windows\Fonts\bahnschrift.ttf"
+FONT_BODY_TTF = r"C:\Windows\Fonts\segoeui.ttf"
+FONT_SYMBOL_TTF = r"C:\Windows\Fonts\seguisym.ttf"     # the tofu-rescue face: full symbol coverage
+
+
+# ---- glyph coverage (the tofu killer) ----
+# Segoe UI and Bahnschrift are missing MOST of the pictographs the surfaces draw (⚑ ⚠ ✚ ⇩
+# ✓ ✦ ▸ ● …), so any string routed to them un-checked renders [] boxes. The old fix was a
+# hand-typed allowlist of "symbol chars" in each surface — which rotted the moment a new
+# glyph shipped (✚ and ⇩ were never added: v0.9.29's tofu). This probes the FONT ITSELF —
+# render the char, compare against the font's .notdef box — so coverage can never rot.
+_GLYPH_OK = {}          # (font_path, ch) -> bool, probed once per process
+_NOTDEF = {}            # font_path -> the rendered tofu box, for comparison
+
+
+def _pil_renders(path, ch, _size=24):
+    key = (path, ch)
+    if key in _GLYPH_OK:
+        return _GLYPH_OK[key]
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        f = ImageFont.truetype(path, _size)
+        if path not in _NOTDEF:
+            im = Image.new("L", (48, 48), 0)
+            ImageDraw.Draw(im).text((4, 4), "", font=f, fill=255)   # unmapped -> .notdef
+            _NOTDEF[path] = im.tobytes()
+        im = Image.new("L", (48, 48), 0)
+        ImageDraw.Draw(im).text((4, 4), ch, font=f, fill=255)
+        _GLYPH_OK[key] = im.tobytes() != _NOTDEF[path]
+    except Exception:
+        _GLYPH_OK[key] = True       # can't probe -> don't second-guess the draw
+    return _GLYPH_OK[key]
+
+
+def needs_symbol(text, font_path=None):
+    """True if `text` carries a glyph the given face (default: Segoe UI body) can't draw —
+    the caller should switch the whole string to FONT_SYMBOL_TTF. ASCII never triggers."""
+    if not text:
+        return False
+    path = font_path or FONT_BODY_TTF
+    return any(ord(c) > 0x2000 and not _pil_renders(path, c) for c in text)
 
 _HAS_DISPLAY = None     # cached "is Bahnschrift installed" probe (Tk only)
 

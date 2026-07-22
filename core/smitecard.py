@@ -134,20 +134,19 @@ _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
 
 # Glyphs Segoe UI regular/bold don't carry -> they render as tofu boxes. Segoe UI Symbol
 # has all of them AND the same Latin, so a mixed string ("★ gank") drawn wholly in it looks
-# right (it just loses bold weight on those few short labels, which is fine). ✦ is the
-# Duskfall brand spark (UIDESIGN §4 brand row) and ⇩ marks the primary import action (§5.1) —
-# both need the same fallback as the rest of this set.
-_SYM_MISSING = "▸▾★⚠✓⟳✚⚑◆✦⇩"
+# right (it just loses bold weight on those few short labels, which is fine).
+# Coverage is PROBED from the font itself (skin.needs_symbol) — the old hand-typed
+# allowlist here and the widget's copy drifted apart, which is how tofu kept regressing.
 
 
 def font(size, bold=False, text=None):
     """Segoe UI (bold optional). If `text` carries a glyph Segoe UI lacks (★ ▸ ⚠ ✓ …),
     fall back to Segoe UI Symbol for the whole string so it doesn't render as a tofu box."""
-    if text and any(ch in _SYM_MISSING for ch in text):
+    if text and skin.needs_symbol(text):
         key = ("sym", size)
         if key not in _FONTS:
             try:
-                _FONTS[key] = ImageFont.truetype(r"C:\Windows\Fonts\seguisym.ttf", size)
+                _FONTS[key] = ImageFont.truetype(skin.FONT_SYMBOL_TTF, size)
             except Exception:
                 _FONTS[key] = font(size, bold)      # no symbol font -> at least don't crash
         return _FONTS[key]
@@ -550,35 +549,58 @@ def gank_kit(dd, my_cid):
 # MYSTIC is the duo-marker token (UIDESIGN §2); the rest are derived shades/other tokens so
 # a second or third duo group in the same game still reads distinctly.
 DUO_COLORS = [MYSTIC, _dim(MYSTIC, 0.68), GOLD, ARC, GREEN]
-DUO_SHARED = 3          # shared recent ranked games to call two teammates a duo
+DUO_SHARED = 3          # same-team shared recent games = a CONFIRMED duo
+DUO_LOOSE = 2           # same-team shared recent games = a PROBABLE duo ('duo?')
 
 
 def detect_duos(scout_map):
-    """{(cid, is_ally): duo_index} for players who share >= DUO_SHARED recent ranked games
-    with a teammate (very likely a premade). Same index = same duo group."""
+    """{(cid, is_ally): (duo_index, sure)} for players who share recent ranked games with
+    a teammate ON THE SAME TEAM in those games (verified from the cached match results,
+    which the scout already fetched — no extra network). >= DUO_SHARED same-side games is
+    a confirmed duo; DUO_LOOSE is probable and renders as 'duo?'. The old id-overlap-only
+    check both missed real duos (10-game windows drift out of sync fast — 2 verified
+    same-side games is already strong) and could pair two players who merely FACED each
+    other repeatedly. Same index = same duo group."""
     out, nxt = {}, [0]
+    try:
+        key = ls.read_key()
+    except Exception:
+        key = None
     for team in (True, False):
-        players = [(k, set(sc.get("mids") or [])) for k, sc in scout_map.items()
+        players = [(k, sc) for k, sc in scout_map.items()
                    if k[1] is team and sc.get("mids")]
         for i in range(len(players)):
             for j in range(i + 1, len(players)):
-                if len(players[i][1] & players[j][1]) >= DUO_SHARED:
-                    ki, kj = players[i][0], players[j][0]
-                    idx = out.get(ki, out.get(kj))
-                    if idx is None:
-                        idx = nxt[0]
-                        nxt[0] += 1
-                    out[ki] = out[kj] = idx
+                (ki, si), (kj, sj) = players[i], players[j]
+                shared = set(si.get("mids") or []) & set(sj.get("mids") or [])
+                if len(shared) < DUO_LOOSE:
+                    continue
+                pa, pb = si.get("puuid"), sj.get("puuid")
+                if pa and pb and key:
+                    same = ls.same_side_games(shared, pa, pb, key)
+                else:                      # no puuids in this row shape -> old behavior
+                    same = len(shared)
+                if same < DUO_LOOSE:
+                    continue
+                sure = same >= DUO_SHARED
+                prev = out.get(ki) or out.get(kj)
+                idx = prev[0] if prev else nxt[0]
+                if not prev:
+                    nxt[0] += 1
+                for k2 in (ki, kj):
+                    old = out.get(k2)
+                    out[k2] = (idx, sure or bool(old and old[1]))
     return out
 
 
-def _duo_marker(d, cx, y, idx, side):
+def _duo_marker(d, cx, y, idx, side, sure=True):
     col = DUO_COLORS[idx % len(DUO_COLORS)]
+    label = "duo" if sure else "duo?"
     d.ellipse([cx - 5, y - 5, cx + 5, y + 5], fill=col)
     if side == "L":
-        d.text((cx + 9, y), "duo", font=font(10, 1), fill=col, anchor="lm")
+        d.text((cx + 9, y), label, font=font(10, 1), fill=col, anchor="lm")
     else:
-        d.text((cx - 9, y), "duo", font=font(10, 1), fill=col, anchor="rm")
+        d.text((cx - 9, y), label, font=font(10, 1), fill=col, anchor="rm")
 
 
 def apply_settings():
@@ -651,6 +673,8 @@ def queue_prediction(my_cid, scout_map, duo_map):
     Excludes you and your detected duo partner(s) from the ally average."""
     me = (my_cid, True) if my_cid else None
     my_duo = duo_map.get(me) if me else None
+    if isinstance(my_duo, tuple):              # detect_duos rows are (group_idx, sure)
+        my_duo = my_duo[0]
     ally_wrs, enemy_wrs = [], []
     excl_duo = 0
     for k, sc in scout_map.items():
@@ -662,7 +686,10 @@ def queue_prediction(my_cid, scout_map, duo_map):
         if is_ally:
             if me and k == me:
                 continue
-            if my_duo is not None and duo_map.get(k) == my_duo:
+            kd = duo_map.get(k)
+            if isinstance(kd, tuple):
+                kd = kd[0]
+            if my_duo is not None and kd == my_duo:
                 excl_duo += 1
                 continue
             ally_wrs.append(wr)
@@ -2455,7 +2482,13 @@ def _live_tags(dd, cid, sc, ally):
         import lolload as llo
         kda = sc.get("kda") or {}
         g = int(kda.get("g") or 0)
-        row = {"champ": dd["id2name"].get(cid, "?"), "role": "", "main_pos": "",
+        recent = sc.get("recent") or []
+        # live-client role vocab (lb.ROLE) -> the scout's _ROLE vocab, so off-role can fire here
+        rl = {"top": "TOP", "jungle": "JG", "mid": "MID", "adc": "BOT",
+              "support": "SUP"}.get((sc.get("role") or "").lower(), "")
+        row = {"champ": dd["id2name"].get(cid, "?"), "role": rl,
+               "main_pos": llo._main_pos(recent), "recent": recent,
+               "level": sc.get("level"),
                "rank_full": sc.get("rank"), "form": sc.get("form") or [],
                "n": int(sc.get("n") or 0), "w": int(sc.get("w") or 0),
                "cg": int(sc.get("cg") or 0), "cw": int(sc.get("cw") or 0),
@@ -2563,7 +2596,9 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
     half = (BW - S(28) - CTR) // 2                # each team's half-row width
     AW = S(104)                                   # art slab width
 
-    def _pill(x, y, txt, col, maxx, anchor="la"):
+    def _pill(x, y, txt, col, maxx, anchor="la", primary=False):
+        """Tag chip, same visual language as the loading screen: first/sharpest tag is a
+        filled chip, the rest are quiet outlines — one loud thing per player."""
         f = font(S(10), 1)
         w = d.textlength(txt, font=f) + S(14)
         if anchor == "ra":
@@ -2574,8 +2609,12 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             x0 = x
             if x0 + w > maxx:
                 return None
-        _rrect(d, (x0, y, x0 + w, y + S(18)), S(9), fill=SUNKEN, outline=_dim(col, 0.55), width=1)
-        d.text((x0 + S(7), y + S(3)), txt, font=f, fill=col)
+        if primary:
+            _rrect(d, (x0, y, x0 + w, y + S(18)), S(9), fill=_dim(col, 0.24))
+            d.text((x0 + S(7), y + S(3)), txt, font=f, fill=col)
+        else:
+            _rrect(d, (x0, y, x0 + w, y + S(18)), S(9), fill=SUNKEN, outline=_dim(col, 0.35), width=1)
+            d.text((x0 + S(7), y + S(3)), txt, font=f, fill=_dim(col, 0.82))
         return (x0 - S(6)) if anchor == "ra" else (x0 + w + S(6))
 
     def _half(x0, y, cid, sc, ally, is_me, mirror):
@@ -2621,7 +2660,8 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             d.text((gx + sgn * S(16), y + S(13)), f"{int((sc or {}).get('n') or 0)}g",
                    font=font(S(8), 1), fill=_dim(gcol, 0.7), anchor=anc)
         if (cid, ally) in duo_of:
-            _duo_marker(d, gx + sgn * S(52), y + S(18), duo_of[(cid, ally)], "R" if mirror else "L")
+            di, dsure = duo_of[(cid, ally)]
+            _duo_marker(d, gx + sgn * S(52), y + S(18), di, "R" if mirror else "L", sure=dsure)
         # line 2: riot id + rank
         who = ((sc or {}).get("riot_id") or "").split("#")[0]
         rtext, rcol = rank_str((sc or {}).get("rank"))
@@ -2666,12 +2706,12 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             inner = x0 + half - S(12) if not mirror else x0 + S(12)
             ty = y + S(8)
             shown = 0
-            for txt_, tone in tags:
+            for ti_, (txt_, tone) in enumerate(tags):
                 if shown >= 3 or ty > y + ROW - S(24):
                     break
                 res = _pill(inner, ty, txt_, _TAG_TONE.get(tone, MUTED),
                             (bx + S(16)) if not mirror else (bx - S(16)),
-                            anchor=("ra" if not mirror else "la"))
+                            anchor=("ra" if not mirror else "la"), primary=(ti_ == 0))
                 if res is not None:
                     shown += 1
                 ty += S(22)
@@ -2836,9 +2876,11 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         if eurl:
             hits.append((W2 - 65, y + 13, W2 - 27, y + 51, eurl))   # enemy icon (right)
         if a_cid and (a_cid, True) in duo_of:               # premade markers (shared color = same duo)
-            _duo_marker(d, 350 + xoff, y + 18, duo_of[(a_cid, True)], "L")
+            _duo_marker(d, 350 + xoff, y + 18, duo_of[(a_cid, True)][0], "L",
+                        sure=duo_of[(a_cid, True)][1])
         if e_cid and (e_cid, False) in duo_of:
-            _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)], "R")
+            _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)][0], "R",
+                        sure=duo_of[(e_cid, False)][1])
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=FAINT, anchor="ma")
             if role in glabels:
@@ -2917,6 +2959,17 @@ def info_image(msg):
 
 # ---------- the QUEUE card: the overlay opens WITH the queue, not after it ----------
 QUEUE_PHASES = ("Matchmaking", "ReadyCheck")
+_OVLOG = os.path.expanduser("~/.claude/smiteless_overlay.log")
+
+
+def _ovlog(msg):
+    """Phase-transition diagnostics for the overlay loop — dodge teardowns can't be
+    triggered on demand, so they must leave a trail (standing live-verify rule)."""
+    try:
+        with open(_OVLOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
 _QUEUE_NAMES = {420: "Ranked Solo/Duo", 440: "Ranked Flex", 400: "Normal Draft",
                 430: "Normal Blind", 450: "ARAM", 480: "Swiftplay", 490: "Quickplay",
                 700: "Clash", 1700: "Arena", 1900: "URF"}
@@ -2982,7 +3035,8 @@ def render_queue_card(dd, q, sugg=None):
         _railed_card(d, (16, 46, W - 16, 106), GOLD, fill=_dim(GOLD, 0.13), outline=_dim(GOLD, 0.6), width=1)
         d.text((36, 62), "MATCH FOUND", font=display_font(24, True), fill=GOLD)
         if q.get("auto"):
-            d.text((W - 36, 62), "auto-accepting ✓", font=display_font(14, True), fill=GREEN, anchor="ra")
+            # Bahnschrift has no ✓ glyph -> route through the symbol-aware body face
+            d.text((W - 36, 62), "auto-accepting ✓", font=font(14, True, "✓"), fill=GREEN, anchor="ra")
         else:
             left = q.get("rc")
             t = f"ACCEPT NOW{f'  ·  {int(max(0, 12 - left))}s' if isinstance(left, (int, float)) else ''}"
@@ -3063,6 +3117,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
     inactive = 0                          # consecutive reads with the client out of an active phase
     acct_captured = False                 # auto-remember the logged-in account once per session
     profile_img, profile_tried = None, False   # the home/profile page (manual open, out of game)
+    last_ph = None                        # previous gameflow phase (drives the dodge teardown)
+    dodged = False                        # champ select just aborted -> stay hidden until the next draft
     while not stop() and time.time() < deadline:
         settings = apply_settings()       # live tuning: gank weights + scout depth
         n_scout = count if count is not None else settings["scout_games"]
@@ -3070,6 +3126,29 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         # STALE board after a game ends, so we gate on phasecheck, not resolve - otherwise
         # opening the overlay out of game shows the PREVIOUS game instead of the home page.
         ph = phasecheck.phase()
+        # DODGE TEARDOWN (§10): champ select ending in anything but a game start is a dodge/
+        # abort. Reset every per-draft state so the NEXT champ select re-inits clean, park the
+        # window, and don't morph into a queue card for the auto-requeue — that was the stray
+        # "queue timer window on the wrong monitor" bug.
+        if last_ph == "ChampSelect" and ph not in ("ChampSelect", "GameStart", "InProgress", ""):
+            _ovlog(f"champ select aborted -> {ph!r}: state reset, window parked until next draft")
+            build, build_cid, auto_done, auto_note, last_cs_sig = None, 0, 0, None, None
+            team_read = {"state": "idle", "text": ""}
+            dodged = True
+            try:
+                import lolimport as limp
+                limp.ban_watch_update(dd, [], [], False)   # stale targets must not fire next draft
+            except Exception:
+                pass
+            emit("hide")
+        if ph == "ChampSelect" and dodged:
+            dodged = False                # a fresh draft: state was reset above, re-init normally
+        if last_ph != ph:
+            _ovlog(f"phase {last_ph!r} -> {ph!r}")
+        last_ph = ph
+        if dodged and ph in QUEUE_PHASES:
+            time.sleep(2)                 # requeueing after a dodge: stay parked, no queue card
+            continue
         if ph in QUEUE_PHASES:
             # IN QUEUE: the board opens WITH the queue and warms up (queue clock, your
             # roles, comfort picks); champ select then fills in over it the moment it
@@ -3160,12 +3239,19 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 ideas = team_bans(dd, allies, taken=taken, self_cid=my_cid) \
                     or (suggest_bans(dd, my_cid, my_role, taken=taken) if my_cid else []) \
                     or general_bans(dd, my_role, taken)
-                if settings.get("auto_ban", False):     # your ban turn? -> lock the top safe ban
-                    try:
-                        import lolimport as limp
-                        limp.auto_ban(dd, [c for c, _ in ideas], extra_avoid=ally_ids)
-                    except Exception:
-                        pass
+                # PRIORITY BAN LIST first (settings, e.g. perma-ban Shyvana), then the live
+                # EV ideas as fallback. The actual lock runs on lolimport's 1s watcher
+                # thread — this render loop can stall for seconds on network work, which
+                # used to swallow the last-12s firing window (the 'ban didn't happen' bug).
+                try:
+                    import lolimport as limp
+                    listed = [dd["name2id"].get(dd["norm"](nm2))
+                              for nm2 in settings.get("ban_list") or []]
+                    targets = [c for c in listed if c] + [c for c, _ in ideas]
+                    limp.ban_watch_update(dd, targets, ally_ids,
+                                          settings.get("auto_ban", False))
+                except Exception:
+                    pass
                 if settings.get("auto_swap_roles"):      # teammate offered a role you want? -> accept
                     try:
                         import lolimport as limp
@@ -3194,7 +3280,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                                 pu = ls.resolve_puuid(rid, key)
                                 if not pu:
                                     continue
-                                n, w, cg, cw, form, _m, kda, perf = ls.scout(dd, pu, 0, key, 10)
+                                n, w, cg, cw, form, _m, kda, perf, _r = ls.scout(dd, pu, 0, key, 10)
                                 sc = {"n": n, "w": w, "cg": cg, "cw": cw, "form": form,
                                       "kda": kda, "perf": perf, "rank": ls.rank(pu, key)}
                                 g, _c = player_rating(sc)

@@ -308,6 +308,34 @@ def rank(puuid, key):
     return r
 
 
+LEVEL_TTL = 6 * 3600   # account level moves slowly; new accounts level fast enough to matter
+
+
+def summoner_level(puuid, key):
+    """Account level via summoner-v4 by-puuid (the DTO's summonerLevel is a required field).
+    This is the hard evidence behind the new-account / smurf tags: ranked unlocks at level 30,
+    so a genuinely fresh account sits in the 30-60 band. Returns int or None, cached ~6h."""
+    if not puuid:
+        return None
+    fp = _cache_path("summoner", puuid)
+    if os.path.exists(fp):
+        try:
+            c = json.load(open(fp))
+            if time.time() - c.get("ts", 0) < LEVEL_TTL:
+                return c.get("lvl")
+        except Exception:
+            pass
+    d = _get(f"https://{PLATFORM}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}", key)
+    lvl = None
+    if isinstance(d, dict) and d.get("summonerLevel"):
+        lvl = int(d["summonerLevel"])
+    try:
+        json.dump({"lvl": lvl, "ts": time.time()}, open(fp, "w"))
+    except Exception:
+        pass
+    return lvl
+
+
 def mastery(puuid, champ_id, key):
     """Champion mastery on the champ they're playing THIS game (champion-mastery-v4),
     cached ~30 min. Returns {level, points} or None (no mastery entry = effectively a
@@ -496,17 +524,20 @@ def _part(rec):
 
 
 def scout(dd, puuid, champ_id, key, count):
-    """Return (games, wins, champ_games, champ_wins, form, match_ids, kda, perf) over the last
-    `count` ranked. `form` is a list of bool (True=win) in recent-first order. `kda` pools this
-    player's recent kills/deaths/assists ({g, k, d, a}). `perf` is the average per-game
-    PERFORMANCE score (how well they actually played vs their role's benchmarks — CS, kill
-    participation, damage share, deaths, vision), or None if no detailed matches were cached
-    yet. perf is the skill read that survives a bad-luck losing streak on off-champs — it grades
-    how you play, not whether you won. match_ids drives duo detection."""
+    """Return (games, wins, champ_games, champ_wins, form, match_ids, kda, perf, recent) over
+    the last `count` ranked. `form` is a list of bool (True=win) in recent-first order. `kda`
+    pools this player's recent kills/deaths/assists ({g, k, d, a}). `perf` is the average
+    per-game PERFORMANCE score (how well they actually played vs their role's benchmarks — CS,
+    kill participation, damage share, deaths, vision), or None if no detailed matches were
+    cached yet. perf is the skill read that survives a bad-luck losing streak on off-champs —
+    it grades how you play, not whether you won. match_ids drives duo detection. `recent` is
+    [(champ_name, win, pos)] recent-first — the evidence behind the off-champ / heater-
+    attribution / off-role tags (see docs/TAGS.md), from the same match reads (no extra cost)."""
     import lolprofile as lp                        # lazy: lolprofile imports us (avoid a cycle)
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
     form = []
+    recent = []
     tk = td = ta = kg = 0                          # KDA totals + games that carried KDA data
     perfs = []
     for mid in ids:
@@ -518,6 +549,7 @@ def scout(dd, puuid, champ_id, key, count):
         n += 1
         w += 1 if win else 0
         form.append(bool(win))
+        recent.append((cname, bool(win), rec[10] if len(rec) >= 11 else ""))
         if len(rec) >= 5:                          # new-format cache carries KDA
             tk += rec[2]; td += rec[3]; ta += rec[4]; kg += 1
         if len(rec) >= 11:                         # full stat line -> grade how they PLAYED
@@ -531,7 +563,29 @@ def scout(dd, puuid, champ_id, key, count):
             cg += 1
             cw += 1 if win else 0
     perf = round(sum(perfs) / len(perfs), 1) if perfs else None
-    return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}, perf
+    return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}, perf, recent
+
+
+def same_side_games(mids, puuid_a, puuid_b, key):
+    """Of the given shared match ids, how many had BOTH players on the SAME TEAM — the
+    signal that separates a real duo from two players who merely met in their games.
+    Reads the match cache the scout already filled (a shared id between two scouted
+    players is always cached); rows older than the team-field cache format count as
+    same-side to preserve the old behavior rather than silently un-flagging."""
+    same = 0
+    for mid in mids or []:
+        try:
+            res = match_results(mid, key)
+        except Exception:
+            continue
+        ra, rb = (res or {}).get(puuid_a), (res or {}).get(puuid_b)
+        if not (isinstance(ra, list) and isinstance(rb, list)):
+            continue
+        if len(ra) >= 10 and len(rb) >= 10:
+            same += 1 if (ra[9] and ra[9] == rb[9]) else 0
+        else:
+            same += 1                       # pre-team-field cache row -> old assumption
+    return same
 
 
 def _safe(s):
@@ -679,11 +733,12 @@ def iter_scout_struct(dd, count=10):
 
         def _one(p):
             puuid, cid, role, is_ally, is_me, riot_id = p
-            n, w, cg, cw, form, mids, kda, perf = scout(dd, puuid, cid, key, count)
+            n, w, cg, cw, form, mids, kda, perf, recent = scout(dd, puuid, cid, key, count)
             return {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                     "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
                     "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
-                    "mids": mids, "kda": kda, "perf": perf}
+                    "mids": mids, "kda": kda, "perf": perf, "recent": recent,
+                    "level": summoner_level(puuid, key), "puuid": puuid}
 
         # Scout all 10 AT ONCE. The scout is latency-bound (each player = ~N match fetches), so
         # running them concurrently fills the board in ~one player's time instead of ten. The

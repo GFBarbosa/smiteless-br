@@ -24,15 +24,18 @@ _TIER = {"IRON": "Iron", "BRONZE": "Bronze", "SILVER": "Silver", "GOLD": "Gold",
 
 
 def _ign_for(port, hdr, sid):
+    """(riot_id, summoner_level) for a summonerId. The LCU summoner blob already carries
+    summonerLevel, so the new-account / smurf evidence is free on the loading path."""
     if not sid:
-        return ""
+        return "", None
     try:
         r = lb.http(f"https://127.0.0.1:{port}/lol-summoner/v1/summoners/{sid}",
                     headers=hdr, timeout=4, insecure=True)
         gn, tl = r.get("gameName", ""), r.get("tagLine", "")
-        return f"{gn}#{tl}" if gn and tl else ""
+        lvl = int(r.get("summonerLevel") or 0) or None
+        return (f"{gn}#{tl}" if gn and tl else ""), lvl
     except Exception:
-        return ""
+        return "", None
 
 
 def _roster():
@@ -78,14 +81,15 @@ def _player_scout(dd, puuid, cid, key):
     10 games, and the recent match ids (drives the lobby-wide duo pass)."""
     out = {"rank_full": None, "pts": 0, "mlevel": 0, "n": 0, "w": 0, "cg": 0, "cw": 0,
            "form": [], "kdar": None, "kavg": "", "dpg": None, "perf": None,
-           "main_pos": "", "mids": []}
+           "main_pos": "", "mids": [], "recent": []}
     try:
         out["rank_full"] = ls.rank(puuid, key)
     except Exception:
         pass
     try:
-        n, w, cg, cw, form, mids, kda, perf = ls.scout(dd, puuid, cid, key, 10)
-        out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf)
+        n, w, cg, cw, form, mids, kda, perf, recent = ls.scout(dd, puuid, cid, key, 10)
+        out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf,
+                   recent=recent or [])
         g = (kda or {}).get("g", 0)
         if g:
             out["kdar"] = round((kda["k"] + kda["a"]) / max(1, kda["d"]), 1)
@@ -98,28 +102,33 @@ def _player_scout(dd, puuid, cid, key):
         out["pts"], out["mlevel"] = int(m.get("points", 0)), int(m.get("level", 0))
     except Exception:
         pass
-    # main role over the recent games — pure disk reads (scout just cached these matches)
-    posc = {}
-    for mid in out["mids"]:
-        try:
-            res = ls.match_results(mid, key)
-        except Exception:
-            continue
-        rec = (res or {}).get(puuid)
-        if rec and len(rec) >= 11 and rec[10]:
-            posc[rec[10]] = posc.get(rec[10], 0) + 1
-    if posc:
-        best = max(posc, key=posc.get)
-        if posc[best] >= max(3, (sum(posc.values()) + 1) // 2):   # a real main, not noise
-            out["main_pos"] = _ROLE.get(best.upper(), "")
+    out["main_pos"] = _main_pos(out["recent"])
     return out
 
 
+def _main_pos(recent):
+    """Their real position over the recent games (from the same match reads) — a main is a
+    position holding at least max(3, half) of the sample, anything less is noise."""
+    posc = {}
+    for _c, _w, pos in recent or []:
+        if pos:
+            posc[pos] = posc.get(pos, 0) + 1
+    if not posc:
+        return ""
+    best = max(posc, key=posc.get)
+    if posc[best] >= max(3, (sum(posc.values()) + 1) // 2):
+        return _ROLE.get(best.upper(), "")
+    return ""
+
+
 def _profile_tags(row, ally):
-    """The DETAILED, UNIQUE profile-read tags — what kind of player this account is, said
-    plainly. Tone is relative to YOU: an enemy on a loss streak is 'good' (for you).
-    Ordered sharpest-first; the renderer draws the first few that fit."""
-    tags = []
+    """The profile-read tags, per docs/TAGS.md: every tag is a CLAIM whose EVIDENCE is cited
+    in the pill text itself — no evidence, no tag. THIS-GAME reads (what to expect on the
+    champ they locked TODAY) render before ACCOUNT reads (who the account is), because a
+    Morgana one-trick can be a Brand feeder in the same lobby and the tag must say which.
+    Tone is relative to YOU: an enemy on a loss streak is 'good' (for you).
+    Inferences (smurf?) always carry a '?'; facts (new account · lvl 34) don't."""
+    this_game, account = [], []
 
     def tone(good_for_them):
         return ("good" if good_for_them else "bad") if ally else ("bad" if good_for_them else "good")
@@ -130,70 +139,120 @@ def _profile_tags(row, ally):
     form, n, w = row.get("form") or [], row.get("n", 0), row.get("w", 0)
     pts, cg, cw = row.get("pts", 0), row.get("cg", 0), row.get("cw", 0)
     perf, dpg, champ = row.get("perf"), row.get("dpg"), row.get("champ", "?")
-    # live streak (sharpest signal there is)
+    level, recent = row.get("level"), row.get("recent") or []
+
+    # their dominant RECENT champ (evidence for off-champ + heater attribution)
+    champc = {}
+    for cname, _win, _pos in recent:
+        champc[cname] = champc.get(cname, 0) + 1
+    top_champ, top_n = ("", 0)
+    if champc:
+        top_champ = max(champc, key=champc.get)
+        top_n = champc[top_champ]
+
+    # ---- THIS-GAME reads: the champ they locked today ----
+    if row.get("scouted") and pts < 6000 and cg == 0:
+        this_game.append((f"first {champ}? · {pts // 1000}k pts, 0 of last {n}" if n
+                          else f"first {champ}? · {pts // 1000}k pts", tone(False)))
+    if (n >= 8 and cg <= 1 and top_champ and top_n * 2 >= n
+            and top_champ != champ):
+        this_game.append((f"off-champ · {top_n} of last {n} on {top_champ}", tone(False)))
+    if cg >= 4 and cw / cg <= 0.35:
+        this_game.append((f"cold on {champ} · {cw}-{cg - cw} recent", tone(False)))
+    elif cg >= 5:
+        this_game.append((f"comfort · {cw}-{cg - cw} on {champ}", tone(cw * 2 >= cg)))
+    if pts >= 250_000:
+        this_game.append((f"{champ} OTP · {pts // 1000}k pts", tone(True)))
+    elif pts >= 100_000:
+        this_game.append((f"{champ} main · {pts // 1000}k pts", tone(True)))
+
+    # ---- ACCOUNT reads: who this account is ----
+    # smurf?: experienced player on a NEW account. Level is the load-bearing evidence
+    # (ranked unlocks at 30; real smurfs sit in the fresh 30-60 band). No level -> no tag.
+    smurfish = (level is not None and level <= 60 and n >= 8 and w / n >= 0.70
+                and ((perf is not None and perf >= 75) or (cg >= 3 and cw / cg >= 0.7)))
+    if smurfish:
+        ev = f"lvl {level} · {w}-{n - w}"
+        if perf is not None and perf >= 75:
+            ev += f" · {int(perf)} perf"
+        account.append((f"smurf? · {ev}", tone(True)))
+    elif level is not None and level <= 60:
+        account.append((f"new account · lvl {level}", "neutral"))
+    elif 0 < sg <= 25:
+        account.append((f"fresh ranked · {sg} games this season", "neutral"))
+    # live streak, with champ attribution: a heater earned on a different champ than
+    # today's is context, not a threat read on this pick
     if form:
         lead = 1
         while lead < len(form) and form[lead] == form[0]:
             lead += 1
         if lead >= 3:
-            tags.append((f"{lead}W streak · confident" if form[0]
-                         else f"{lead}L streak · tilt risk", tone(form[0])))
-    # smurf read: stomping recents on a barely-played ranked account
-    if n >= 8 and w / n >= 0.65 and 0 < sg < 80:
-        tags.append(("SMURF READ · new acct, stomping", tone(True)))
-    # champ relationship: OTP / main / comfort / first-time
-    if pts >= 250_000:
-        tags.append((f"{champ} OTP · {pts // 1000}k pts", tone(True)))
-    elif pts >= 100_000:
-        tags.append((f"{champ} main · {pts // 1000}k pts", tone(True)))
-    elif row.get("scouted") and pts < 6000 and cg == 0:
-        tags.append((f"first-time {champ}?", tone(False)))
-    if cg >= 5:
-        tags.append((f"comfort pick · {cw}-{cg - cw} recently", tone(cw * 2 >= cg)))
+            if form[0]:
+                streak_champs = [c for c, _w2, _p in recent[:lead]]
+                on_one = (streak_champs and streak_champs.count(max(
+                    set(streak_champs), key=streak_champs.count)) * 10 >= 7 * len(streak_champs))
+                hot = max(set(streak_champs), key=streak_champs.count) if on_one else ""
+                if hot and hot != champ:
+                    account.append((f"{lead}W heater · on {hot}", "neutral"))
+                else:
+                    account.append((f"{lead}W heater", tone(True)))
+            else:
+                account.append((f"{lead}L skid · tilt risk", tone(False)))
     # autofill / off-role
     mp = row.get("main_pos")
     if mp and row.get("role") and mp != row["role"]:
-        tags.append((f"off-role · {mp} main", tone(False)))
+        account.append((f"off-role · {mp} main", tone(False)))
     # how they die (or don't)
     if dpg is not None and n >= 5:
         if dpg >= 6.5:
-            tags.append((f"bleeds · {dpg} deaths/game", tone(False)))
+            account.append((f"bleeds · {dpg} deaths/game", tone(False)))
         elif dpg <= 2.6:
-            tags.append(("hard to kill · low deaths", tone(True)))
-    # how they actually play, independent of W/L
-    if perf is not None:
+            account.append((f"hard to kill · {dpg} deaths/game", tone(True)))
+    # how they actually play, independent of W/L (the sanctioned quality read)
+    if perf is not None and not smurfish:
         if perf >= 85:
-            tags.append((f"carries games · {int(perf)} avg perf", tone(True)))
+            account.append((f"carries · {int(perf)} avg perf", tone(True)))
         elif perf <= 45:
-            tags.append(("passenger · low impact", tone(False)))
-    # account character
+            account.append((f"passenger · {int(perf)} perf", tone(False)))
+    # season shape
     if sg >= 400:
-        tags.append((f"grinder · {sg} ranked this season", "neutral"))
-    elif 0 < sg <= 25:
-        tags.append(("fresh ranked account", "neutral"))
+        account.append((f"grinder · {sg} ranked this season", "neutral"))
     if swr is not None and sg >= 100:
         if swr >= 55:
-            tags.append((f"climbing · {swr}% season wr", tone(True)))
+            account.append((f"climbing · {swr}% season", tone(True)))
         elif swr <= 45:
-            tags.append((f"hardstuck · {swr}% season wr", tone(False)))
-    return tags
+            account.append((f"hardstuck · {swr}% season", tone(False)))
+    return this_game + account
 
 
-_DUO_SHARED = 3          # recent ranked games in common (same team) that flag a premade
+_DUO_SHARED = 3          # same-team shared recent games = confirmed duo
+_DUO_LOOSE = 2           # same-team shared recent games = probable duo ('duo?')
 
 
-def _duo_pass(team_rows):
-    """Cross-reference ONE TEAM's recent match ids: players sharing >=3 recent ranked
-    games are almost certainly queued together. Prepends a 'duo · NAME' tag to both."""
+def _duo_pass(team_rows, key=None):
+    """Cross-reference ONE TEAM's recent match ids: players sharing recent ranked games
+    ON THE SAME SIDE of those games are queued together. 2 verified same-side games is
+    already a strong read (10-game windows drift out of sync fast, which is how obvious
+    duos were slipping through at the old 3-id-overlap bar) — it renders as 'duo?'; 3+ is
+    confirmed. The tag cites its evidence per the tag spec (docs/TAGS.md)."""
     for i, a in enumerate(team_rows):
         for b in team_rows[i + 1:]:
             if not (a.get("mids") and b.get("mids")):
                 continue
-            if len(set(a["mids"]) & set(b["mids"])) >= _DUO_SHARED:
-                an = (a.get("player") or a.get("champ") or "?").split("#")[0]
-                bn = (b.get("player") or b.get("champ") or "?").split("#")[0]
-                a["tags"].insert(0, (f"duo · {bn}", "info"))
-                b["tags"].insert(0, (f"duo · {an}", "info"))
+            shared = set(a["mids"]) & set(b["mids"])
+            if len(shared) < _DUO_LOOSE:
+                continue
+            if key and a.get("puuid") and b.get("puuid"):
+                same = ls.same_side_games(shared, a["puuid"], b["puuid"], key)
+            else:
+                same = len(shared)
+            if same < _DUO_LOOSE:
+                continue
+            mark = "duo" if same >= _DUO_SHARED else "duo?"
+            an = (a.get("player") or a.get("champ") or "?").split("#")[0]
+            bn = (b.get("player") or b.get("champ") or "?").split("#")[0]
+            a["tags"].insert(0, (f"{mark} · {bn} ({same} shared)", "info"))
+            b["tags"].insert(0, (f"{mark} · {an} ({same} shared)", "info"))
 
 
 def _comp_read(dd, rows):
@@ -248,13 +307,16 @@ def brief(dd, key=None, scout=True):
                    "me": row["me"], "player": "", "scouted": False, "tags": [],
                    "rank_full": None, "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0,
                    "kdar": None, "kavg": "", "dpg": None, "perf": None,
-                   "pts": 0, "mlevel": 0, "main_pos": "", "mids": []}
+                   "pts": 0, "mlevel": 0, "main_pos": "", "mids": [], "recent": [],
+                   "level": None, "puuid": None}
             if key:
                 try:
-                    ign = _ign_for(port, hdr, row["sid"])
+                    ign, lvl = _ign_for(port, hdr, row["sid"])
                     puuid = ls.resolve_puuid(ign, key) if ign else None
                     if puuid and len(puuid) > 70:
                         rec["player"] = ign
+                        rec["level"] = lvl
+                        rec["puuid"] = puuid
                         rec.update(_player_scout(dd, puuid, cid, key))
                         rec["scouted"] = True
                         rec["tags"] = _profile_tags(rec, ally)
@@ -264,7 +326,7 @@ def brief(dd, key=None, scout=True):
         return out
     allies, enemies = enrich(my, True), enrich(en, False)
     if key:
-        _duo_pass(allies)
-        _duo_pass(enemies)
+        _duo_pass(allies, key)
+        _duo_pass(enemies, key)
     return {"allies": allies, "enemies": enemies,
             "plan": _plan(dd, my, en), "scouted": bool(key)}

@@ -77,6 +77,24 @@ def c_claude():
     return (OK, os.path.basename(exe)) if exe else (FAIL, "claude CLI not found -> matchup tips disabled")
 
 
+def c_glyphs():
+    import glyphcheck
+    bad = glyphcheck.check()
+    if bad:
+        return FAIL, bad[0] + (f" (+{len(bad) - 1} more)" if len(bad) > 1 else "")
+    return OK, "no text-blind symbol draws (tofu tripwire)"
+
+
+def c_tagspec():
+    import subprocess
+    r = subprocess.run([sys.executable, os.path.join(_ROOT, "tools", "tagcheck.py")],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode == 0:
+        return OK, "tag fixtures conform to docs/TAGS.md"
+    tail = (r.stdout or r.stderr).strip().splitlines()
+    return FAIL, tail[-1] if tail else "tagcheck failed"
+
+
 def c_lcu():
     import lolgame as lg, lolbuild as lb
     lc = lg._lcu()
@@ -97,6 +115,8 @@ def main():
         ("op.gg (builds + matchups)", c_opgg),
         ("Riot API key (player scout)", c_riot_key),
         ("claude CLI (matchup tips)", c_claude),
+        ("Tag spec (docs/TAGS.md)", c_tagspec),
+        ("Glyph coverage (tofu)", c_glyphs),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:

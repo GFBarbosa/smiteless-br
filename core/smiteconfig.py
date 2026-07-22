@@ -40,6 +40,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "loading_brief": True,   # loading-screen matchup overlay (champ tags + game plan)
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
+         "board_topmost": True,   # live board/scoreboard stays above other windows (untick to allow covering)
          "auto_import": False,    # import runes+summs AUTOMATICALLY when you lock a champ
          "auto_ban": False,       # champ select: auto-lock the top recommended ban on your ban turn
          "auto_accept": False,    # auto-accept queue ready checks
@@ -52,6 +53,7 @@ def load():
     s = dict(DEFAULTS)
     s.update(BOOLS)
     s["fav_champs"] = []          # ordered favourite picks: ["Kha'Zix", "Ahri, mid", ...]
+    s["ban_list"] = ["Shyvana"]   # ordered PERMA-BAN priority: highest still-available gets banned
     s["auto_swap_roles"] = []     # champ select: role (position) swaps to auto-accept INTO
     s["auto_pick_swap"] = ""      # champ select pick order: "" off / "any" / "first" / "last"
     try:
@@ -66,6 +68,8 @@ def load():
                 s[k] = bool(raw[k])
         if isinstance(raw.get("fav_champs"), list):
             s["fav_champs"] = [str(x).strip() for x in raw["fav_champs"] if str(x).strip()][:20]
+        if isinstance(raw.get("ban_list"), list):
+            s["ban_list"] = [str(x).strip() for x in raw["ban_list"] if str(x).strip()][:10]
         if isinstance(raw.get("auto_swap_roles"), list):
             s["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in raw["auto_swap_roles"])
                                     if r in SWAP_ROLES]
@@ -107,6 +111,10 @@ def save(s):
         clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
     elif "fav_champs" not in clean:
         clean["fav_champs"] = []
+    if "ban_list" in s:
+        clean["ban_list"] = [str(x).strip() for x in (s.get("ban_list") or []) if str(x).strip()][:10]
+    elif "ban_list" not in clean:
+        clean["ban_list"] = ["Shyvana"]
     if "auto_swap_roles" in s:
         clean["auto_swap_roles"] = [r for r in (str(x).strip().lower() for x in (s.get("auto_swap_roles") or []))
                                     if r in SWAP_ROLES]

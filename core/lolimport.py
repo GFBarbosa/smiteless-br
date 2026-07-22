@@ -7,6 +7,7 @@ page (recycling an old Smiteless page / the current editable one when the page l
 hit) and PATCHes the summoner picks, honoring the Flash-on-D/F preference.
 """
 import json
+import os
 import ssl
 import time
 import urllib.request
@@ -65,6 +66,21 @@ def hover_champ(cid):
 
 
 BAN_WAIT_MS = 12000        # hold the auto-ban until this little is left on the phase clock
+_BAN_LOG = os.path.expanduser("~/.claude/smiteless_ban.log")
+_BAN_LOG_STATE = {"last": ""}      # collapse repeated identical lines (the 1s watcher polls a lot)
+
+
+def _banlog(msg, dedupe=False):
+    """One diagnostic line per ban-attempt event — a missed ban must never be silent
+    (work-order §2). dedupe=True collapses repeats of the same waiting-state line."""
+    if dedupe and msg == _BAN_LOG_STATE["last"]:
+        return
+    _BAN_LOG_STATE["last"] = msg
+    try:
+        with open(_BAN_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
 
 
 def auto_ban(dd, targets, extra_avoid=()):
@@ -74,7 +90,12 @@ def auto_ban(dd, targets, extra_avoid=()):
     second lets more teammates hover, and the team-wide ban math gets sharper with each
     hover (the caller recomputes `targets` every poll). Fires immediately if the timer
     isn't readable (never risk missing the ban). Returns the banned championId or None.
-    Never raises — auto-ban must never disrupt champ select."""
+    Never raises — auto-ban must never disrupt champ select.
+
+    Reliability (the 'ban sometimes didn't happen' fix): the LOCK is verified by re-reading
+    the session; if the one-shot PATCH {championId, completed} didn't take (some client
+    builds want the two-step), we fall back to PATCH-then-POST /complete. Every attempt
+    writes a line to ~/.claude/smiteless_ban.log so a failure is never silent."""
     if not targets:
         return None
     try:
@@ -95,6 +116,7 @@ def auto_ban(dd, targets, extra_avoid=()):
     tmr = sess.get("timer") or {}
     left = tmr.get("adjustedTimeLeftInPhase")
     if (not tmr.get("isInfinite")) and isinstance(left, (int, float)) and left > BAN_WAIT_MS:
+        _banlog(f"ban turn open, holding for hovers ({int(left) // 1000}s left)", dedupe=True)
         return None                              # clock still fat -> wait for more hovers
     avoid = set(int(c) for c in extra_avoid if c)
     b = sess.get("bans") or {}
@@ -109,15 +131,84 @@ def auto_ban(dd, targets, extra_avoid=()):
         for a in group:
             if a.get("completed") and a.get("championId"):
                 avoid.add(int(a["championId"]))
+    nm = (dd.get("id2name") or {}) if isinstance(dd, dict) else {}
     pick = next((int(c) for c in targets if c and int(c) not in avoid), None)
     if not pick:
+        _banlog(f"no safe target: all of {[nm.get(int(c), c) for c in targets[:5]]} "
+                f"already banned/picked/hovered")
         return None
+    label = nm.get(pick, str(pick))
     try:
         _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
                   {"championId": pick, "completed": True})
+    except Exception as e:
+        _banlog(f"PATCH lock {label} raised {type(e).__name__} — trying two-step")
+    if _ban_completed(action_id):
+        _banlog(f"BANNED {label} (action {action_id}, one-shot)")
         return pick
+    # two-step fallback: set intent, then complete — older client builds want this shape
+    try:
+        _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+                  {"championId": pick})
+        _lcu_json("POST", f"/lol-champ-select/v1/session/actions/{action_id}/complete",
+                  {"championId": pick})
+    except Exception as e:
+        _banlog(f"two-step lock {label} raised {type(e).__name__}")
+    if _ban_completed(action_id):
+        _banlog(f"BANNED {label} (action {action_id}, two-step)")
+        return pick
+    _banlog(f"FAILED to lock {label} — action {action_id} still open after both attempts")
+    return None
+
+
+def _ban_completed(action_id):
+    """Re-read the session and report whether OUR ban action actually completed — the
+    only proof a ban happened (a 2xx on the PATCH is not it)."""
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+        for group in (sess.get("actions") or []):
+            for a in group:
+                if a.get("id") == action_id:
+                    return bool(a.get("completed"))
     except Exception:
-        return None
+        pass
+    return False
+
+
+# ---- dedicated ban watcher: the champ-select render loop polls every ~3s BUT an iteration
+# can stall for many seconds on network work (op.gg fetch, team scout) — long enough to
+# swallow the 12s firing window entirely. That was the root of 'auto-ban sometimes no-ops'.
+# This thread polls ONLY the local champ-select session (cheap, ~ms) every second, reading
+# its targets from a shared ref the render loop keeps fresh.
+_BAN_WATCH = {"thread": None, "targets": [], "avoid": (), "dd": None, "on": False}
+
+
+def ban_watch_update(dd, targets, avoid, enabled):
+    """Called by the champ-select loop each poll: refresh what the watcher should ban
+    (priority ban list + live EV ideas) and whether auto-ban is on. Starts the watcher
+    on first use; it idles at 2s out of champ select, 1s in it."""
+    _BAN_WATCH.update(dd=dd, targets=list(targets or []), avoid=tuple(avoid or ()),
+                      on=bool(enabled))
+    th = _BAN_WATCH.get("thread")
+    if th and th.is_alive():
+        return
+    import threading
+
+    def _loop():
+        while True:
+            try:
+                if _BAN_WATCH["on"] and _BAN_WATCH["targets"]:
+                    banned = auto_ban(_BAN_WATCH["dd"], _BAN_WATCH["targets"],
+                                      extra_avoid=_BAN_WATCH["avoid"])
+                    if banned:
+                        time.sleep(5)            # our turn is done; ease off
+                time.sleep(1 if _BAN_WATCH["on"] else 2)
+            except Exception:
+                time.sleep(2)                    # never die: a watcher that quits = silent no-ban
+
+    th = threading.Thread(target=_loop, daemon=True, name="smiteless-ban-watch")
+    _BAN_WATCH["thread"] = th
+    th.start()
 
 
 _POS_SWAP_LAST = {"sid": None, "ts": 0.0}     # anti-spam for our outgoing ROLE-swap requests

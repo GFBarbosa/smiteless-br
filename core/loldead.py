@@ -11,6 +11,9 @@ Everything here is READ-ONLY off the live-client feed (:2999) - no input automat
 control (that needs simulating input into the game and is bannable; not happening). brief()
 returns None unless the active player is dead right now, so the overlay only shows on death.
 """
+import os
+import time
+
 import loltempo as lt
 import lollive as ll
 import lolitems as li
@@ -18,6 +21,44 @@ import lolgame as lg
 import loltags as ltag
 
 FEED_WINDOW = 40          # seconds of history for "what you missed"
+_DEAD_LOG = os.path.expanduser("~/.claude/smiteless_dead.log")
+
+
+def _dlog(msg):
+    """Diagnostic for attribution misses (standing rule: surfaces that can't be triggered
+    on demand ship with a log). A killer we couldn't match must leave evidence behind."""
+    try:
+        with open(_DEAD_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+
+# The live events feed has NO participant ids — ChampionKill carries only KillerName /
+# VictimName strings. A non-champion killer arrives as an internal object name
+# (Turret_T2_L_03_A, Minion_T1L3S..., SRU_Baron / SRU_Dragon_Fire / SRU_Razorbeak...);
+# anything unrecognized falls through to the honest raw-name path, never a wrong claim.
+_ENV_MONSTER = (("baron", "Baron"), ("dragon", "the drake"), ("herald", "the Herald"),
+                ("razorbeak", "raptors"), ("murkwolf", "wolves"), ("gromp", "Gromp"),
+                ("krug", "krugs"), ("red", "red buff"), ("blue", "blue sentinel"),
+                ("crab", "the scuttle crab"), ("atakhan", "Atakhan"))
+
+
+def _env_killer(raw):
+    """Friendly name for a non-champion killer in the events feed, or None if `raw`
+    doesn't look like an environment object (i.e. it's presumably a player)."""
+    r = (raw or "").strip()
+    if r.startswith(("Turret", "Obelisk")):
+        return "a turret"
+    if r.startswith("Minion"):
+        return "minions"
+    if r.startswith(("SRU_", "SRUAP_", "TT_")):
+        low = r.lower()
+        for frag, label in _ENV_MONSTER:
+            if frag in low:
+                return label
+        return "a jungle monster"
+    return None
 
 
 def _gname(p):
@@ -40,9 +81,11 @@ def _recent_feed(data, ally_names, gt):
         if nm == "ChampionKill":
             vic = e.get("VictimName") or "?"
             vic_ally = lg._gname(vic) in ally_names
+            kraw = e.get("KillerName") or "?"
+            kshow = _env_killer(kraw) or _short(kraw)   # 'Turret_T2_L_03_A' -> 'a turret'
             # "ally kills enemy" is good for us; "enemy kills ally" is bad
             rows.append({"t": t, "ago": ago, "ally": (not vic_ally),
-                         "text": f"{_short(e.get('KillerName'))}  killed  {_short(vic)}"})
+                         "text": f"{kshow}  killed  {_short(vic)}"})
         elif nm == "DragonKill":
             dt = (e.get("DragonType") or "").replace("Elder", "Elder ").strip().lower()
             rows.append({"t": t, "ago": ago, "ally": ally,
@@ -127,10 +170,21 @@ def _death_cause(dd, data, me, enemies, gt):
             break
     if not kill:
         return None
-    kg = lg_gname(kill.get("KillerName") or "")
-    killer = next((p for p in enemies if _gname(p) == kg), None)
+    raw = kill.get("KillerName") or ""
+    env = _env_killer(raw)
     assists = len(kill.get("Assisters") or [])
-    if not killer:                                     # executed / turret / minion
+    if env:                                            # executed by turret / minions / a monster
+        return {"line": f"Executed by {env}", "sub": "no kill credit given away — reset, buy, "
+                                                     "and don't repeat the dive/greed"}
+    kg = lg_gname(raw)
+    killer = next((p for p in enemies if _gname(p) == kg), None)
+    if not killer:
+        if raw:
+            # a NAMED killer we couldn't match to the enemy roster: say what we know
+            # honestly (never claim 'no killer'), and leave evidence for diagnosis
+            _dlog(f"unmatched KillerName {raw!r} vs enemies "
+                  f"{[p.get('riotId') or p.get('summonerName') for p in enemies]}")
+            return {"line": f"Killed by {_short(raw)}", "sub": "caught — reset, respawn clean"}
         return {"line": "You died with no killer credited", "sub": "reset, respawn clean"}
     sc = killer.get("scores") or {}
     kk, kd = int(sc.get("kills", 0)), int(sc.get("deaths", 0))
@@ -139,9 +193,13 @@ def _death_cause(dd, data, me, enemies, gt):
     cid = dd["name2id"].get(dd["norm"](killer.get("championName", "")))
     cls = _cls(dd, cid)
     fed = kk - kd >= 3
+    # 'Solo' is a claim — it only renders when the kill event credits NO assisters.
     if assists >= 2:
         line = f"Collapsed on by {champ} +{assists}"
         sub = "you were caught out of position — group up, ward flanks, stop face-checking"
+    elif assists == 1:
+        line = f"Killed by {champ} +1 ({kk}/{kd})"
+        sub = _COUNTER.get(cls, "lost a 2v1 trade — track both before committing")
     elif fed and cls == "Assassin":
         line = f"Solo-killed by {champ} ({kk}/{kd})"
         sub = "he one-shots you now — " + _COUNTER["Assassin"]
