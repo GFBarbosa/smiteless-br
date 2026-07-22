@@ -30,13 +30,19 @@ import phasecheck
 import smiteconfig as cfg
 
 # One publisher per process; champ select ending resets it for the next lobby.
-_ST = {"thread": None, "draft_id": "", "posted": False, "last_pub": "",
+_ST = {"thread": None, "draft_id": "", "posted": False, "opened": False, "last_pub": "",
        "sugg": {}, "sugg_key": {}, "stop": False}
 _LOCK = threading.Lock()
 
 SUGG_PER_SEAT = 3          # suggestion cards per seat (each carries runes -> keep payload lean)
 PUBLISH_POLL = 2.0         # seconds between champ-select reads
 _ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # unambiguous, URL-safe
+
+# The DB host baked into the hosted page (docs/draft/index.html DEFAULT_DB). When the
+# user's DB IS this one, the shared link can omit "&db=host.firebaseio.com" entirely and
+# be just "…/draft/#d=ID" — short and not phishing-shaped. Keep the two in sync.
+_DEFAULT_PAGE_DB = "smiteless-draft-default-rtdb.firebaseio.com"
+BRAND = "DraftBoard"       # the shareable feature's identity (chat message + page)
 
 
 def _new_id(n=12):
@@ -65,10 +71,14 @@ def _page_url(settings=None):
 
 
 def link_for(draft_id, settings=None):
-    """The URL that goes into chat: page + draft id + db host (page validates the host)."""
+    """The URL that goes into chat. When the user's DB is the one the hosted page already
+    bakes in (_DEFAULT_PAGE_DB — the normal case), the link is just '…/draft/#d=ID' — short
+    and trustworthy. A self-hoster pointed at a different DB still gets the '&db=host' form
+    so their page knows where to stream from."""
     db = _db_url(settings)
     host = db.split("://", 1)[1] if db else ""
-    return f"{_page_url(settings)}/#d={draft_id}&db={host}"
+    base = f"{_page_url(settings)}/#d={draft_id}"
+    return base if host == _DEFAULT_PAGE_DB else f"{base}&db={host}"
 
 
 # ---------- Firebase REST (stdlib only; the DB is public per its rules, auth-free) ----------
@@ -115,8 +125,9 @@ def post_chat_link(url):
         conv = next((c for c in (convs or []) if c.get("type") == "championSelect"), None)
         if not conv:
             return False
-        body = json.dumps({"body": f"live draft board — picks + runes for this lobby: {url}",
-                           "type": "chat"}).encode()
+        msg = (cfg.load().get("draft_msg") or "").strip() or \
+            f"{BRAND} — live picks + runes for our lobby:"
+        body = json.dumps({"body": f"{msg} {url}", "type": "chat"}).encode()
         req = urllib.request.Request(
             f"https://127.0.0.1:{port}/lol-chat/v1/conversations/{conv['id']}/messages",
             data=body, headers={**hdr, "Content-Type": "application/json"}, method="POST")
@@ -258,8 +269,16 @@ def _worker(dd):
                 except Exception:
                     time.sleep(PUBLISH_POLL)           # network blip -> retry next round
                     continue
-                if not _ST["posted"]:                  # first successful publish -> ONE chat link
-                    _ST["posted"] = post_chat_link(link_for(_ST["draft_id"], settings))
+                if not _ST["posted"]:                  # first successful publish
+                    link = link_for(_ST["draft_id"], settings)
+                    _ST["posted"] = post_chat_link(link)     # ONE chat link
+                    if settings.get("draft_autoopen", True) and not _ST["opened"]:
+                        _ST["opened"] = True                 # open it for YOU, once per lobby
+                        try:
+                            import webbrowser
+                            webbrowser.open(link)
+                        except Exception:
+                            pass
             time.sleep(PUBLISH_POLL)
     finally:
         if db and _ST["draft_id"]:
@@ -278,7 +297,7 @@ def tick(dd):
         if _ST["thread"] is not None:
             return
         prev, _ST["draft_id"] = _ST["draft_id"], _new_id()
-        _ST.update(posted=False, last_pub="", sugg={}, sugg_key={}, stop=False)
+        _ST.update(posted=False, opened=False, last_pub="", sugg={}, sugg_key={}, stop=False)
         t = threading.Thread(target=_worker, args=(dd,), daemon=True)
         _ST["thread"] = t
     if prev:                                           # tidy the previous lobby's node

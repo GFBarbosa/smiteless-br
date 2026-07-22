@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Smiteless — Live Draft</title>
+<title>DraftBoard — live champ select</title>
 <meta name="description" content="Live champ-select board: picks, bans, and per-seat champion suggestions with runes. Sent from Smiteless.">
 <style>
 /* Duskfall (the Smiteless design system, see docs/UIDESIGN.md) — deliberately dark-only:
@@ -150,8 +150,8 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 <body>
 <div class="wrap">
   <header>
-    <div class="mark">S</div>
-    <div class="title">SMITELESS<small>live draft</small></div>
+    <div class="mark">D</div>
+    <div class="title">DRAFTBOARD<small>live champ select</small></div>
     <div class="spacer"></div>
     <span class="chip" id="patch" hidden><span id="patchtxt"></span></span>
     <span class="chip" id="status"><span class="dot"></span><span id="statustxt">connecting</span></span>
@@ -171,6 +171,10 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 "use strict";
 /* ============ config / hash ============ */
 const DD = "https://ddragon.leagueoflegends.com";
+/* This page's own Firebase — so the shared link can be just "#d=ID" (short + not sketchy)
+   instead of carrying "&db=host.firebaseio.com". A self-hoster with a different DB still
+   works: the link just includes &db= and it overrides this default. */
+const DEFAULT_DB = "smiteless-draft-default-rtdb.firebaseio.com";
 const H = (() => {
   const out = {d:"", db:"", demo:location.hash.replace("#","") === "demo"};
   for (const kv of location.hash.replace(/^#/,"").split("&")) {
@@ -179,6 +183,7 @@ const H = (() => {
     if (k === "db") out.db = decodeURIComponent(v || "");
     if (k === "demo") out.demo = true;
   }
+  if (!out.db) out.db = DEFAULT_DB;          // no &db= in the link -> this page's own DB
   return out;
 })();
 const dbOk = h => /^[a-z0-9.-]+\.(firebaseio\.com|firebasedatabase\.app)$/i.test(h || "");

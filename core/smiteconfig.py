@@ -47,13 +47,16 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "flash_on_d": True,      # import puts Flash on D (off = put Flash on F)
          "solo_coaching": True,   # profile/climb/session coaching from RANKED SOLO games only
          "draft_link": True,      # champ select: publish the live draft board + post the link in chat
+         "draft_autoopen": True,  # champ select: also OPEN the draft board in your own browser
          "legend_seen": False}    # widget: LEGEND card already auto-opened once (state, not a toggle)
 
 # Free-text settings (trimmed strings, no validation beyond str()).
 # draft_db: the user's own Firebase RTDB url ('' = draft link feature dormant); see docs/DRAFTLINK.md.
 # draft_page: where the static draft board is hosted (GitHub Pages serves /docs on main).
+# draft_msg: the champ-select chat line the link is posted with ('' = the branded default).
 STRINGS = {"draft_db": "",
-           "draft_page": "https://bobbyroylee.github.io/smiteless/draft/"}
+           "draft_page": "https://bobbyroylee.github.io/smiteless/draft/",
+           "draft_msg": ""}
 
 
 def load():

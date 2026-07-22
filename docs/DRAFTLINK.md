@@ -1,10 +1,11 @@
-# The Live Draft Link 🔗
+# DraftBoard — the Live Draft Link 🔗
 
-In champ select, Smiteless posts **one URL into the lobby chat**. Anyone who clicks it —
-including the four random teammates who will never install anything — lands on a live web
-board of the current draft: both teams, bans, and per-seat **champion suggestions with
-runes** for this exact game. They tap **"This is me"** on their seat and get pick + rune
-cards that keep updating as the draft evolves. No app, no account, no refresh.
+In champ select, Smiteless posts **one short URL into the lobby chat** (and opens it for
+you too). Anyone who clicks it — including the four random teammates who will never install
+anything — lands on **DraftBoard**, a live web board of the current draft: both teams,
+bans, and per-seat **champion suggestions with runes** for this exact game. They tap
+**"This is me"** on their seat and get pick + rune cards that keep updating as the draft
+evolves. No app, no account, no refresh.
 
 **Total monthly cost: $0.** The page is static hosting (GitHub Pages), the live data
 channel is Firebase's free Spark tier, and all art/names load from Riot's public ddragon
@@ -13,8 +14,15 @@ champ select.
 
 ```
 you (Smiteless) ──publishes draft──▶ Firebase RTDB (free) ──streams──▶ teammates' browsers
-        └──posts ONE link in champ-select chat──▶ https://…github.io/smiteless/draft/#d=…
+        └──posts ONE short link in chat + opens it for you──▶ …github.io/smiteless/draft/#d=…
 ```
+
+The link is short — just `…/draft/#d=<id>` — because the hosted page bakes in its own
+Firebase host (`loldraft._DEFAULT_PAGE_DB` ⇄ `DEFAULT_DB` in `docs/draft/index.html`; keep
+them in sync). If you self-host DraftBoard against a *different* database, the link
+automatically grows a `&db=<host>` suffix so your page still knows where to stream from.
+The chat message and whether it auto-opens for you are both in Settings → Champ-select
+automation (and `draft_msg` in the settings JSON overrides the message text).
 
 ## One-time setup (~5 minutes)
 

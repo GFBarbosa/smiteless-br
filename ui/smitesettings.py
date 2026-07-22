@@ -185,6 +185,7 @@ def main():
     autoban = tk.BooleanVar(value=s.get("auto_ban", False))
     boardtop = tk.BooleanVar(value=s.get("board_topmost", True))
     draftlink = tk.BooleanVar(value=s.get("draft_link", True))
+    draftopen = tk.BooleanVar(value=s.get("draft_autoopen", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
     # FEATURES, grouped (§15): one card per surface family instead of a flat two-column
@@ -230,6 +231,7 @@ def main():
         ("Auto-ban (perma-ban list first)", autoban),
         ("Dodge alerts", dodge),
         ("Live draft link (URL in chat)", draftlink),
+        ("Also open the draft board for me", draftopen),
     ])
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
@@ -723,7 +725,8 @@ def main():
                   "ban_list": bans, "board_topmost": boardtop.get(),
                   "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
-                  "draft_link": draftlink.get(), "draft_db": db_entry.get().strip(),
+                  "draft_link": draftlink.get(), "draft_autoopen": draftopen.get(),
+                  "draft_db": db_entry.get().strip(),
                   "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()],
                   "auto_pick_swap": ("" if pickswap.get() == "off" else pickswap.get())})
         cfg.set_auto_open(auto.get())
