@@ -37,7 +37,9 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
-         "loading_brief": True,   # loading-screen matchup overlay (champ tags + game plan)
+         "loading_brief": False,  # OFF by default — superseded by DraftBoard's live scout (the
+                                  #   same scoreboard, now on the shared web page). On = also draw
+                                  #   the native on-monitor loading overlay.
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
          "board_topmost": True,   # live board/scoreboard stays above other windows (untick to allow covering)

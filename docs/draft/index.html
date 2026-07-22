@@ -147,37 +147,52 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
              border-radius:10px;padding:7px 12px;font-size:12.5px;margin-bottom:14px;
              letter-spacing:.04em}
 
-/* ---- scout scoreboard (loading + in-game view) ---- */
-.scout-legend{color:var(--faint);font-size:12px;margin:0 0 12px}
-.scoutcols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
-@media (max-width:720px){.scoutcols{grid-template-columns:1fr}}
-.scol{min-width:0}
-.scout-h{display:flex;align-items:baseline;gap:8px;margin:2px 0 8px}
-.scout-h h3{margin:0;font-family:var(--disp);font-size:13px;letter-spacing:.08em;
-            text-transform:uppercase}
+/* ---- scout scoreboard (loading + in-game view) — the on-monitor overlay, on the web ----
+   Full-width account rows in two stacked team blocks (YOUR TEAM / ENEMY TEAM), a single strict
+   column grid so every row's cells line up down the whole board (the old side-by-side layout
+   let each half drift). One shared grid template lives on .stable; rows inherit it. */
+.scout-legend{color:var(--faint);font-size:12px;margin:0 0 14px}
+.steam{margin-bottom:18px}
+.scout-h{display:flex;align-items:center;gap:10px;margin:0 2px 9px}
+.scout-h h3{margin:0;font-family:var(--disp);font-size:13px;letter-spacing:.12em;
+            text-transform:uppercase;white-space:nowrap}
 .scout-h.ally h3{color:var(--good)} .scout-h.enemy h3{color:var(--bad)}
-.scout-h .sub{color:var(--faint);font-size:12px}
-.srow{display:grid;grid-template-columns:34px minmax(96px,1.3fr) auto 1fr;gap:10px;align-items:center;
+.scout-h .rule{flex:1;height:1px;background:var(--line-soft)}
+.scout-h .sub{color:var(--faint);font-size:12px;white-space:nowrap}
+
+/* the shared row grid — cols: face | identity | rank | last-10 | grade | tags | claim.
+   The SAME explicit template sits on every .srow, so all ten rows line up column-for-column
+   down the whole board (no subgrid dependency — works everywhere). */
+.stable{display:flex;flex-direction:column;gap:6px}
+.SCOLS,.srow{grid-template-columns:44px minmax(150px,1.15fr) minmax(90px,.8fr) minmax(140px,1fr) 48px minmax(0,1.5fr) 92px}
+.srow{display:grid;gap:12px;align-items:center;
       background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line);
-      border-radius:9px;padding:8px 11px;margin-bottom:7px}
-.srow.me{border-left-color:var(--ember)}
-.srow .face{width:34px;height:34px;border-radius:8px;font-size:12px}
+      border-radius:9px;padding:9px 12px}
+.srow.me,.srow.claimed{border-left-color:var(--ember);
+     background:color-mix(in srgb,var(--ember) 6%,var(--surface))}
+.srow.claimable{cursor:pointer}
+.srow.claimable:hover{border-color:color-mix(in srgb,var(--ember) 40%,var(--line))}
+.srow .face{width:40px;height:40px;border-radius:9px;font-size:13px}
 .who{min-width:0}
-.who .nm{font-family:var(--disp);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.who .sub{font-size:11px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap}
-.rank{font-family:var(--disp);font-size:12px;font-variant-numeric:tabular-nums}
+.who .nm{font-family:var(--disp);font-size:14.5px;overflow:hidden;text-overflow:ellipsis;
+         white-space:nowrap}
+.srow.me .who .nm{color:var(--ember)}
+.who .sub{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank{font-family:var(--disp);font-size:12px;font-variant-numeric:tabular-nums;min-width:0}
+.rank .season{display:block;font-size:10.5px;color:var(--faint);letter-spacing:.02em}
 .rank.unranked{color:var(--faint)}
-.mid-col{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.mid-col{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0}
 .form{display:flex;gap:2px}
-.form i{width:8px;height:11px;border-radius:2px;display:block}
+.form i{width:9px;height:12px;border-radius:2px;display:block}
 .form i.w{background:var(--good)} .form i.l{background:var(--bad)}
-.rec{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rec{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;
+     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .rec b{color:var(--txt);font-weight:600}
 .rec .cw.good{color:var(--good)} .rec .cw.bad{color:var(--bad)}
-.right{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-.grade{font-family:var(--disp);font-weight:700;font-size:15px;min-width:20px;text-align:center}
-.gp{font-size:10px;color:var(--faint);font-family:var(--disp)}
-.tags{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.gradebox{display:flex;flex-direction:column;align-items:center;line-height:1}
+.grade{font-family:var(--disp);font-weight:700;font-size:18px}
+.gp{font-size:10px;color:var(--faint);font-family:var(--disp);margin-top:2px}
+.tags{display:flex;gap:5px;flex-wrap:wrap;align-content:center}
 .tg{font-size:11px;padding:2px 8px;border-radius:8px;border:1px solid var(--line-soft);
     background:var(--sunken);color:var(--muted);white-space:nowrap}
 .tg.good{color:var(--good)} .tg.bad{color:var(--bad)} .tg.info{color:var(--info)}
@@ -186,8 +201,30 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 .tg.p.bad{background:color-mix(in srgb,var(--bad) 22%,transparent)}
 .tg.p.neutral{background:color-mix(in srgb,var(--muted) 20%,transparent);color:var(--txt)}
 .tg.p.info{background:color-mix(in srgb,var(--info) 22%,transparent)}
+.claimcell{display:flex;justify-content:flex-end;align-items:center}
+.claim2{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;
+        padding:4px 10px;font-size:12px;letter-spacing:.02em;white-space:nowrap}
+.claim2:hover{border-color:var(--ember);color:var(--ember);background:var(--hover)}
+.claim2.on{border-color:var(--ember-deep);color:var(--ember);background:color-mix(in srgb,var(--ember) 10%,transparent)}
+
+/* per-lane coaching panel — opens under YOUR claimed row (auto for the publisher) */
+.coach{grid-column:1 / -1;background:var(--raised);border:1px solid var(--line);
+       border-left:3px solid var(--ember);border-radius:9px;padding:11px 14px;margin:1px 0 2px}
+.coach-h{font-family:var(--disp);font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+         color:var(--ember);display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.coach-h .vsface{width:22px;height:22px;border-radius:6px;font-size:9px}
+.coach-h .lo{color:var(--txt)} .coach-h .en{color:var(--bad)}
+.coach-tip{font-size:13px;color:var(--txt);line-height:1.5;margin:2px 0 6px}
+.coach-src{color:var(--faint)}
+.coach-none{font-size:12.5px;color:var(--muted);font-style:italic;margin:2px 0 6px}
+.coach-wl{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.coach-wl .wl{font-size:12.5px}
+.coach-wl .k{font-family:var(--disp);font-size:10.5px;letter-spacing:.06em;margin-right:8px}
+.coach-wl .win .k{color:var(--good)} .coach-wl .lose .k{color:var(--bad)}
+.coach-wl .lose{color:var(--muted)}
+
 .plan{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ember);
-      border-radius:10px;padding:10px 14px;margin-top:14px}
+      border-radius:10px;padding:11px 15px;margin-top:6px}
 .plan h3{margin:0 0 6px;font-family:var(--disp);font-size:12px;letter-spacing:.08em;
          color:var(--ember);text-transform:uppercase}
 .plan .ln{font-size:13px;margin:2px 0;color:var(--txt)}
@@ -195,10 +232,17 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 .plan .wl .k{font-family:var(--disp);font-size:11px;letter-spacing:.06em;margin-right:8px}
 .plan .wl.win .k{color:var(--good)} .plan .wl.lose .k{color:var(--bad)}
 .plan .wl.lose{color:var(--muted)}
-@media (max-width:640px){
-  .srow{grid-template-columns:30px 1fr;row-gap:6px}
-  .srow .mid-col,.srow .right{grid-column:1 / -1;justify-content:flex-start}
-  .tags{justify-content:flex-start}
+.chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,var(--line))}
+.chip.warn .dot{background:var(--warn)}
+
+/* the board is a desktop/second-monitor scoreboard first; stack the cells on narrow screens */
+@media (max-width:820px){
+  .srow{grid-template-columns:38px 1fr auto;gap:7px 10px;padding:9px 11px}
+  .srow .mid-col{grid-column:2 / -1}
+  .rank{grid-column:2 / -1}
+  .tags{grid-column:1 / -1;justify-content:flex-start}
+  .gradebox{grid-row:1;grid-column:3}
+  .claimcell{grid-column:1 / -1;justify-content:flex-start}
 }
 </style>
 </head>
@@ -208,6 +252,7 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
     <div class="mark">D</div>
     <div class="title">DRAFTBOARD<small id="headsub">live champ select</small></div>
     <div class="spacer"></div>
+    <span class="chip warn" id="threat" hidden><span id="threattxt"></span></span>
     <span class="chip" id="patch" hidden><span id="patchtxt"></span></span>
     <span class="chip" id="status"><span class="dot"></span><span id="statustxt">connecting</span></span>
   </header>
@@ -429,7 +474,7 @@ function tagChips(t){
     return `<span class="tg ${tone}${i === 0 ? " p" : ""}">${esc(tg[0])}</span>`;
   }).join("") + `</div>`;
 }
-function scoutRow(r){
+function scoutRow(r, i, ally, mine){
   const champ = r.c ? champName(r.c) : "";
   const sub = [r.role ? ROLE_FULL[r.role.toLowerCase()] || r.role : "", champ].filter(Boolean).join(" · ");
   const rec = [];
@@ -440,22 +485,67 @@ function scoutRow(r){
     const good = r.cw * 2 >= r.cg;
     recLine += ` · <span class="cw ${good ? "good" : "bad"}">${r.cw}-${r.cg - r.cw} on ${esc(champ)}</span>`;
   }
-  return `<div class="srow ${r.me ? "me" : ""}">
+  // only ally rows are claimable; the publisher's own row is pre-marked "me"
+  const claimCell = ally
+    ? `<div class="claimcell"><button class="claim2 ${mine ? "on" : ""}" data-claim="${i}">${
+        mine ? "✓ me" : "This is me"}</button></div>`
+    : `<div class="claimcell"></div>`;
+  return `<div class="srow ${r.me ? "me" : ""} ${mine ? "claimed" : ""} ${
+      ally && !mine ? "claimable" : ""}"${ally ? ` data-rowclaim="${i}"` : ""}>
     ${face(r.c, "")}
     <div class="who"><div class="nm">${esc(r.n || champ || "?")}</div>
       <div class="sub">${esc(sub)}</div></div>
+    <div class="rank">${rankBadge(r.rk)}</div>
     <div class="mid-col">${formBars(r.f)}<div class="rec">${recLine}</div></div>
-    <div class="right">${gradeChip(r.p)}${tagChips(r.t)}</div>
+    <div class="gradebox">${gradeChip(r.p)}</div>
+    ${tagChips(r.t)}
+    ${claimCell}
   </div>`;
 }
+function coachPanel(r, sc){
+  const you = r.c ? champName(r.c) : "you";
+  const enemy = r.lane ? champName(r.lane) : "";
+  const head = `<div class="coach-h">Your lane —
+    <span class="lo">${esc(you)}</span>${enemy ? ` vs ${face(r.lane, "vsface")}
+      <span class="en">${esc(enemy)}</span>` : ""}</div>`;
+  let body;
+  if (r.tip){
+    // the tip may carry a "  — source" credit; split it out so we can dim the attribution
+    const m = r.tip.match(/^([\s\S]*?)\s+—\s+([^—]+)$/);
+    body = m
+      ? `<div class="coach-tip">${esc(m[1])} <span class="coach-src">— ${esc(m[2])}</span></div>`
+      : `<div class="coach-tip">${esc(r.tip)}</div>`;
+  } else {
+    body = `<div class="coach-none">${enemy
+      ? "No written matchup tip for this lane yet — play the fundamentals: track their cooldowns, respect their power spikes, and trade when they're down."
+      : "Lane opponent not identified yet."}</div>`;
+  }
+  const wc = sc.wincons || {};
+  const wl = (wc.win || wc.lose)
+    ? `<div class="coach-wl">${
+        wc.win ? `<div class="wl win"><span class="k">WIN</span>${esc(wc.win)}</div>` : ""}${
+        wc.lose ? `<div class="wl lose"><span class="k">LOSE</span>${esc(wc.lose)}</div>` : ""}</div>`
+    : "";
+  return `<div class="coach">${head}${body}${wl}</div>`;
+}
 function scoutHtml(sc){
-  const col = (rows, cls, title) =>
-    `<div class="scol"><div class="scout-h ${cls}"><h3>${title}</h3></div>`
-    + (rows || []).map(scoutRow).join("") + `</div>`;
+  // who is "me": an explicit claim wins; otherwise auto-fall to the publisher's flagged seat
+  const claim = state.claimed != null ? state.claimed
+              : (sc.me != null && sc.me >= 0 ? sc.me : null);
+  const team = (rows, cls, title, note, ally) => {
+    let out = `<div class="steam"><div class="scout-h ${cls}"><h3>${title}</h3>`
+      + `<span class="rule"></span><span class="sub">${note}</span></div><div class="stable">`;
+    (rows || []).forEach((r, i) => {
+      out += scoutRow(r, i, ally, ally && claim === i);
+      if (ally && claim === i) out += coachPanel(r, sc);    // coaching opens under your row
+    });
+    return out + `</div></div>`;
+  };
   let h = `<p class="scout-legend">rank · last 10 · record on this champ · grade (how they play) `
-    + `· reads from each account</p>`
-    + `<div class="scoutcols">` + col(sc.allies, "ally", "Your team")
-    + col(sc.enemies, "enemy", "Enemy team") + `</div>`;
+    + `· reads from each account — <b style="color:var(--ember)">tap your row</b> for how to play `
+    + `your lane</p>`
+    + team(sc.allies, "ally", "Your team", "tap “This is me” for your lane", true)
+    + team(sc.enemies, "enemy", "Enemy team", "reads from each account’s history", false);
   const wc = sc.wincons || {};
   if ((sc.plan && sc.plan.length) || wc.win) {
     h += `<div class="plan"><h3>Game plan</h3>` +
@@ -485,6 +575,7 @@ function render(){
   if (p.patch){ patch.hidden = false;
     document.getElementById("patchtxt").textContent = "patch " + p.patch.split(".").slice(0,2).join("."); }
   const sub = document.getElementById("headsub"), tag = document.getElementById("tagline");
+  const threat = document.getElementById("threat");
   // once the game loads, the champ-select draft becomes the full SCOUT scoreboard
   if (p.scout && (((p.scout.allies||[]).length) || ((p.scout.enemies||[]).length))){
     document.body.classList.add("scout");
@@ -492,10 +583,20 @@ function render(){
     if (tag) tag.innerHTML = "The whole lobby, scouted — rank, recent form, and how each "
       + "account actually plays, read from public match history. Shared from "
       + '<a href="https://github.com/bobbyroylee/smiteless" rel="noopener">Smiteless</a>.';
+    const th = p.scout.threat;
+    if (threat){
+      if (th && th.c){
+        document.getElementById("threattxt").textContent =
+          "⚠ watch " + champName(th.c) + (th.txt ? " — " + th.txt : "");
+        threat.hidden = false;
+      } else threat.hidden = true;
+    }
     app.innerHTML = scoutHtml(p.scout);
+    wireClaims(app);
     return;
   }
   document.body.classList.remove("scout");
+  if (threat) threat.hidden = true;
   if (sub) sub.textContent = "live champ select";
   const seats = (p.seats || []).map(seatHtml).join("");
   const foes = (p.enemy || []).length
@@ -508,14 +609,23 @@ function render(){
        <div class="rail"><h3>Enemy locks</h3>
          <p class="hint">Riot hides enemy roles &amp; names in champ select — locked picks only.</p>
          ${foes}</div></div>`;
+  wireClaims(app);
+}
+
+/* claim = "This is me": persist the picked seat index and re-render. Shared by the champ-select
+   seat buttons ([data-claim]) and the scout scoreboard (buttons AND a click anywhere on your row).
+   Toggling the already-claimed seat clears it — the scout view then falls back to the publisher. */
+function setClaim(i){
+  state.claimed = state.claimed === i ? null : i;
+  try { state.claimed === null ? localStorage.removeItem(claimKey)
+                               : localStorage.setItem(claimKey, state.claimed); } catch (e) {}
+  render();
+}
+function wireClaims(app){
   for (const b of app.querySelectorAll("[data-claim]"))
-    b.addEventListener("click", () => {
-      const i = +b.dataset.claim;
-      state.claimed = state.claimed === i ? null : i;
-      try { state.claimed === null ? localStorage.removeItem(claimKey)
-                                   : localStorage.setItem(claimKey, state.claimed); } catch (e) {}
-      render();
-    });
+    b.addEventListener("click", e => { e.stopPropagation(); setClaim(+b.dataset.claim); });
+  for (const row of app.querySelectorAll("[data-rowclaim]"))
+    row.addEventListener("click", () => setClaim(+row.dataset.rowclaim));
 }
 
 /* ============ live feed: Firebase SSE notifies, a plain GET reads ============ */
@@ -613,10 +723,16 @@ function demoPayloads(){
 function demoScout(){
   const sr = (c, role, n, t, d, lp, f, w, g, cg, cw, kda, p, pts, tg, me) =>
     ({c, role, n, me:!!me, rk:{t, d, lp}, f, w, g, cg, cw, kda, p, pts, t:tg});
-  return {
+  const you = sr(254,"JG","You","GOLD","II",66,[1,1,0,1,1],7,10,6,4,3.1,82,140000,
+         [["Vi main · 140k pts","good"],["7W in last 10","good"]],1);
+  you.lane = 64;                                    // paired vs the enemy jungler (Lee Sin)
+  you.tip = "Lee Sin wants an aggressive early game — track his first clear and expect a "
+    + "level-2/3 gank. Ward your raptors/scuttle, path away from his lead side, and punish the "
+    + "windows after he burns Q-Q.  — guide authors (MOBAFire)";
+  const out = {
+    me:0, threat:{c:122, txt:"smurf? · 5W heater"},
     allies:[
-      sr(254,"JG","You","GOLD","II",66,[1,1,0,1,1],7,10,6,4,3.1,82,140000,
-         [["Vi main · 140k pts","good"],["7W in last 10","good"]],1),
+      you,
       sr(54,"TOP","RockSolid","SILVER","I",88,[1,0,0,1,0],4,10,8,4,2.0,61,42000,
          [["comfort · 4-4 on Malphite","neutral"]]),
       sr(103,"MID","faker fan99","PLATINUM","IV",12,[1,1,1,1,0],8,10,2,1,4.2,88,9000,
@@ -640,6 +756,12 @@ function demoScout(){
           "They out-scale — force early tempo and objectives, end before 3 items."],
     wincons:{win:"end before 25 — turn every kill into towers and objectives",
              lose:"letting it go late — their comp outgrows yours"}};
+  // pair every ally to the same-role enemy so any teammate's "This is me" shows their lane
+  const lanes = [64, 122, 157, 145, 111];
+  out.allies.forEach((a, i) => { a.lane = lanes[i]; });
+  out.allies[1].tip = "Malphite outscales — play the early game safe, don't get poked out, and "
+    + "back off once he hits 6. Group for his ult, but respect his all-in when Q is up.";
+  return out;
 }
 function runDemo(){
   demoMeta();

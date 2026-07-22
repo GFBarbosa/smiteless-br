@@ -1,5 +1,12 @@
 # Smiteless — Patch Notes
 
+## v0.9.37 — DraftBoard IS the scoreboard, and it knows who you are
+- **The native loading-screen overlay is retired — DraftBoard does its whole job now.** The scout/scoreboard that used to paint over your loading screen on the second monitor is folded entirely into the shared DraftBoard page: same ten-account scoreboard, but it's the link that's already in lobby chat, so you AND your teammates get it. The old overlay is off by default (Settings → Overlays & Boards still has the switch if you want the on-monitor version back).
+- **It rebuilds to look like the real in-game scoreboard.** The side-by-side v0.9.36 layout is gone — the board now stacks **YOUR TEAM** over **ENEMY TEAM** in full-width rows, in the exact visual language of the on-monitor overlay: one strict column grid so every row lines up (face · account · rank · last-10 · grade · reads · claim) all the way down instead of the two halves drifting out of alignment.
+- **DraftBoard knows who you're playing.** The moment the game loads, your own row is detected and highlighted, and a **YOUR LANE** panel opens under it automatically — you no longer have to tell the page who you are. It carries your matchup (**Vi vs Lee Sin**), a written "how to play this lane" tip pulled from real counter-guides, and the game's WIN / LOSE lines.
+- **Every teammate gets their own lane — "This is me" carries into the scoreboard.** The claim button isn't just for champ select anymore. Tap your row (or the button) on the live scoreboard and the YOUR LANE panel switches to **your** matchup and coaching — each of the five allies gets a personalized read from the one shared link. In-game the roster exposes roles, so lanes are paired for real (your top vs their top, etc.).
+- **A WATCH read rides in the header.** The one enemy account most likely to decide the game — the perf/OTP/heater standout — surfaces as a **⚠ watch Darius — smurf? · 5W heater** chip at the top of the board, the same call the loading overlay used to make.
+
 ## v0.9.36 — DraftBoard scoreboard goes wide
 - **The in-game scout board is horizontal now.** Your team and the enemy team sit **side by side** like a real scoreboard instead of one long top-to-bottom stack — the page uses the full width. Collapses back to a single column on phones.
 

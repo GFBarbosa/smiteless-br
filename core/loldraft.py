@@ -271,11 +271,86 @@ def _scout_row(r):
     return row
 
 
+def _lane_pairs(allies, enemies):
+    """ally index -> the enemy row sharing its role (the lane opponent). In-game the roster
+    exposes everyone's role, so we CAN pair lanes here (champ select can't — roles are hidden)."""
+    by_role = {}
+    for e in enemies:
+        rl = (e.get("role") or "").lower()
+        if rl and rl not in by_role:
+            by_role[rl] = e
+    return {i: by_role[(a.get("role") or "").lower()]
+            for i, a in enumerate(allies) if (a.get("role") or "").lower() in by_role}
+
+
+def _matchup_tip(dd, my_cid, opp_cid, role):
+    """A written 'how to play this lane' tip (counterstats/MOBAFire prose, cached per patch).
+    Memoized per matchup for the lobby so the 6s scout loop never re-scrapes."""
+    if not (my_cid and opp_cid and role):
+        return ""
+    k = (my_cid, opp_cid, (role or "").lower())
+    with _LOCK:
+        cache = _ST.setdefault("tips", {})
+        if k in cache:
+            return cache[k]
+    tip = ""
+    try:
+        import lolmatchup as lm
+        tip = lm.written_tip(dd, my_cid, opp_cid, role, lm.patch_of(dd.get("ver", ""))) or ""
+    except Exception:
+        tip = ""
+    with _LOCK:
+        _ST["tips"][k] = tip
+    return tip
+
+
+def _threat(enemies):
+    """The one enemy account most likely to decide the game (perf, sharpened by OTP mastery,
+    a live streak, champ comfort) — mirrors the loading overlay's WATCH line. None if the lobby
+    is quiet. Feeds the viewer's 'WATCH <champ>' header chip."""
+    best, bs = None, -1.0
+    for r in enemies or []:
+        if not r.get("scouted"):
+            continue
+        s = float(r.get("perf") or 50)
+        if r.get("pts", 0) >= 100_000:
+            s += 12
+        f = r.get("form") or []
+        if len(f) >= 3 and all(f[:3]):
+            s += 8
+        if r.get("cg", 0) >= 5 and r.get("cw", 0) * 2 > r["cg"]:
+            s += 6
+        if s > bs:
+            bs, best = s, r
+    if best and bs >= 78:
+        return {"c": best.get("cid", 0),
+                "txt": " · ".join(t for t, _ in (best.get("tags") or [])[:2])}
+    return None
+
+
 def _scout_payload(dd, brief):
-    return {"allies": [_scout_row(r) for r in (brief.get("allies") or [])],
-            "enemies": [_scout_row(r) for r in (brief.get("enemies") or [])],
-            "plan": (brief.get("plan") or [])[:4],
-            "wincons": brief.get("wincons") or {}}
+    allies = brief.get("allies") or []
+    enemies = brief.get("enemies") or []
+    pairs = _lane_pairs(allies, enemies)
+    arows, me = [], -1
+    for i, r in enumerate(allies):
+        row = _scout_row(r)
+        if row.get("me"):
+            me = i
+        opp = pairs.get(i)
+        if opp and opp.get("cid"):
+            row["lane"] = opp["cid"]                       # lane opponent's champ id
+            tip = _matchup_tip(dd, r.get("cid"), opp.get("cid"), r.get("role"))
+            if tip:
+                row["tip"] = tip[:420]
+        arows.append(row)
+    pay = {"allies": arows, "enemies": [_scout_row(r) for r in enemies],
+           "plan": (brief.get("plan") or [])[:4],
+           "wincons": brief.get("wincons") or {}, "me": me}
+    th = _threat(enemies)
+    if th:
+        pay["threat"] = th
+    return pay
 
 
 _GAME_PHASES = ("GameStart", "InProgress", "Reconnect")
@@ -438,7 +513,11 @@ def _demo_scout(dd):
         row("supdiff", "Lux", "SUP", "GOLD", "IV", 20, [1, 0, 0, 0, 0], 2, 10, 2, 1, 2.1, 52,
             15000, [["off-role · MID main", "good"]]),
     ]
-    return {"allies": allies, "enemies": enemies,
+    allies[0]["lane"] = cid("Darius")           # you (JG) — pair to the enemy top for the demo
+    allies[0]["tip"] = ("Respect Darius level 1-2 — his Q outtrades everything early. Gank him "
+                        "before he snowballs; he has no escape, so a hard collapse post-6 is free.")
+    return {"allies": allies, "enemies": enemies, "me": 0,
+            "threat": {"c": cid("Darius"), "txt": "smurf? · 5W heater"},
             "plan": ["Enemy is AD-heavy — rush armor / Seeker's, Randuin's on tanks.",
                      "They out-scale — force early tempo and objectives, end before 3 items."],
             "wincons": {"win": "end before 25 — turn every kill into towers and objectives",
