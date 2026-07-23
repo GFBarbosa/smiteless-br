@@ -1,6 +1,8 @@
 # Smiteless — Patch Notes
 
-## v0.9.41 — scoreboard goes side-by-side
+## v0.9.42 — fix the draft→scout swap (and finally instrument it)
+- **The page now reliably swaps from the champ-select draft to the in-game scoreboard.** Root cause: the publisher quit and retired the draft the instant the phase read anything but "in game" for a *single* poll — and the live-game API (:2999) returns an empty phase on brief hiccups, so one blip mid-load permanently killed the swap. It now debounces (three straight non-game polls, ~18s, before it treats the game as over) and keeps publishing across a transient blip.
+- **The publisher writes a diagnostic log now** (`~/.claude/smiteless_draft.log`): every step — spawn, champ-select end, each scout attempt, whether the scout data built, and whether the upload succeeded or failed. No more guessing why the board did or didn't appear.
 - **The web scout board is horizontal again.** Your team and the enemy team sit **side by side** like a real scoreboard, using the full width, instead of one long top-to-bottom list of ten. Each row reflows to fit its column (name · rank · form · record · grade on top, tags underneath), and it collapses back to a single column on phones.
 
 ## v0.9.40 — the tactical board moves onto the web, and it catches a game in progress

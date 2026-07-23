@@ -34,6 +34,19 @@ _ST = {"thread": None, "draft_id": "", "posted": False, "opened": False, "last_p
        "sugg": {}, "sugg_key": {}, "stop": False}
 _LOCK = threading.Lock()
 
+_LOG = os.path.expanduser("~/.claude/smiteless_draft.log")
+
+
+def _dlog(msg):
+    """The publisher had NO logging, so every 'it didn't swap' was a guess. Now every
+    lifecycle step (spawn, publish, champ-select end, scout-phase iteration, PATCH result,
+    retire) leaves a line in ~/.claude/smiteless_draft.log — the swap can't fail silently."""
+    try:
+        with open(_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%m-%d %H:%M:%S')} [{_ST.get('draft_id','')[:6]}] {msg}\n")
+    except Exception:
+        pass
+
 SUGG_PER_SEAT = 3          # suggestion cards per seat (each carries runes -> keep payload lean)
 PUBLISH_POLL = 2.0         # seconds between champ-select reads
 _ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # unambiguous, URL-safe
@@ -101,6 +114,7 @@ def retire(db, draft_id):
     stale drafts happens on the NEXT lobby so a refresh mid-game still shows something."""
     try:
         _fb("PATCH", db, f"drafts/{draft_id}", {"end": int(time.time())})
+        _dlog(f"RETIRED {draft_id[:6]}")
     except Exception:
         pass
 
@@ -379,21 +393,34 @@ def _scout_phase(dd, db, cap_s=25 * 60):
     loads. Ends when the client leaves the game (or a 25-min safety cap)."""
     import lolload
     last, last_live, t0, seen = "", "", time.time(), False
+    gone = 0                       # consecutive non-game polls AFTER we've seen the game
+    _dlog(f"scout phase START (phase={phasecheck.phase()})")
     while not _ST["stop"] and time.time() - t0 < cap_s:
         if not cfg.load().get("draft_link", True):
+            _dlog("scout phase EXIT: draft_link turned off")
             return
-        in_game = phasecheck.phase() in _GAME_PHASES
+        ph = phasecheck.phase()
+        in_game = ph in _GAME_PHASES
         if in_game:
-            seen = True
+            seen, gone = True, 0
         elif seen:
-            return                                     # game ended -> retire (in the caller)
+            # DEBOUNCE: a single :2999 / lockfile hiccup returns "" mid-game — DON'T retire on
+            # one blip (that permanently killed the swap). Only quit after 3 straight non-game
+            # polls (~18s), which means the game genuinely ended.
+            gone += 1
+            _dlog(f"non-game poll {gone}/3 (phase={ph!r}) after seeing game")
+            if gone >= 3:
+                _dlog("scout phase EXIT: game ended")
+                return
         elif time.time() - t0 > 180:
-            return                                     # never loaded within 3 min (dodge) -> stop
+            _dlog(f"scout phase EXIT: never loaded in 180s (phase={ph!r}) — dodge?")
+            return
         brief, live = None, None
-        if in_game:
+        if in_game or (seen and gone < 3):             # keep publishing across a transient blip
             try:
                 brief = lolload.brief(dd, scout=True)   # both teams' rank/form/grade/tags (slow)
-            except Exception:
+            except Exception as e:
+                _dlog(f"brief() raised {type(e).__name__}: {e}")
                 brief = None
             try:
                 import lollive                          # the TACTICAL layer: gank call, objective
@@ -407,6 +434,8 @@ def _scout_phase(dd, db, cap_s=25 * 60):
             if blob != last:
                 patch["scout"] = payload
                 last = blob
+        elif in_game and brief is not None:
+            _dlog("brief returned but roster empty (no allies/enemies)")
         if live is not None:
             lblob = json.dumps(live, sort_keys=True)
             if lblob != last_live:                      # timers tick every poll -> usually changes
@@ -416,8 +445,11 @@ def _scout_phase(dd, db, cap_s=25 * 60):
             patch["sts"] = int(time.time())             # capture time -> web counts timers down
             try:
                 _fb("PATCH", db, f"drafts/{_ST['draft_id']}", patch)
-            except Exception:
-                pass
+                _dlog(f"PATCH ok: {sorted(patch.keys())}"
+                      + (f" scout={len(patch['scout']['allies'])}+{len(patch['scout']['enemies'])}"
+                         if 'scout' in patch else ""))
+            except Exception as e:
+                _dlog(f"PATCH FAILED {type(e).__name__}: {e}")
         time.sleep(6)
 
 
@@ -431,6 +463,8 @@ def _worker(dd):
             if not db or not settings.get("draft_link", True):
                 return
             if phasecheck.phase() != "ChampSelect":
+                _dlog(f"champ select ended (phase={phasecheck.phase()!r}) "
+                      f"-> scout phase; posted_link={_ST['posted']}")
                 break                                  # champ select over -> scout phase below
             info = lg._from_champ_select(dd)
             if not info:
@@ -502,6 +536,7 @@ def tick(dd):
         _ST.update(posted=False, opened=False, last_pub="", sugg={}, sugg_key={}, stop=False)
         t = threading.Thread(target=_worker, args=(dd,), daemon=True)
         _ST["thread"] = t
+    _dlog(f"tick -> spawned worker (phase={phasecheck.phase()!r})")
     if prev:                                           # tidy the previous lobby's node
         threading.Thread(target=_delete, args=(_db_url(settings), prev), daemon=True).start()
     t.start()
