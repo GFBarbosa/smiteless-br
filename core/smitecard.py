@@ -1063,16 +1063,17 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
             if ic:
                 img.paste(ic, (icx, ry + 1), ic)
             mine = pu == my_puuid
-            if pu in duos:                                # premade marker (same color = same duo)
-                _duo_marker(d, icx - 6, ry + 6, duos[pu], "L")
             name = (pl.get("name") or pl.get("champ") or "?").split("#")[0][:12]
             nf = font(10, 1 if mine else 0)
             d.text((icx + 32, ry), name, font=nf, fill=GOLD if mine else TEXT)
+            nx = icx + 36 + d.textlength(name, font=nf)
             rk = ranks.get(pu)
             if rk:                                        # current rank beside the name (§9)
                 rtxt, rcol = rank_str(rk)
-                d.text((icx + 36 + d.textlength(name, font=nf), ry + 1),
-                       rtxt.split(" ")[0], font=font(9, 1), fill=rcol)
+                d.text((nx, ry + 1), rtxt.split(" ")[0], font=font(9, 1), fill=rcol)
+                nx += d.textlength(rtxt.split(" ")[0], font=font(9, 1)) + 8
+            if pu in duos:                                # premade marker: in the gap AFTER the
+                _duo_marker(d, nx + 5, ry + 7, duos[pu], "L")   # rank, clear of the placement medal
             # right side of line 1: GRADE letter chip + KDA (both grade-colored)
             kda = f"{pl['k']}/{pl['d']}/{pl['a']}"
             kw = d.textlength(kda, font=display_font(10, True))
