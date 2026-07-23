@@ -378,7 +378,7 @@ def _scout_phase(dd, db, cap_s=25 * 60):
     profile-read tags — so the shared page becomes the live scoreboard the moment the game
     loads. Ends when the client leaves the game (or a 25-min safety cap)."""
     import lolload
-    last, t0, seen = "", time.time(), False
+    last, last_live, t0, seen = "", "", time.time(), False
     while not _ST["stop"] and time.time() - t0 < cap_s:
         if not cfg.load().get("draft_link", True):
             return
@@ -389,22 +389,35 @@ def _scout_phase(dd, db, cap_s=25 * 60):
             return                                     # game ended -> retire (in the caller)
         elif time.time() - t0 > 180:
             return                                     # never loaded within 3 min (dodge) -> stop
-        brief = None
+        brief, live = None, None
         if in_game:
             try:
-                brief = lolload.brief(dd, scout=True)   # same scout the loading overlay draws
+                brief = lolload.brief(dd, scout=True)   # both teams' rank/form/grade/tags (slow)
             except Exception:
                 brief = None
+            try:
+                import lollive                          # the TACTICAL layer: gank call, objective
+                live = lollive.pulse(dd)                #   timers, win read, enemy-jungler track
+            except Exception:
+                live = None
+        patch = {}
         if brief and (brief.get("allies") or brief.get("enemies")):
             payload = _scout_payload(dd, brief)
             blob = json.dumps(payload, sort_keys=True)
             if blob != last:
-                try:
-                    _fb("PATCH", db, f"drafts/{_ST['draft_id']}",
-                        {"scout": payload, "sts": int(time.time())})
-                    last = blob
-                except Exception:
-                    pass
+                patch["scout"] = payload
+                last = blob
+        if live is not None:
+            lblob = json.dumps(live, sort_keys=True)
+            if lblob != last_live:                      # timers tick every poll -> usually changes
+                patch["live"] = live
+                last_live = lblob
+        if patch:
+            patch["sts"] = int(time.time())             # capture time -> web counts timers down
+            try:
+                _fb("PATCH", db, f"drafts/{_ST['draft_id']}", patch)
+            except Exception:
+                pass
         time.sleep(6)
 
 
@@ -450,6 +463,24 @@ def _worker(dd):
             time.sleep(PUBLISH_POLL)
         # champ select ended (not a dodge/stop) -> mirror the loading + in-game scoreboard
         if db and _ST["draft_id"] and not _ST["stop"]:
+            # Started mid-game (Smiteless launched after champ select — nothing was published,
+            # so there's no base doc and no chat link). Seed a minimal doc so the page recognizes
+            # the draft, and open the board for the user directly since there's no chat to post to.
+            if not _ST["last_pub"] and phasecheck.phase() in _GAME_PHASES:
+                try:
+                    publish(db, _ST["draft_id"], {"v": 1, "ts": int(time.time()),
+                            "patch": dd.get("ver", ""), "seats": [], "enemy": [],
+                            "bans": {"a": [], "e": []}})
+                except Exception:
+                    pass
+                settings = cfg.load()
+                if settings.get("draft_autoopen", True) and not _ST["opened"]:
+                    _ST["opened"] = True
+                    try:
+                        import webbrowser
+                        webbrowser.open(link_for(_ST["draft_id"], settings) + "&me")
+                    except Exception:
+                        pass
             _scout_phase(dd, db)
     finally:
         if db and _ST["draft_id"]:

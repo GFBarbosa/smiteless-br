@@ -3445,6 +3445,14 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             time.sleep(3)
             continue
         # in-game: full board + matchup tip + progressive player scout
+        # LIVE DRAFT LINK: also start the publisher here, so launching Smiteless MID-GAME (after
+        # champ select) still brings the web scoreboard + tactical board up. tick() spawns once;
+        # its worker sees we're past champ select and goes straight to the scout/live phase.
+        try:
+            import loldraft
+            loldraft.tick(dd)
+        except Exception:
+            pass
         lanes = {r: wr for a, r, e, wr, g in lb.gather_lane_matchups(dd, allies, enemies)}
         scout_map = {}
         patch = lm.patch_of(dd["ver"])

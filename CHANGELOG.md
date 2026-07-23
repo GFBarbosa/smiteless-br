@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.40 — the tactical board moves onto the web, and it catches a game in progress
+- **The 2nd-monitor tactical board is on the web now.** The live call the on-monitor board used to make — **GANK TOP — Darius is lvl 5 (your lane 7)** — rides at the top of DraftBoard, next to a live **win read** (with its basis: "+2 kills, +1 drake"), the **enemy jungler track** (where he was last seen, doing what), and **objective countdown timers** (Void Grubs / Drake / Baron) that tick down in your browser between updates and flip to **UP** when they spawn. It streams live over the same shared link the whole lobby already has.
+- **Start Smiteless mid-game and the board still comes up.** Before, the web board only started if Smiteless was running through champ select — launch it after the game had loaded and nothing appeared. Now it detects that you're already in a game, seeds the board, opens it on your second monitor, and starts streaming the scoreboard + tactical board right away.
+
 ## v0.9.39 — actually retire the loading overlay + fix the in-game swap
 - **The native loading-screen overlay is gone for real.** v0.9.37 only flipped a default, which a settings file that already had it *on* ignored — so it kept opening. Now the launcher (`smiteless.ahk`) no longer spawns it at all, and the overlay reads a fresh opt-in key so a stale setting can't resurrect it. It will not open again. (Deliberately want the on-monitor version back? Set `loading_overlay: true`.)
 - **The web board swaps to the in-game scoreboard immediately again.** The v0.9.37 lane-coaching work accidentally made the scout wait on up to five counter-guide scrapes (12s each) *before* it could publish — so the page could sit on the champ-select view for most of a minute after the game loaded. The scoreboard now publishes instantly and the how-to-play tips stream in a few seconds later, on their own.
