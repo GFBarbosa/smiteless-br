@@ -207,6 +207,20 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 .claim2:hover{border-color:var(--ember);color:var(--ember);background:var(--hover)}
 .claim2.on{border-color:var(--ember-deep);color:var(--ember);background:color-mix(in srgb,var(--ember) 10%,transparent)}
 
+/* HORIZONTAL scoreboard: the two teams sit side by side (not one long top-down stack).
+   Each team's rows reflow within a half-width column: identity line, then form+record+tags. */
+.scoutcols{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:760px){.scoutcols{grid-template-columns:1fr}}
+.scoutcols .steam{margin-bottom:0}
+.scoutcols .srow{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
+.scoutcols .srow .face{order:0;flex:0 0 auto}
+.scoutcols .who{order:0;flex:1 1 100px}
+.scoutcols .rank{order:0;flex:0 0 auto;text-align:right}
+.scoutcols .mid-col{order:0;flex:0 0 auto}
+.scoutcols .gradebox{order:0;flex:0 0 auto}
+.scoutcols .claimcell{order:0;flex:0 0 auto;margin-left:auto}
+.scoutcols .tags{order:1;flex:1 1 100%;justify-content:flex-start}
+
 /* per-lane coaching panel — opens under YOUR claimed row (auto for the publisher) */
 .coach{grid-column:1 / -1;background:var(--raised);border:1px solid var(--line);
        border-left:3px solid var(--ember);border-radius:9px;padding:11px 14px;margin:1px 0 2px}
@@ -570,8 +584,10 @@ function scoutHtml(sc){
   let h = `<p class="scout-legend">rank · last 10 · record on this champ · grade (how they play) `
     + `· reads from each account — <b style="color:var(--ember)">tap your row</b> for how to play `
     + `your lane</p>`
+    + `<div class="scoutcols">`
     + team(sc.allies, "ally", "Your team", "tap “This is me” for your lane", true)
-    + team(sc.enemies, "enemy", "Enemy team", "reads from each account’s history", false);
+    + team(sc.enemies, "enemy", "Enemy team", "reads from each account’s history", false)
+    + `</div>`;
   const wc = sc.wincons || {};
   if ((sc.plan && sc.plan.length) || wc.win) {
     h += `<div class="plan"><h3>Game plan</h3>` +
