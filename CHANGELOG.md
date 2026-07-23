@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.38 — your lane opens for you, teammates opt in
+- **The YOUR LANE panel no longer assumes a teammate is you.** Before, the shared board auto-opened the publisher's lane for everyone who opened the link. Now the board Smiteless opens **in your own browser** auto-opens **your** lane (it's flagged as yours), while a teammate's copy shows no coaching until they tap **This is me** on their row — then it's *their* matchup. Nobody gets fed the wrong lane by default.
+
 ## v0.9.37 — DraftBoard IS the scoreboard, and it knows who you are
 - **The native loading-screen overlay is retired — DraftBoard does its whole job now.** The scout/scoreboard that used to paint over your loading screen on the second monitor is folded entirely into the shared DraftBoard page: same ten-account scoreboard, but it's the link that's already in lobby chat, so you AND your teammates get it. The old overlay is off by default (Settings → Overlays & Boards still has the switch if you want the on-monitor version back).
 - **It rebuilds to look like the real in-game scoreboard.** The side-by-side v0.9.36 layout is gone — the board now stacks **YOUR TEAM** over **ENEMY TEAM** in full-width rows, in the exact visual language of the on-monitor overlay: one strict column grid so every row lines up (face · account · rank · last-10 · grade · reads · claim) all the way down instead of the two halves drifting out of alignment.

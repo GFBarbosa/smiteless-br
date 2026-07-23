@@ -276,13 +276,14 @@ const DD = "https://ddragon.leagueoflegends.com";
    works: the link just includes &db= and it overrides this default. */
 const DEFAULT_DB = "smiteless-draft-default-rtdb.firebaseio.com";
 const H = (() => {
-  const out = {d:"", db:"", demo:location.hash.replace("#","") === "demo"};
+  const out = {d:"", db:"", demo:location.hash.replace("#","") === "demo", me:false};
   for (const kv of location.hash.replace(/^#/,"").split("&")) {
     const [k, v] = kv.split("=");
     if (k === "d") out.d = decodeURIComponent(v || "");
     if (k === "db") out.db = decodeURIComponent(v || "");
     if (k === "demo") out.demo = true;
-  }
+    if (k === "me") out.me = true;           // present ONLY on the publisher's own auto-opened
+  }                                          //   link -> that viewer is "me"; teammates' link omits it
   if (!out.db) out.db = DEFAULT_DB;          // no &db= in the link -> this page's own DB
   return out;
 })();
@@ -529,9 +530,10 @@ function coachPanel(r, sc){
   return `<div class="coach">${head}${body}${wl}</div>`;
 }
 function scoutHtml(sc){
-  // who is "me": an explicit claim wins; otherwise auto-fall to the publisher's flagged seat
+  // who is "me": an explicit claim always wins. Otherwise auto-open the publisher's seat ONLY on
+  // the publisher's own link (H.me) — a teammate who hasn't tapped sees no coach panel.
   const claim = state.claimed != null ? state.claimed
-              : (sc.me != null && sc.me >= 0 ? sc.me : null);
+              : (H.me && sc.me != null && sc.me >= 0 ? sc.me : null);
   const team = (rows, cls, title, note, ally) => {
     let out = `<div class="steam"><div class="scout-h ${cls}"><h3>${title}</h3>`
       + `<span class="rule"></span><span class="sub">${note}</span></div><div class="stable">`;
@@ -764,6 +766,7 @@ function demoScout(){
   return out;
 }
 function runDemo(){
+  H.me = true;                               // the demo plays from the publisher's own perspective
   demoMeta();
   const frames = demoPayloads();
   if (state.claimed === null) state.claimed = 3;      // open on the empty ADC seat's cards

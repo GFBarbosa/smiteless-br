@@ -425,7 +425,10 @@ def _worker(dd):
                         _ST["opened"] = True                 # open it for YOU, once per lobby
                         try:
                             import webbrowser
-                            webbrowser.open(link)
+                            # &me flags THIS copy as the publisher's — the scout auto-opens your
+                            # lane. The chat link teammates get omits it, so they see the coach
+                            # panel only after tapping their own row.
+                            webbrowser.open(link + "&me")
                         except Exception:
                             pass
             time.sleep(PUBLISH_POLL)
