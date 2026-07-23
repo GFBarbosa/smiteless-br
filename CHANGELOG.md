@@ -1,5 +1,9 @@
 # Smiteless — Patch Notes
 
+## v0.9.39 — actually retire the loading overlay + fix the in-game swap
+- **The native loading-screen overlay is gone for real.** v0.9.37 only flipped a default, which a settings file that already had it *on* ignored — so it kept opening. Now the launcher (`smiteless.ahk`) no longer spawns it at all, and the overlay reads a fresh opt-in key so a stale setting can't resurrect it. It will not open again. (Deliberately want the on-monitor version back? Set `loading_overlay: true`.)
+- **The web board swaps to the in-game scoreboard immediately again.** The v0.9.37 lane-coaching work accidentally made the scout wait on up to five counter-guide scrapes (12s each) *before* it could publish — so the page could sit on the champ-select view for most of a minute after the game loaded. The scoreboard now publishes instantly and the how-to-play tips stream in a few seconds later, on their own.
+
 ## v0.9.38 — your lane opens for you, teammates opt in
 - **The YOUR LANE panel no longer assumes a teammate is you.** Before, the shared board auto-opened the publisher's lane for everyone who opened the link. Now the board Smiteless opens **in your own browser** auto-opens **your** lane (it's flagged as yours), while a teammate's copy shows no coaching until they tap **This is me** on their row — then it's *their* matchup. Nobody gets fed the wrong lane by default.
 

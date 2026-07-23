@@ -376,7 +376,11 @@ def _gameflow_phase():
 def main():
     if not _single_instance():
         return
-    if not cfg.load().get("loading_brief", True):
+    # RETIRED: the loading-screen scout is folded into DraftBoard's live scout (the shared web
+    # page). No launcher spawns this anymore; this gate reads a FRESH opt-in key (default off) so
+    # a stale settings file with the old `loading_brief: true` can't resurrect it. Set
+    # `loading_overlay: true` in the settings file to deliberately bring the native overlay back.
+    if not cfg.load().get("loading_overlay", False):
         return
     import tkinter as tk
     from PIL import ImageTk
@@ -389,7 +393,7 @@ def main():
         open(_LOG, "w").close()                     # fresh log per launch
     except Exception:
         pass
-    _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_brief={cfg.load().get('loading_brief', True)}")
+    _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_overlay={cfg.load().get('loading_overlay', False)}")
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)

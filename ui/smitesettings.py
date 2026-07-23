@@ -178,7 +178,7 @@ def main():
     ghostv = tk.BooleanVar(value=s.get("ghost_race", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
-    loadbrief = tk.BooleanVar(value=s.get("loading_brief", False))
+    loadbrief = tk.BooleanVar(value=s.get("loading_overlay", False))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
@@ -719,7 +719,7 @@ def main():
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "ghost_race": ghostv.get(),
                   "respawn_plan": respawnv.get(), "death_brief": deadbrief.get(),
-                  "loading_brief": loadbrief.get(),
+                  "loading_overlay": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "ban_list": bans, "board_topmost": boardtop.get(),

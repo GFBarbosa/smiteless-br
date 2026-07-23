@@ -283,25 +283,37 @@ def _lane_pairs(allies, enemies):
             for i, a in enumerate(allies) if (a.get("role") or "").lower() in by_role}
 
 
-def _matchup_tip(dd, my_cid, opp_cid, role):
-    """A written 'how to play this lane' tip (counterstats/MOBAFire prose, cached per patch).
-    Memoized per matchup for the lobby so the 6s scout loop never re-scrapes."""
-    if not (my_cid and opp_cid and role):
-        return ""
-    k = (my_cid, opp_cid, (role or "").lower())
+def _tip_key(my_cid, opp_cid, role):
+    return (my_cid, opp_cid, (role or "").lower())
+
+
+def _ensure_tips(dd, wants):
+    """Fetch any missing matchup tips on a BACKGROUND thread and stash them in _ST['tips'].
+    written_tip() scrapes counterstats with a 12s timeout per enemy — doing that inline would
+    stall the scout PATCH that swaps the page (the v0.9.37 regression). So the scoreboard ships
+    immediately with whatever tips are already cached, and a later 6s tick PATCHes the rest in."""
     with _LOCK:
         cache = _ST.setdefault("tips", {})
-        if k in cache:
-            return cache[k]
-    tip = ""
-    try:
-        import lolmatchup as lm
-        tip = lm.written_tip(dd, my_cid, opp_cid, role, lm.patch_of(dd.get("ver", ""))) or ""
-    except Exception:
-        tip = ""
-    with _LOCK:
-        _ST["tips"][k] = tip
-    return tip
+        todo = [k for k in wants if k not in cache]
+        if not todo or _ST.get("tips_busy"):
+            return
+        _ST["tips_busy"] = True
+    def work():
+        try:
+            import lolmatchup as lm
+            patch = lm.patch_of(dd.get("ver", ""))
+            for (my_cid, opp_cid, role) in todo:
+                tip = ""
+                try:
+                    tip = lm.written_tip(dd, my_cid, opp_cid, role, patch) or ""
+                except Exception:
+                    tip = ""
+                with _LOCK:
+                    _ST["tips"][(my_cid, opp_cid, role)] = tip
+        finally:
+            with _LOCK:
+                _ST["tips_busy"] = False
+    threading.Thread(target=work, daemon=True).start()
 
 
 def _threat(enemies):
@@ -332,7 +344,8 @@ def _scout_payload(dd, brief):
     allies = brief.get("allies") or []
     enemies = brief.get("enemies") or []
     pairs = _lane_pairs(allies, enemies)
-    arows, me = [], -1
+    cache = _ST.get("tips", {})
+    wants, arows, me = [], [], -1
     for i, r in enumerate(allies):
         row = _scout_row(r)
         if row.get("me"):
@@ -340,10 +353,13 @@ def _scout_payload(dd, brief):
         opp = pairs.get(i)
         if opp and opp.get("cid"):
             row["lane"] = opp["cid"]                       # lane opponent's champ id
-            tip = _matchup_tip(dd, r.get("cid"), opp.get("cid"), r.get("role"))
-            if tip:
+            k = _tip_key(r.get("cid"), opp.get("cid"), r.get("role"))
+            wants.append(k)
+            tip = cache.get(k)                             # attach ONLY if already fetched —
+            if tip:                                        #   never block the swap on a scrape
                 row["tip"] = tip[:420]
         arows.append(row)
+    _ensure_tips(dd, wants)                                # fill missing tips off-thread
     pay = {"allies": arows, "enemies": [_scout_row(r) for r in enemies],
            "plan": (brief.get("plan") or [])[:4],
            "wincons": brief.get("wincons") or {}, "me": me}

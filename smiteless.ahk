@@ -148,7 +148,8 @@ SmiteWatch() {
         if (!g_smiteOpened) {
             g_smiteOpened := true
             OpenSmiteless(true)
-            Run('"' PYW '" "' SCRIPTS '\ui\smiteload.py"', , "Hide")   ; spawn at champ select: waiting BEFORE loading
+            ; loading-screen scout overlay RETIRED — folded into DraftBoard's live scout (the
+            ; shared web page). Was: Run(PYW ui\smiteload.py) here and in the ingame block.
         }
     } else {
         g_smiteOpened := false                   ; any non-active phase re-arms for the next game
@@ -158,7 +159,7 @@ SmiteWatch() {
             g_widgetOpened := true
             OpenWidget()
             Run('"' PYW '" "' SCRIPTS '\ui\smitedead.py"', , "Hide")   ; fullscreen death brief
-            Run('"' PYW '" "' SCRIPTS '\ui\smiteload.py"', , "Hide")   ; loading-screen matchup brief
+            ; loading-screen scout overlay RETIRED — see DraftBoard live scout.
         }
     } else {
         g_widgetOpened := false
