@@ -316,14 +316,17 @@ def _grade_game(parts, mine, dur):
     raw = max(0.0, base - death_pen) + (6.0 if mine.get("win") else -2.0)   # winning is the goal
     score = int(round(max(0.0, raw)))
 
-    letter = ("S+" if score >= 115 else "S" if score >= 100 else "A" if score >= 85
-              else "B" if score >= 70 else "C" if score >= 55 else "D")
+    # SS / GOD KING is the god tier — a genuinely game-breaking performance (~120+), it should
+    # NOT read as a plain "hard carry".
+    letter = ("SS" if score >= 120 else "S+" if score >= 115 else "S" if score >= 100
+              else "A" if score >= 85 else "B" if score >= 70 else "C" if score >= 55 else "D")
     if mine.get("win"):
-        label = ("hard carry" if score >= 115 else "carried" if score >= 100
+        label = ("GOD KING" if score >= 120 else "hard carry" if score >= 115 else "carried" if score >= 100
                  else "great game" if score >= 85 else "solid win" if score >= 70
                  else "decent game" if score >= 55 else "scrappy win")
     else:
-        label = ("carried, lost" if score >= 100 else "great game, lost" if score >= 85
+        label = ("GOD, still lost" if score >= 120 else "carried, lost" if score >= 100
+                 else "great game, lost" if score >= 85
                  else "kept fighting" if score >= 70 else "tough loss" if score >= 55
                  else "rough game")
     return score, letter, label

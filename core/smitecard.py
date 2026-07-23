@@ -813,8 +813,11 @@ def rank_str(r):
 
 # Grade ramp, per UIDESIGN §5.1: S/A read as exceptional -> ARC (the "live/standout" telemetry
 # color); B is a plain good result -> GOOD; C is average -> MUTED; D/F are bad -> BAD.
-GRADE_COLOR = {"S+": ARC, "S": ARC, "A": ARC, "B": GREEN, "C": MUTED, "D": RED}
+GRADE_COLOR = {"SS": GOLD, "S+": ARC, "S": ARC, "A": ARC, "B": GREEN, "C": MUTED, "D": RED}
 LABEL_COL = {
+    # the god tier — a game-breaking performance, the hottest color there is
+    "GOD KING": GOLD,
+    "GOD, still lost": _dim(GOLD, 0.85),
     # wins - graduated off GOOD/GOLD, brightest for the best outcome
     "hard carry": GOLD,
     "carried": _dim(GOLD, 0.86),
@@ -1018,17 +1021,22 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
     myteam = me["team"] if me else 100
     maxd = max((pl["dmg"] for pl in parts), default=1) or 1
-    scores = {}
+    scores, letters = {}, {}
     try:
         import lolprofile as lp
         for pl in parts:
             try:
-                s, _lt, _lb = lp._grade_game(parts, pl, dur)
+                s, lt, _lb = lp._grade_game(parts, pl, dur)
                 scores[pl["puuid"]] = s
+                letters[pl["puuid"]] = lt
             except Exception:
                 pass
     except Exception:
         pass
+    # placement 1..10 across the WHOLE lobby by grade score (1 = best game in the match)
+    order = sorted((pl for pl in parts if pl["puuid"] in scores),
+                   key=lambda p: scores[p["puuid"]], reverse=True)
+    place = {pl["puuid"]: i + 1 for i, pl in enumerate(order)}
     pad, rw = 16, 232
     colw = (w - (pad * 2) - rw - 24) // 2
     teams = [[pl for pl in parts if pl["team"] == myteam],
@@ -1040,30 +1048,49 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
                fill=ARC if ci == 0 else RED)
         ry = y0 + 28
         for pl in team[:5]:
+            pu = pl["puuid"]
+            # placement medal (1..10 across the lobby by grade): gold/silver/bronze, then faint
+            pn = place.get(pu)
+            if pn:
+                pcol = (GOLD if pn == 1 else (215, 215, 225) if pn == 2 else
+                        EMBER_DEEP if pn == 3 else FAINT)
+                _rrect(d, (cx, ry, cx + 15, ry + 15), 4, fill=_dim(pcol, 0.20),
+                       outline=_dim(pcol, 0.5), width=1)
+                d.text((cx + 7, ry + 7), str(pn), font=display_font(9, True), fill=pcol, anchor="mm")
+            icx = cx + 20                                 # icon shifts right to clear the medal
             cid = dd["name2id"].get(dd["norm"](pl["champ"]))
             ic = get_icon(dd, cid, 26)
             if ic:
-                img.paste(ic, (cx, ry + 1), ic)
-            mine = pl["puuid"] == my_puuid
-            if pl["puuid"] in duos:                       # premade marker (same color = same duo)
-                _duo_marker(d, cx - 6, ry + 6, duos[pl["puuid"]], "L")
-            name = (pl.get("name") or pl.get("champ") or "?").split("#")[0][:14]
+                img.paste(ic, (icx, ry + 1), ic)
+            mine = pu == my_puuid
+            if pu in duos:                                # premade marker (same color = same duo)
+                _duo_marker(d, icx - 6, ry + 6, duos[pu], "L")
+            name = (pl.get("name") or pl.get("champ") or "?").split("#")[0][:12]
             nf = font(10, 1 if mine else 0)
-            d.text((cx + 32, ry), name, font=nf, fill=GOLD if mine else TEXT)
-            rk = ranks.get(pl["puuid"])
+            d.text((icx + 32, ry), name, font=nf, fill=GOLD if mine else TEXT)
+            rk = ranks.get(pu)
             if rk:                                        # current rank beside the name (§9)
                 rtxt, rcol = rank_str(rk)
-                d.text((cx + 36 + d.textlength(name, font=nf), ry + 1),
+                d.text((icx + 36 + d.textlength(name, font=nf), ry + 1),
                        rtxt.split(" ")[0], font=font(9, 1), fill=rcol)
-            d.text((cx + colw - 2, ry), f"{pl['k']}/{pl['d']}/{pl['a']}",
-                   font=display_font(10, True),
-                   fill=_perf_color(scores.get(pl["puuid"])), anchor="ra")
+            # right side of line 1: GRADE letter chip + KDA (both grade-colored)
+            kda = f"{pl['k']}/{pl['d']}/{pl['a']}"
+            kw = d.textlength(kda, font=display_font(10, True))
+            d.text((cx + colw - 2, ry), kda, font=display_font(10, True),
+                   fill=_perf_color(scores.get(pu)), anchor="ra")
+            lt = letters.get(pu)
+            if lt:
+                gcol = GRADE_COLOR.get(lt, MUTED)
+                gx = cx + colw - 2 - kw - 8
+                _rrect(d, (gx - d.textlength(lt, font=display_font(10, True)) - 8, ry - 1,
+                           gx, ry + 15), 5, fill=_dim(gcol, 0.20), outline=_dim(gcol, 0.5), width=1)
+                d.text((gx - 4, ry + 7), lt, font=display_font(10, True), fill=gcol, anchor="rm")
             # damage bar under the name, then items + economy line
-            bx, bw_ = cx + 32, 92
+            bx, bw_ = icx + 32, 92
             _rrect(d, (bx, ry + 14, bx + bw_, ry + 18), 2, fill=SUNKEN)
             _rrect(d, (bx, ry + 14, bx + max(2, int(bw_ * pl["dmg"] / maxd)), ry + 18), 2,
                    fill=EMBER_DEEP)
-            ix = cx + 32 + bw_ + 8
+            ix = bx + bw_ + 8
             for iid in (pl.get("items") or [])[:6]:
                 iic = get_item_icon(dd, iid, 15)
                 if iic:
@@ -1162,7 +1189,7 @@ def _ring(d, cx, cy, r, frac, col, width=8):
 
 def _grade_of(avg):
     """(letter, color) for an average game score, same bands as per-game letters."""
-    for lo, letter in ((115, "S+"), (100, "S"), (85, "A"), (70, "B"), (55, "C")):
+    for lo, letter in ((120, "SS"), (115, "S+"), (100, "S"), (85, "A"), (70, "B"), (55, "C")):
         if avg >= lo:
             return letter, GRADE_COLOR[letter]
     return "D", GRADE_COLOR["D"]
