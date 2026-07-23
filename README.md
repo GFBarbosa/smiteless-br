@@ -1,5 +1,7 @@
 # Smiteless ⚔️
 
+WARNING:  I frequently update Smiteless and sometimes the updates just aren't good.  I usually revert them if its not good as I'm trying completely new ideas, UIs, techniques and more.  So sometimes there'll be an update and it'll be something you just wont like and likely I dont either and I'll either change it or revert it but it can take usually up to 24 hours before I change it back or fine tune it.  The point of Smiteless is extreme researched back evidence on techniques on climbing the absolute fastest.  It may not look like much but under the hood there is extremely extensive research-backed calculations going on behind the scenes including a 300,000 accounts case study done on what worked and what didn't work to climb.  TLDR 1 version might be shit but just give it two days max and it'll be dialed back in.
+
 **A League of Legends companion that plays the map with you.** It watches champ select and your live game, then tells you the one thing that matters right now — what to ban, when to back, whether that drake fight is winnable, and when to stop queuing.
 
 ![The in-game scoreboard](docs/board.png)
