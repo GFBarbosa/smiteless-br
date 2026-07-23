@@ -1,5 +1,8 @@
 # Smiteless — Patch Notes
 
+## v0.9.41 — scoreboard goes side-by-side
+- **The web scout board is horizontal again.** Your team and the enemy team sit **side by side** like a real scoreboard, using the full width, instead of one long top-to-bottom list of ten. Each row reflows to fit its column (name · rank · form · record · grade on top, tags underneath), and it collapses back to a single column on phones.
+
 ## v0.9.40 — the tactical board moves onto the web, and it catches a game in progress
 - **The 2nd-monitor tactical board is on the web now.** The live call the on-monitor board used to make — **GANK TOP — Darius is lvl 5 (your lane 7)** — rides at the top of DraftBoard, next to a live **win read** (with its basis: "+2 kills, +1 drake"), the **enemy jungler track** (where he was last seen, doing what), and **objective countdown timers** (Void Grubs / Drake / Baron) that tick down in your browser between updates and flip to **UP** when they spawn. It streams live over the same shared link the whole lobby already has.
 - **Start Smiteless mid-game and the board still comes up.** Before, the web board only started if Smiteless was running through champ select — launch it after the game had loaded and nothing appeared. Now it detects that you're already in a game, seeds the board, opens it on your second monitor, and starts streaming the scoreboard + tactical board right away.
