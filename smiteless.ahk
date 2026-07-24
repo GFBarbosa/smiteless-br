@@ -154,8 +154,9 @@ SmiteWatch() {
         if (!g_smiteOpened) {
             g_smiteOpened := true
             OpenSmiteless(true)
-            ; loading-screen scout overlay RETIRED — folded into DraftBoard's live scout (the
-            ; shared web page). Was: Run(PYW ui\smiteload.py) here and in the ingame block.
+            ; LOADING SCOUT (ten splash cards) — spawns at champ select, covers the load, fades
+            ; the instant the game starts. Self-gates on the `loading_scout` setting (default on).
+            Run('"' PYW '" "' SCRIPTS '\ui\smiteload.py"', , "Hide")
         }
     } else {
         g_smiteOpened := false                   ; any non-active phase re-arms for the next game

@@ -74,11 +74,12 @@ def _roster():
     return rows(mine), rows(other), (port, hdr)
 
 
-def _player_scout(dd, puuid, cid, key):
+def _player_scout(dd, puuid, cid, key, riot_id=None):
     """Full per-ACCOUNT read for the loading scoreboard: solo rank (+LP, season W/L),
     last-10 form, recent + this-champ record, pooled KDA, deaths/game, avg performance
     score (how they actually play), mastery on this champ, their MAIN role over the last
-    10 games, and the recent match ids (drives the lobby-wide duo pass)."""
+    10 games, and the recent match ids (drives the lobby-wide duo pass). `riot_id` lets the
+    scout fall back to u.gg when Riot's match history is down (see lolscout.scout)."""
     out = {"rank_full": None, "pts": 0, "mlevel": 0, "n": 0, "w": 0, "cg": 0, "cw": 0,
            "form": [], "kdar": None, "kavg": "", "dpg": None, "perf": None,
            "main_pos": "", "mids": [], "recent": []}
@@ -87,7 +88,8 @@ def _player_scout(dd, puuid, cid, key):
     except Exception:
         pass
     try:
-        n, w, cg, cw, form, mids, kda, perf, recent = ls.scout(dd, puuid, cid, key, 10)
+        n, w, cg, cw, form, mids, kda, perf, recent = ls.scout(dd, puuid, cid, key, 10,
+                                                               riot_id=riot_id)
         out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf,
                    recent=recent or [])
         g = (kda or {}).get("g", 0)
@@ -334,7 +336,7 @@ def brief(dd, key=None, scout=True):
                         rec["player"] = ign
                         rec["level"] = lvl
                         rec["puuid"] = puuid
-                        rec.update(_player_scout(dd, puuid, cid, key))
+                        rec.update(_player_scout(dd, puuid, cid, key, riot_id=ign))
                         rec["scouted"] = True
                         rec["tags"] = _profile_tags(rec, ally)
                 except Exception:

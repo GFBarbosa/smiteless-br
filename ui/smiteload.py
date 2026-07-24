@@ -73,12 +73,24 @@ def _cached_icon(dd, cid, size):
 
 
 def _geom(W, H):
-    """Shared geometry for the scoreboard: (s, S, CW, x0, RH, AW). The fetch worker warms
-    splash crops at EXACTLY the size the renderer will ask for, so rows are cache hits."""
-    s = max(0.70, min(1.60, H / 1080.0))
+    """Card-grid geometry for the loading board: five tall splash cards per team, two teams
+    stacked (yours on top, theirs below). Returns a dict the renderer and the icon-warmer both
+    read, so every splash banner is warmed at EXACTLY the size a card will crop it to (cache
+    hit, never a stall on the render thread)."""
+    s = max(0.70, min(1.75, H / 1080.0))
     def S(v): return int(v * s)
-    CW = min(W - S(120), S(1580))
-    return s, S, CW, (W - CW) // 2, S(72), S(148)
+    cols = 5
+    M = S(30)                                   # outer margin
+    header_h, footer_h = S(50), S(58)
+    col_gap, row_gap = S(14), S(16)
+    grid_w = W - 2 * M
+    card_w = (grid_w - (cols - 1) * col_gap) // cols
+    avail_h = H - header_h - footer_h - 2 * M
+    card_h = (avail_h - row_gap) // 2
+    banner_h = int(card_h * 0.42)
+    return {"s": s, "S": S, "cols": cols, "M": M, "header_h": header_h, "footer_h": footer_h,
+            "col_gap": col_gap, "row_gap": row_gap, "card_w": card_w, "card_h": card_h,
+            "banner_h": banner_h, "W": W, "H": H}
 
 
 def _cached_splash(cid, size):
@@ -125,207 +137,296 @@ def _rank_str(rk):
     return f"{t} {rk.get('div', '')}".strip() + f" · {rk.get('lp', 0)} LP", t
 
 
-def render_frame(dd, b, W, H):
-    """The loading scoreboard: ten FULL-WIDTH account rows in the profile's own visual
-    language — a face-cropped splash slab, champ + mastery, the account (riot id, rank,
-    LP, season record), last-10 form bars + KDA + this-champ record, the avg-performance
-    grade pill, and the profile-read tag pills (duo/smurf/OTP/tilt/…). Nothing else on
-    screen looks like this because nothing else HAS this much per-account detail."""
+def _circle_icon(img, d, dd, cid, cx, cy, r, ring_col, S):
+    """Champ portrait as a ringed circle, straddling the banner/body seam (the porofessor
+    signature). Draws a filled disc first so a missing icon still reads as a portrait slot."""
     from PIL import Image, ImageDraw
+    d.ellipse([cx - r - S(3), cy - r - S(3), cx + r + S(3), cy + r + S(3)], fill=C_VOID)
+    ic = _cached_icon(dd, cid, r * 2)
+    if ic:
+        mask = Image.new("L", (r * 2, r * 2), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, r * 2, r * 2), fill=255)
+        img.paste(ic, (cx - r, cy - r), mask)
+    else:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=C_RAISED)
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=ring_col, width=max(2, S(2)))
+
+
+def _dmg_split(dd, cid):
+    """(ad_frac, ap_frac, label) — the champ's damage lean from Data Dragon's attack/magic
+    info (0-10 each). Not a per-game stat; a stable profile read that's always available, so
+    the bottom bar echoes the reference's damage strip without inventing precise numbers."""
+    info = dd.get("id2info", {}).get(cid, {}) or {}
+    atk, mag = float(info.get("attack", 0) or 0), float(info.get("magic", 0) or 0)
+    tot = atk + mag
+    if tot <= 0:
+        return 0.5, 0.5, "MIXED"
+    adf = atk / tot
+    label = "AD" if adf >= 0.62 else ("AP" if adf <= 0.38 else "MIXED")
+    return adf, 1 - adf, label
+
+
+def _pill(d, x, y, txt, col, maxx, S, primary=False):
+    """One tag chip. The first tag is the sharpest read -> filled; the rest sit quiet."""
+    f = _wfont(S(11), True)
+    txt = txt if len(txt) <= 30 else txt[:29] + "…"
+    w = int(d.textlength(txt, font=f))
+    if x + w + S(13) > maxx:
+        return None
+    if primary:
+        d.rounded_rectangle([x, y, x + w + S(12), y + S(20)], S(9),
+                            fill=tuple(int(c * 0.26) for c in col))
+        d.text((x + S(6), y + S(3)), txt, font=f, fill=col)
+    else:
+        d.rounded_rectangle([x, y, x + w + S(12), y + S(20)], S(9), fill=C_SUNKEN,
+                            outline=tuple(int(c * 0.42) for c in col), width=1)
+        d.text((x + S(6), y + S(3)), txt, font=f, fill=tuple(int(c * 0.85) for c in col))
+    return x + w + S(12) + S(5)
+
+
+def _player_card(img, d, dd, r, x, y, cw, ch, g, side_col, scouted):
+    """One player: a tall splash card in the profile's visual language — splash banner with
+    champ + summoner name, a ringed portrait on the seam, rank badge, mastery, the recent-form
+    read (win% · games · KDA + last-10 bars), the profile tag pills, and a damage-lean bar."""
+    from PIL import Image, ImageDraw
+    S = g["S"]
+    banner_h = g["banner_h"]
+    rad = S(12)
+    is_me = bool(r.get("me"))
+    cid = r.get("cid", 0)
+
+    d.rounded_rectangle([x, y, x + cw, y + ch], rad, fill=C_SURF)
+
+    # ---- splash banner ----
+    art = _cached_splash(cid, (cw, banner_h))
+    if art:
+        mask = Image.new("L", (cw, banner_h), 0)
+        md = ImageDraw.Draw(mask)
+        md.rounded_rectangle((0, 0, cw, banner_h), radius=rad, fill=255)
+        md.rectangle((0, banner_h // 2, cw, banner_h), fill=255)
+        img.paste(art, (x, y), mask)
+        fade_h = int(banner_h * 0.60)                    # melt the art into the card body
+        grad = Image.new("L", (1, fade_h))
+        grad.putdata([int((i / max(1, fade_h - 1)) ** 1.3 * 255) for i in range(fade_h)])
+        img.paste(Image.new("RGB", (cw, fade_h), C_SURF), (x, y + banner_h - fade_h),
+                  grad.resize((cw, fade_h)))
+    else:
+        md = ImageDraw.Draw(img)
+        d.rounded_rectangle([x, y, x + cw, y + banner_h], rad, fill=C_RAISED)
+        d.rectangle([x, y + banner_h // 2, x + cw, y + banner_h], fill=C_RAISED)
+
+    # side identity: a thin colored cap along the top edge
+    d.rounded_rectangle([x + rad, y, x + cw - rad, y + S(4)], S(2), fill=side_col)
+
+    # rank badge, top-right on the banner
+    rk = r.get("rank_full")
+    if rk and rk.get("tier"):
+        rs, rcol = sc.rank_str(rk)
+        rf = _dfont(S(13))
+        rw = int(d.textlength(rs, font=rf))
+        bx1 = x + cw - S(9)
+        d.rounded_rectangle([bx1 - rw - S(12), y + S(9), bx1, y + S(9) + S(21)], S(6),
+                            fill=tuple(int(c * 0.30) for c in rcol),
+                            outline=tuple(int(c * 0.55) for c in rcol), width=1)
+        d.text((bx1 - S(6), y + S(11)), rs, font=rf, fill=rcol, anchor="ra")
+
+    # champ name, lifted clear of the portrait with a dark shadow so it reads over the splash
+    cxc = x + cw // 2
+    champ = (r.get("champ") or "?")
+    nf = _dfont(S(19))
+    d.text((cxc + S(1), y + banner_h - S(53) + S(1)), champ.upper(), font=nf, fill=C_VOID, anchor="mm")
+    d.text((cxc, y + banner_h - S(53)), champ.upper(), font=nf,
+           fill=(C_EMBER if is_me else C_TXT), anchor="mm")
+
+    # ---- portrait on the seam ----
+    pr = S(28)
+    ring = C_EMBER if is_me else side_col
+    _circle_icon(img, d, dd, cid, cxc, y + banner_h, pr, ring, S)
+
+    # mastery pip on the portrait corner (a main/OTP earns the ember)
+    pts = r.get("pts", 0)
+    if pts:
+        mcol = C_EMBER if pts >= 100_000 else C_MUTED
+        mtxt = f"{pts // 1000}k"
+        mf = _wfont(S(9), True)
+        mw = int(d.textlength(mtxt, font=mf))
+        mbx = cxc + pr - S(2)
+        d.rounded_rectangle([mbx - mw - S(7), y + banner_h + pr - S(14),
+                             mbx + S(1), y + banner_h + pr], S(7),
+                            fill=C_VOID, outline=tuple(int(c * 0.6) for c in mcol), width=1)
+        d.text((mbx - S(3), y + banner_h + pr - S(13)), mtxt, font=mf, fill=mcol, anchor="ra")
+
+    cy = y + banner_h + pr + S(10)
+
+    # ---- summoner name + role ----
+    player = r.get("player") or ""
+    nm = player.split("#")[0] if player else ("scouting…" if not scouted else "account hidden")
+    d.text((cxc, cy), nm[:18], font=_wfont(S(13), True),
+           fill=(C_TXT if player else C_FAINT), anchor="mm")
+    meta = " · ".join(p for p in (r.get("role"), r.get("dmg")) if p)
+    d.text((cxc, cy + S(17)), meta, font=_wfont(S(10)),
+           fill=_DMG_C.get(r.get("dmg"), C_MUTED), anchor="mm")
+    cy += S(34)
+
+    # ---- recent form read: win% · games · KDA ----
+    n, w = r.get("n", 0), r.get("w", 0)
+    ix = x + S(13)
+    if n:
+        wr = round(w / n * 100)
+        wcol = sc._wr_color(wr)
+        d.text((ix, cy), f"{wr}%", font=_dfont(S(22)), fill=wcol)
+        d.text((ix, cy + S(25)), f"{w}W {n - w}L · {n}g", font=_wfont(S(10)), fill=C_MUTED)
+        if r.get("kdar") is not None:
+            d.text((x + cw - S(13), cy + S(2)), f"{r['kdar']}", font=_dfont(S(20)),
+                   fill=C_TXT, anchor="ra")
+            d.text((x + cw - S(13), cy + S(24)), "KDA", font=_wfont(S(9), True),
+                   fill=C_FAINT, anchor="ra")
+            if r.get("kavg"):
+                d.text((x + cw - S(40), cy + S(24)), r["kavg"], font=_wfont(S(9)),
+                       fill=C_MUTED, anchor="ra")
+        # last-10 form bars, centered under the numbers
+        form = r.get("form") or []
+        if form:
+            bw, bg = S(11), S(3)
+            tot = len(form[:10]) * (bw + bg) - bg
+            bx = cxc - tot // 2
+            for wn in reversed(form[:10]):
+                d.rounded_rectangle([bx, cy + S(44), bx + bw, cy + S(50)], S(2),
+                                    fill=(C_GOOD if wn else C_BAD))
+                bx += bw + bg
+        cy += S(58)
+        # this-champ record
+        if r.get("cg"):
+            cwn = r["cw"]
+            col = C_GOOD if cwn * 2 >= r["cg"] else C_BAD
+            d.text((cxc, cy), f"{cwn}-{r['cg'] - cwn} on {champ}", font=_wfont(S(10), True),
+                   fill=col, anchor="mm")
+        elif scouted:
+            d.text((cxc, cy), "champ not in recents", font=_wfont(S(9)), fill=C_FAINT, anchor="mm")
+        cy += S(16)
+    else:
+        d.text((cxc, cy + S(6)), ("reading account…" if not scouted else "no recent ranked"),
+               font=_wfont(S(11)), fill=C_FAINT, anchor="mm")
+        cy += S(30)
+
+    # ---- tag pills (up to 3 wrapping rows) ----
+    tags = list(r.get("tags") or [])
+    if not tags and r.get("phrases"):
+        tags = [(p, "neutral") for p in r["phrases"][:3]]
+    txmax = x + cw - S(10)
+    dmg_bar_y = y + ch - S(26)
+    ti = 0
+    ry = cy
+    while ry + S(20) <= dmg_bar_y - S(6) and ti < len(tags):
+        px = x + S(10)
+        placed = False
+        while ti < len(tags):
+            txt, tone = tags[ti]
+            nx = _pill(d, px, ry, txt, _TONE_C.get(tone, C_MUTED), txmax, S, primary=(ti == 0))
+            if nx is None:
+                break
+            px, placed = nx, True
+            ti += 1
+        if not placed:                                   # a pill too wide for a whole row
+            ti += 1
+        ry += S(25)
+
+    # ---- damage-lean bar, pinned to the card bottom ----
+    adf, apf, label = _dmg_split(dd, cid)
+    bx0, bx1 = x + S(12), x + cw - S(12)
+    bw = bx1 - bx0
+    by = dmg_bar_y
+    d.rounded_rectangle([bx0, by, bx1, by + S(14)], S(5), fill=C_SUNKEN)
+    split = bx0 + int(bw * adf)
+    if adf > 0.02:
+        d.rounded_rectangle([bx0, by, max(bx0 + S(5), split), by + S(14)], S(5), fill=_dim(C_WARN, 0.75))
+    if apf > 0.02:
+        d.rounded_rectangle([min(bx1 - S(5), split), by, bx1, by + S(14)], S(5), fill=_dim(C_ARC, 0.75))
+    d.text((bx0 + S(6), by + S(1)), f"{round(adf * 100)}% AD", font=_wfont(S(9), True), fill=C_VOID)
+    d.text((bx1 - S(6), by + S(1)), f"{round(apf * 100)}% AP", font=_wfont(S(9), True),
+           fill=C_VOID, anchor="ra")
+
+    if is_me:                                        # find yourself instantly: an ember frame
+        d.rounded_rectangle([x, y, x + cw, y + ch], rad, outline=C_EMBER, width=max(2, S(2)))
+
+
+def _dim(c, f):
+    return tuple(max(0, min(255, int(x * f))) for x in c)
+
+
+def render_frame(dd, b, W, H):
+    """The loading board: two teams of five tall splash cards (yours on top, theirs below) in
+    the porofessor idiom — big face-cropped splash, ringed portrait, rank badge, mastery, the
+    recent-form read (win% · games · KDA + last-10 bars), the profile tag pills, and a damage-
+    lean bar — over a slim game-plan footer. Built to be read at a glance while the game loads."""
+    from PIL import Image, ImageDraw, ImageFont
     img = Image.new("RGB", (W, H), C_VOID)
     d = ImageDraw.Draw(img)
-    s, S, CW, x0, RH, AW = _geom(W, H)
+    g = _geom(W, H)
+    S = g["S"]
     allies, enemies = b.get("allies") or [], b.get("enemies") or []
-    plan = b.get("plan") or []
-
-    hdr_h, sect_h, gap = S(46), S(26), S(6)
-    wc = b.get("wincons") or {}
-    plan_h = (S(30) + S(19) * min(3, len(plan)) + (S(40) if wc else 0) + S(8)) if plan else 0
-    block = hdr_h + 2 * sect_h + (RH + gap) * (len(allies) + len(enemies)) + S(14) + plan_h
-    top = max(S(28), (H - block) // 2)
+    scouted = bool(b.get("scouted"))
+    M, cols, cw, ch = g["M"], g["cols"], g["card_w"], g["card_h"]
+    col_gap, row_gap = g["col_gap"], g["row_gap"]
+    grid_w = cols * cw + (cols - 1) * col_gap
+    gx0 = (W - grid_w) // 2
 
     # ---------- header ----------
-    try:                                            # the ✦ spark needs the symbol face
-        from PIL import ImageFont
-        d.text((x0, top + S(2)), "✦", font=ImageFont.truetype("seguisym.ttf", S(17)), fill=C_EMBER)
+    hy = g["M"]
+    try:
+        d.text((gx0, hy + S(2)), "✦", font=ImageFont.truetype("seguisym.ttf", S(18)), fill=C_EMBER)
     except Exception:
         pass
-    d.text((x0 + S(26), top), "SMITELESS", font=_dfont(S(20)), fill=C_EMBER)
-    d.text((x0 + S(158), top + S(3)), "LOADING SCOUT", font=_dfont(S(16)), fill=C_MUTED)
-    thr = _top_threat(enemies) if b.get("scouted") else None
-    if thr:                                        # the one enemy who decides the game
+    d.text((gx0 + S(28), hy), "SMITELESS", font=_dfont(S(22)), fill=C_EMBER)
+    d.text((gx0 + S(178), hy + S(5)), "LOADING SCOUT", font=_dfont(S(15)), fill=C_MUTED)
+    thr = _top_threat(enemies) if scouted else None
+    if thr:
         tags = " · ".join(t for t, _ in (thr.get("tags") or [])[:2])
         sub, scol = f"WATCH {thr['champ'].upper()}" + (f" — {tags}" if tags else ""), C_WARN
     else:
-        sub, scol = ("reading the ten accounts…" if not b.get("scouted")
+        sub, scol = ("reading the ten accounts…" if not scouted
                      else "who they are, before minute one"), C_FAINT
-    d.text((x0 + CW - d.textlength(sub, font=_wfont(S(12), True)), top + S(6)),
-           sub, font=_wfont(S(12), True), fill=scol)
-    yy = top + hdr_h
+    sf = _wfont(S(13), True)
+    d.text((gx0 + grid_w, hy + S(4)), sub, font=sf, fill=scol, anchor="ra")
 
-    def _pill(x, y, txt, col, maxx, primary=False):
-        """Tag chip. The FIRST tag is the sharpest read (spec orders them), so it gets a
-        filled chip; the rest sit quiet (dim ink, faint outline) — one loud thing per row
-        instead of a string of equally-screaming outlines."""
-        f = _wfont(S(11), True)
-        w = int(d.textlength(txt, font=f))
-        if x + w + S(16) > maxx:
-            return None
-        if primary:
-            d.rounded_rectangle([x, y, x + w + S(14), y + S(19)], S(9),
-                                fill=tuple(int(c * 0.24) for c in col))
-            d.text((x + S(7), y + S(3)), txt, font=f, fill=col)
-        else:
-            d.rounded_rectangle([x, y, x + w + S(14), y + S(19)], S(9), fill=C_SUNKEN,
-                                outline=tuple(int(c * 0.35) for c in col), width=1)
-            d.text((x + S(7), y + S(3)), txt, font=f, fill=tuple(int(c * 0.82) for c in col))
-        return x + w + S(14) + S(7)
+    # ---------- team labels + card rows ----------
+    row_y = [hy + g["header_h"], hy + g["header_h"] + ch + row_gap]
+    for row_i, (team, title, tcol, side_col) in enumerate((
+            (allies, "YOUR TEAM", C_GOOD, C_GOOD), (enemies, "ENEMY TEAM", C_BAD, C_BAD))):
+        ly = row_y[row_i]
+        d.text((gx0, ly - S(18)), title, font=_wfont(S(12), True), fill=tcol)
+        if row_i == 1 and scouted:
+            note = "tags read from each account's real history"
+            d.text((gx0 + grid_w, ly - S(17)), note, font=_wfont(S(10)), fill=C_FAINT, anchor="ra")
+        for i, r in enumerate(team[:cols]):
+            cx = gx0 + i * (cw + col_gap)
+            _player_card(img, d, dd, r, cx, ly, cw, ch, g, side_col, scouted)
 
-    def _row(y, r):
-        rail = C_EMBER if r.get("me") else (C_GOOD if r.get("_ally") else C_BAD)
-        d.rounded_rectangle([x0, y, x0 + CW, y + RH], S(10), fill=C_SURF)
-        # art slab, faded into the card so text never fights it
-        art = _cached_splash(r.get("cid", 0), (AW, RH))
-        if art:
-            mask = Image.new("L", (AW, RH), 0)
-            ImageDraw.Draw(mask).rounded_rectangle((0, 0, AW, RH), radius=S(10), fill=255)
-            ImageDraw.Draw(mask).rectangle((AW // 2, 0, AW, RH), fill=255)
-            img.paste(art, (x0, y), mask)
-            grad = Image.new("L", (AW, 1))
-            grad.putdata([int(max(0, (i - AW * 0.45) / (AW * 0.55)) * 255) for i in range(AW)])
-            img.paste(Image.new("RGB", (AW, RH), C_SURF), (x0, y), grad.resize((AW, RH)))
-        else:
-            ic = _cached_icon(dd, r.get("cid", 0), S(48))
-            if ic:
-                img.paste(ic, (x0 + S(14), y + (RH - S(48)) // 2), ic)
-        d.rounded_rectangle([x0, y + S(6), x0 + S(4), y + RH - S(6)], S(2), fill=rail)
-
-        # ---- champ block ----
-        cx = x0 + int(AW * 0.72)
-        d.text((cx, y + S(9)), (r.get("champ") or "?")[:14], font=_dfont(S(17)),
-               fill=(C_EMBER if r.get("me") else C_TXT))
-        meta = " · ".join(p for p in (r.get("role"), r.get("dmg")) if p)
-        d.text((cx, y + S(33)), meta, font=_wfont(S(11)),
-               fill=_DMG_C.get(r.get("dmg"), C_MUTED))
-        if r.get("pts"):
-            mst = f"M{r.get('mlevel', 0)} · {r['pts'] // 1000}k pts"
-            d.text((cx, y + S(50)), mst, font=_wfont(S(10)),
-                   fill=(C_EMBER if r["pts"] >= 100_000 else C_MUTED))
-
-        # ---- account block ----
-        ax = x0 + S(330)
-        player = r.get("player") or ""
-        if player:
-            nm, _, tg = player.partition("#")
-            nf = _wfont(S(14), True)
-            d.text((ax, y + S(9)), nm[:16], font=nf, fill=C_TXT)
-            if tg:
-                d.text((ax + d.textlength(nm[:16], font=nf) + S(5), y + S(12)), f"#{tg}",
-                       font=_wfont(S(10)), fill=C_FAINT)
-            rs, _tier = _rank_str(r.get("rank_full"))
-            if rs:
-                d.text((ax, y + S(30)), rs, font=_wfont(S(12), True), fill=_tier_color(rs))
-            else:
-                d.text((ax, y + S(30)), "unranked", font=_wfont(S(12)), fill=C_FAINT)
-            rk = r.get("rank_full") or {}
-            sg = int(rk.get("w", 0) or 0) + int(rk.get("l", 0) or 0)
-            if sg:
-                d.text((ax, y + S(49)), f"{rk['w']}W {rk['l']}L · {round(rk['w'] / sg * 100)}% season",
-                       font=_wfont(S(10)), fill=C_MUTED)
-        elif b.get("scouted"):
-            d.text((ax, y + S(26)), "account hidden", font=_wfont(S(11)), fill=C_FAINT)
-        else:
-            d.text((ax, y + S(26)), "scouting…", font=_wfont(S(11)), fill=C_FAINT)
-
-        # ---- last-10 block: form bars + kda + this-champ ----
-        fx = x0 + S(560)
-        form = r.get("form") or []
-        if form:
-            d.text((fx, y + S(8)), "LAST 10", font=_wfont(S(8), True), fill=C_FAINT)
-            bx = fx
-            for wn in reversed(form[:10]):          # oldest -> newest, like the profile
-                d.rounded_rectangle([bx, y + S(20), bx + S(9), y + S(30)], S(2),
-                                    fill=(C_GOOD if wn else C_BAD))
-                bx += S(12)
-            bits = [f"{r['w']}-{r['n'] - r['w']}"]
-            if r.get("kdar") is not None:
-                bits.append(f"{r['kdar']} KDA" + (f"  ({r['kavg']})" if r.get("kavg") else ""))
-            d.text((fx, y + S(35)), " · ".join(bits), font=_wfont(S(11)), fill=C_TXT)
-            if r.get("cg"):
-                cwn = r["cw"]
-                col = C_GOOD if cwn * 2 >= r["cg"] else C_BAD
-                d.text((fx, y + S(52)), f"{cwn}-{r['cg'] - cwn} on this champ",
-                       font=_wfont(S(10), True), fill=col)
-            elif r.get("scouted"):
-                d.text((fx, y + S(52)), "champ not in recents", font=_wfont(S(10)), fill=C_FAINT)
-
-        # ---- grade pill (far right): evidence-labelled, and only with a real sample ----
-        gx = x0 + CW - S(64)
-        if r.get("perf") is not None and r.get("n", 0) >= 4:
-            letter, col = _grade_of(r["perf"])
-            d.rounded_rectangle([gx, y + S(12), gx + S(48), y + RH - S(12)], S(8),
-                                fill=tuple(int(c * 0.18) for c in col),
-                                outline=tuple(int(c * 0.5) for c in col), width=1)
-            d.text((gx + S(24), y + RH // 2 - S(7)), letter, font=_dfont(S(19)), fill=col, anchor="mm")
-            d.text((gx + S(24), y + RH // 2 + S(12)), f"{int(r['perf'])} · {r['n']}g",
-                   font=_dfont(S(10)), fill=tuple(int(c * 0.8) for c in col), anchor="mm")
-
-        # ---- profile tags (two rows of pills) ----
-        tx0, txmax = x0 + S(818), gx - S(14)
-        tags = list((r.get("tags") or []))
-        if not tags and r.get("phrases"):            # pre-scout: champion knowledge instead
-            tags = [(p, "neutral") for p in r["phrases"][:3]]
-        rows_y = (y + S(9), y + S(38))
-        ti = 0
-        for ry in rows_y:
-            cx2 = tx0
-            while ti < len(tags):
-                txt, tone = tags[ti]
-                nx = _pill(cx2, ry, txt, _TONE_C.get(tone, C_MUTED), txmax, primary=(ti == 0))
-                if nx is None:
-                    break
-                cx2 = nx
-                ti += 1
-
-    def _section(y, title, col, note=""):
-        f = _wfont(S(12), True)
-        d.text((x0 + S(2), y + S(2)), title, font=f, fill=col)
-        lx = x0 + S(10) + d.textlength(title, font=f)
-        d.line([lx, y + S(10), x0 + CW, y + S(10)], fill=C_LINE_SOFT, width=1)
-        if note:
-            d.text((x0 + CW - d.textlength(note, font=_wfont(S(10))), y + S(1)),
-                   note, font=_wfont(S(10)), fill=C_FAINT)
-        return y + sect_h
-
-    yy = _section(yy, "YOUR TEAM", C_GOOD)
-    for r in allies:
-        r["_ally"] = True
-        _row(yy, r)
-        yy += RH + gap
-    yy += S(8)
-    yy = _section(yy, "ENEMY TEAM", C_BAD, "tags read from each account's real history")
-    for r in enemies:
-        r["_ally"] = False
-        _row(yy, r)
-        yy += RH + gap
-
-    # ---------- game plan ----------
-    if plan:
-        yy += S(6)
-        d.rounded_rectangle([x0, yy, x0 + CW, yy + plan_h], S(10), fill=C_SURF)
-        d.rounded_rectangle([x0, yy + S(6), x0 + S(4), yy + plan_h - S(6)], S(2), fill=C_EMBER)
-        d.text((x0 + S(16), yy + S(8)), "GAME PLAN", font=_wfont(S(12), True), fill=C_EMBER)
-        py = yy + S(28)
-        for line in plan[:3]:
-            d.text((x0 + S(16), py), "→ " + line, font=_wfont(S(12)), fill=C_TXT)
-            py += S(19)
-        if wc:                                   # the pre-game WIN/LOSE pair (§5)
-            wf = _wfont(S(12), True)
-            d.text((x0 + S(16), py + S(2)), "WIN", font=wf, fill=C_GOOD)
-            d.text((x0 + S(58), py + S(2)), wc.get("win", ""), font=_wfont(S(12)), fill=C_TXT)
-            py += S(19)
-            d.text((x0 + S(16), py + S(2)), "LOSE", font=wf, fill=C_BAD)
-            d.text((x0 + S(58), py + S(2)), wc.get("lose", ""), font=_wfont(S(12)), fill=C_MUTED)
+    # ---------- footer: game plan + win/lose ----------
+    plan = b.get("plan") or []
+    wc = b.get("wincons") or {}
+    fy = row_y[1] + ch + S(12)
+    fh = g["footer_h"] - S(2)
+    if plan or wc:
+        d.rounded_rectangle([gx0, fy, gx0 + grid_w, fy + fh], S(10), fill=C_SURF)
+        d.rounded_rectangle([gx0, fy + S(6), gx0 + S(4), fy + fh - S(6)], S(2), fill=C_EMBER)
+        px = gx0 + S(18)
+        d.text((px, fy + S(9)), "GAME PLAN", font=_wfont(S(11), True), fill=C_EMBER)
+        if plan:
+            d.text((px + S(96), fy + S(9)), "→ " + plan[0], font=_wfont(S(12)), fill=C_TXT)
+            if len(plan) > 1:
+                d.text((px + S(96), fy + S(29)), "→ " + plan[1], font=_wfont(S(11)), fill=C_MUTED)
+        if wc:
+            wf = _wfont(S(11), True)
+            wx = gx0 + grid_w - S(18)
+            lose_t = wc.get("lose", "")
+            win_t = wc.get("win", "")
+            d.text((wx, fy + S(9)), win_t, font=_wfont(S(11)), fill=C_TXT, anchor="ra")
+            d.text((wx - int(d.textlength(win_t, font=_wfont(S(11)))) - S(8), fy + S(9)),
+                   "WIN", font=wf, fill=C_GOOD, anchor="ra")
+            d.text((wx, fy + S(29)), lose_t, font=_wfont(S(11)), fill=C_MUTED, anchor="ra")
+            d.text((wx - int(d.textlength(lose_t, font=_wfont(S(11)))) - S(8), fy + S(29)),
+                   "LOSE", font=wf, fill=C_BAD, anchor="ra")
     return img
 
 
@@ -376,11 +477,12 @@ def _gameflow_phase():
 def main():
     if not _single_instance():
         return
-    # RETIRED: the loading-screen scout is folded into DraftBoard's live scout (the shared web
-    # page). No launcher spawns this anymore; this gate reads a FRESH opt-in key (default off) so
-    # a stale settings file with the old `loading_brief: true` can't resurrect it. Set
-    # `loading_overlay: true` in the settings file to deliberately bring the native overlay back.
-    if not cfg.load().get("loading_overlay", False):
+    # LOADING SCOUT: reborn as the ten-splash-card board (render_frame). The launcher spawns this
+    # at champ select; it covers the load and fades the instant the game starts. Gated on a FRESH
+    # key (`loading_scout`, default ON) — the retired native overlay's `loading_overlay:false`
+    # lingers in old settings files and must NOT suppress the rebuilt board. Untick "Loading-screen
+    # scout" in Settings to turn it off.
+    if not cfg.load().get("loading_scout", True):
         return
     import tkinter as tk
     from PIL import ImageTk
@@ -393,7 +495,7 @@ def main():
         open(_LOG, "w").close()                     # fresh log per launch
     except Exception:
         pass
-    _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_overlay={cfg.load().get('loading_overlay', False)}")
+    _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_scout={cfg.load().get('loading_scout', True)}")
     root = tk.Tk()
     cfg.watch_tray(root)                        # close with the tray (no orphan loading brief)
     root.overrideredirect(True)
@@ -418,13 +520,14 @@ def main():
             pass
 
     def _warm_icons(bf):
-        # icons (disk) + face-cropped splash slabs at EXACTLY the row size the renderer
-        # asks smitecard's memory cache for — a warmed row is a pure cache hit.
-        _s, _S, _CW, _x0, RH, AW = _geom(W, H)
+        # icons (disk) + face-cropped splash banners at EXACTLY the card size the renderer
+        # asks smitecard's memory cache for — a warmed card is a pure cache hit.
+        gg = _geom(W, H)
+        banner = (gg["card_w"], gg["banner_h"])
         for r in (bf.get("allies") or []) + (bf.get("enemies") or []):
             try:
                 sc.get_icon(dd, r.get("cid", 0), 96)         # downloads the disk file (any size)
-                sc.get_splash(dd, r.get("cid", 0), (AW, RH))
+                sc.get_splash(dd, r.get("cid", 0), banner)
             except Exception:
                 pass
 

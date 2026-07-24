@@ -179,7 +179,7 @@ def main():
     ghostv = tk.BooleanVar(value=s.get("ghost_race", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
-    loadbrief = tk.BooleanVar(value=s.get("loading_overlay", False))
+    loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
@@ -220,7 +220,7 @@ def main():
     ])
     _feat_group("OVERLAYS & BOARDS", [
         ("Death brief (while dead)", deadbrief),
-        ("Native loading overlay (off — now in DraftBoard)", loadbrief),
+        ("Loading-screen scout (splash cards)", loadbrief),
         ("Matchup lane tips", tips),
         ("Duo / premade detection", duo),
         ("Keep live board always on top", boardtop),
@@ -720,7 +720,7 @@ def main():
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "ghost_race": ghostv.get(),
                   "respawn_plan": respawnv.get(), "death_brief": deadbrief.get(),
-                  "loading_overlay": loadbrief.get(),
+                  "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "ban_list": bans, "board_topmost": boardtop.get(),

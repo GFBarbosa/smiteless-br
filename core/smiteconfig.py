@@ -88,10 +88,12 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
-         "loading_overlay": False,  # RETIRED — folded into DraftBoard's live scout (shared web
-                                    #   page). Default off; no launcher spawns it. On = deliberately
-                                    #   revive the native on-monitor loading overlay. (Replaces the
-                                    #   old `loading_brief` key, which is now ignored.)
+         "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
+                                    #   profile-read tags, damage lean) while the game loads. FRESH
+                                    #   key, default ON — a stale `loading_overlay:false` from when
+                                    #   the native overlay was retired must not suppress the rebuilt
+                                    #   card board, so the gate reads this key, not the old one.
+         "loading_overlay": False,  # LEGACY / ignored — superseded by `loading_scout` above.
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
          "board_topmost": True,   # live board/scoreboard stays above other windows (untick to allow covering)

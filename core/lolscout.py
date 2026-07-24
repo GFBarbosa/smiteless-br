@@ -23,6 +23,7 @@ for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolgame as lg
+import lolugg as ugg              # u.gg match-history fallback (Riot Match-V5 fails often)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -523,7 +524,32 @@ def _part(rec):
             "dmg": rec[6], "vision": rec[7], "obj": rec[8], "team": rec[9], "pos": rec[10]}
 
 
-def scout(dd, puuid, champ_id, key, count):
+def _scout_ugg(dd, riot_id, champ_id, count):
+    """u.gg FALLBACK for scout(): same (n, w, cg, cw, form, ids, kda, perf, recent) 9-tuple,
+    built from u.gg's indexer instead of Riot's Match-V5 (which is what failed to get us here).
+    perf on this path is u.gg's hard-carry score averaged over the games — a stand-in for our
+    own per-game grade, which needs full participant stats u.gg's summary doesn't carry."""
+    try:
+        rows = ugg.recent_matches(riot_id, count=count, region=PLATFORM)
+    except Exception:
+        rows = []
+    if not rows:
+        return 0, 0, 0, 0, [], [], {"g": 0, "k": 0, "d": 0, "a": 0}, None, []
+    n = len(rows)
+    w = sum(1 for r in rows if r["win"])
+    cg = sum(1 for r in rows if r["champ_id"] == champ_id)
+    cw = sum(1 for r in rows if r["champ_id"] == champ_id and r["win"])
+    form = [bool(r["win"]) for r in rows]
+    ids = [r["match_id"] for r in rows]
+    kda = {"g": n, "k": sum(r["k"] for r in rows), "d": sum(r["d"] for r in rows),
+           "a": sum(r["a"] for r in rows)}
+    perfs = [r["perf"] for r in rows if r.get("perf") is not None]
+    perf = round(sum(perfs) / len(perfs), 1) if perfs else None
+    recent = [(dd["id2name"].get(r["champ_id"], ""), bool(r["win"]), r["pos"]) for r in rows]
+    return n, w, cg, cw, form, ids, kda, perf, recent
+
+
+def scout(dd, puuid, champ_id, key, count, riot_id=None):
     """Return (games, wins, champ_games, champ_wins, form, match_ids, kda, perf, recent) over
     the last `count` ranked. `form` is a list of bool (True=win) in recent-first order. `kda`
     pools this player's recent kills/deaths/assists ({g, k, d, a}). `perf` is the average
@@ -532,7 +558,11 @@ def scout(dd, puuid, champ_id, key, count):
     cached yet. perf is the skill read that survives a bad-luck losing streak on off-champs —
     it grades how you play, not whether you won. match_ids drives duo detection. `recent` is
     [(champ_name, win, pos)] recent-first — the evidence behind the off-champ / heater-
-    attribution / off-role tags (see docs/TAGS.md), from the same match reads (no extra cost)."""
+    attribution / off-role tags (see docs/TAGS.md), from the same match reads (no extra cost).
+
+    If Riot's Match-V5 returns NOTHING (the regional host is Cloudflare-blocked / rate-limited —
+    a frequent, transient failure) and a `riot_id` ('Name#TAG') is known, fall back to u.gg's
+    indexer so the player still scouts instead of reading 'no recent ranked'."""
     import lolprofile as lp                        # lazy: lolprofile imports us (avoid a cycle)
     ids = recent_ids(puuid, key, count)
     n = w = cg = cw = 0
@@ -562,6 +592,8 @@ def scout(dd, puuid, champ_id, key, count):
         if dd["name2id"].get(dd["norm"](cname)) == champ_id:
             cg += 1
             cw += 1 if win else 0
+    if n == 0 and riot_id:                         # Riot gave us nothing -> try u.gg's indexer
+        return _scout_ugg(dd, riot_id, champ_id, count)
     perf = round(sum(perfs) / len(perfs), 1) if perfs else None
     return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}, perf, recent
 
@@ -733,7 +765,8 @@ def iter_scout_struct(dd, count=10):
 
         def _one(p):
             puuid, cid, role, is_ally, is_me, riot_id = p
-            n, w, cg, cw, form, mids, kda, perf, recent = scout(dd, puuid, cid, key, count)
+            n, w, cg, cw, form, mids, kda, perf, recent = scout(dd, puuid, cid, key, count,
+                                                                riot_id=riot_id or None)
             return {"cid": cid, "role": role, "is_ally": is_ally, "is_me": is_me,
                     "n": n, "w": w, "cg": cg, "cw": cw, "form": form, "riot_id": riot_id,
                     "rank": rank(puuid, key), "mastery": mastery(puuid, cid, key),
