@@ -147,51 +147,75 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
              border-radius:10px;padding:7px 12px;font-size:12.5px;margin-bottom:14px;
              letter-spacing:.04em}
 
-/* ---- scout scoreboard (loading + in-game view) — the on-monitor overlay, on the web ----
-   Full-width account rows in two stacked team blocks (YOUR TEAM / ENEMY TEAM), a single strict
-   column grid so every row's cells line up down the whole board (the old side-by-side layout
-   let each half drift). One shared grid template lives on .stable; rows inherit it. */
-.scout-legend{color:var(--faint);font-size:12px;margin:0 0 14px}
-.steam{margin-bottom:18px}
-.scout-h{display:flex;align-items:center;gap:10px;margin:0 2px 9px}
-.scout-h h3{margin:0;font-family:var(--disp);font-size:13px;letter-spacing:.12em;
-            text-transform:uppercase;white-space:nowrap}
-.scout-h.ally h3{color:var(--good)} .scout-h.enemy h3{color:var(--bad)}
-.scout-h .rule{flex:1;height:1px;background:var(--line-soft)}
-.scout-h .sub{color:var(--faint);font-size:12px;white-space:nowrap}
+/* ---- scout scoreboard (loading + in-game) — the on-monitor board, on the web ----
+   LANE-MATCHUP layout: each row is one lane (your player | role/gank | their player), so the
+   two sides are inherently aligned, and the coach panel can expand full-width under its own
+   lane without shoving the other lanes out of line. */
+.scout-legend{color:var(--faint);font-size:12px;margin:0 0 12px}
 
-/* the shared row grid — cols: face | identity | rank | last-10 | grade | tags | claim.
-   The SAME explicit template sits on every .srow, so all ten rows line up column-for-column
-   down the whole board (no subgrid dependency — works everywhere). */
-.stable{display:flex;flex-direction:column;gap:6px}
-.SCOLS,.srow{grid-template-columns:44px minmax(150px,1.15fr) minmax(90px,.8fr) minmax(140px,1fr) 48px minmax(0,1.5fr) 92px}
-.srow{display:grid;gap:12px;align-items:center;
-      background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line);
-      border-radius:9px;padding:9px 12px}
-.srow.me,.srow.claimed{border-left-color:var(--ember);
-     background:color-mix(in srgb,var(--ember) 6%,var(--surface))}
-.srow.claimable{cursor:pointer}
-.srow.claimable:hover{border-color:color-mix(in srgb,var(--ember) 40%,var(--line))}
-.srow .face{width:40px;height:40px;border-radius:9px;font-size:13px}
-.who{min-width:0}
-.who .nm{font-family:var(--disp);font-size:14.5px;overflow:hidden;text-overflow:ellipsis;
-         white-space:nowrap}
-.srow.me .who .nm{color:var(--ember)}
-.who .sub{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rank{font-family:var(--disp);font-size:12px;font-variant-numeric:tabular-nums;min-width:0}
-.rank .season{display:block;font-size:10.5px;color:var(--faint);letter-spacing:.02em}
+.laneboard{display:flex;flex-direction:column;gap:9px}
+.lb-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:0 4px;
+  margin-bottom:1px;font-family:var(--disp);font-size:11px;letter-spacing:.14em}
+.lb-head .lb-you{color:var(--good)} .lb-head .lb-them{color:var(--bad);text-align:right}
+.lb-head .lb-tap{font-family:var(--body);letter-spacing:0;font-size:11.5px;color:var(--faint);text-align:center}
+.lb-head .lb-tap b{color:var(--ember);font-weight:600}
+
+.lane-wrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.lane{display:grid;grid-template-columns:1fr 78px 1fr;align-items:stretch}
+
+/* player card — a faded champ portrait bleeds in from the outer edge; the enemy side mirrors */
+.pcard{position:relative;display:flex;gap:11px;padding:11px 13px;min-width:0;isolation:isolate}
+.pcard.enemy{flex-direction:row-reverse;text-align:right}
+.pcard::before{content:"";position:absolute;inset:0;z-index:-1;background-image:var(--art);
+  background-size:cover;background-position:70% 18%;opacity:.20;
+  -webkit-mask-image:linear-gradient(90deg,#000,transparent 72%);mask-image:linear-gradient(90deg,#000,transparent 72%)}
+.pcard.enemy::before{background-position:30% 18%;
+  -webkit-mask-image:linear-gradient(270deg,#000,transparent 72%);mask-image:linear-gradient(270deg,#000,transparent 72%)}
+.pcard.me,.pcard.claimed{background:color-mix(in srgb,var(--ember) 8%,transparent)}
+.pcard.me{box-shadow:inset 3px 0 0 var(--ember)} .pcard.enemy.me{box-shadow:inset -3px 0 0 var(--ember)}
+.pcard.claimable{cursor:pointer}
+.pcard.claimable:hover{background:color-mix(in srgb,var(--ember) 5%,transparent)}
+.pcard.empty{align-items:center;justify-content:center;color:var(--faint);font-style:italic;font-size:12.5px}
+.pc-art{flex:0 0 auto}
+.pc-art .face{width:48px;height:48px;border-radius:11px}
+.pc-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.pc-top{display:flex;align-items:center;gap:8px}
+.pcard.enemy .pc-top{flex-direction:row-reverse}
+.pc-top .nm{font-family:var(--disp);font-size:15.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pcard.me .nm{color:var(--ember)}
+.pc-sub{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.pcard.enemy .pc-sub{flex-direction:row-reverse}
+.pc-sub .mast{color:var(--ember-deep);font-family:var(--disp)}
+.pc-stats{display:flex;align-items:center;gap:9px}
+.pcard.enemy .pc-stats{flex-direction:row-reverse}
+.pcard .tags{margin-top:1px}
+.pcard.enemy .tags{justify-content:flex-end}
+.pcard .claim2{align-self:flex-start;margin-top:3px}
+.pcard.enemy .claim2{align-self:flex-end}
+.pc-grade{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 2px;line-height:1}
+
+/* center column: role + live gank flag */
+.lane-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  background:var(--sunken);border-inline:1px solid var(--line-soft)}
+.lm-role{font-family:var(--disp);font-size:11px;letter-spacing:.1em;color:var(--muted)}
+.lm-vs{font-size:10px;color:var(--faint)}
+.lane-mid.gank{background:color-mix(in srgb,var(--good) 14%,var(--sunken))}
+.lm-gank{font-family:var(--disp);font-size:10.5px;font-weight:700;color:var(--good);
+  border:1px solid color-mix(in srgb,var(--good) 45%,transparent);border-radius:6px;padding:1px 6px;
+  animation:pulse 1.6s infinite}
+
+/* shared stat helpers (used by the cards) */
+.rank{font-family:var(--disp);font-size:12px;font-variant-numeric:tabular-nums}
 .rank.unranked{color:var(--faint)}
-.mid-col{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0}
 .form{display:flex;gap:2px}
 .form i{width:9px;height:12px;border-radius:2px;display:block}
 .form i.w{background:var(--good)} .form i.l{background:var(--bad)}
 .rec{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;
-     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rec b{color:var(--txt);font-weight:600}
 .rec .cw.good{color:var(--good)} .rec .cw.bad{color:var(--bad)}
-.gradebox{display:flex;flex-direction:column;align-items:center;line-height:1}
-.grade{font-family:var(--disp);font-weight:700;font-size:18px}
-.gp{font-size:10px;color:var(--faint);font-family:var(--disp);margin-top:2px}
+.grade{font-family:var(--disp);font-weight:700;font-size:19px}
+.gp{font-size:10px;color:var(--faint);font-family:var(--disp);margin-top:1px}
 .tags{display:flex;gap:5px;flex-wrap:wrap;align-content:center}
 .tg{font-size:11px;padding:2px 8px;border-radius:8px;border:1px solid var(--line-soft);
     background:var(--sunken);color:var(--muted);white-space:nowrap}
@@ -201,29 +225,28 @@ footer{margin-top:30px;color:var(--faint);font-size:12px;display:flex;gap:8px;
 .tg.p.bad{background:color-mix(in srgb,var(--bad) 22%,transparent)}
 .tg.p.neutral{background:color-mix(in srgb,var(--muted) 20%,transparent);color:var(--txt)}
 .tg.p.info{background:color-mix(in srgb,var(--info) 22%,transparent)}
-.claimcell{display:flex;justify-content:flex-end;align-items:center}
 .claim2{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;
-        padding:4px 10px;font-size:12px;letter-spacing:.02em;white-space:nowrap}
+        padding:4px 11px;font-size:12px;letter-spacing:.02em;white-space:nowrap;cursor:pointer}
 .claim2:hover{border-color:var(--ember);color:var(--ember);background:var(--hover)}
 .claim2.on{border-color:var(--ember-deep);color:var(--ember);background:color-mix(in srgb,var(--ember) 10%,transparent)}
 
-/* HORIZONTAL scoreboard: the two teams sit side by side (not one long top-down stack).
-   Each team's rows reflow within a half-width column: identity line, then form+record+tags. */
-.scoutcols{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
-@media (max-width:760px){.scoutcols{grid-template-columns:1fr}}
-.scoutcols .steam{margin-bottom:0}
-.scoutcols .srow{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
-.scoutcols .srow .face{order:0;flex:0 0 auto}
-.scoutcols .who{order:0;flex:1 1 100px}
-.scoutcols .rank{order:0;flex:0 0 auto;text-align:right}
-.scoutcols .mid-col{order:0;flex:0 0 auto}
-.scoutcols .gradebox{order:0;flex:0 0 auto}
-.scoutcols .claimcell{order:0;flex:0 0 auto;margin-left:auto}
-.scoutcols .tags{order:1;flex:1 1 100%;justify-content:flex-start}
+/* mobile: stack each lane — your card, the role bar, their card (all left-aligned) */
+@media (max-width:720px){
+  .lb-head{display:none}
+  .lane{grid-template-columns:1fr}
+  .lane-mid{flex-direction:row;gap:8px;padding:5px;border-inline:none;border-block:1px solid var(--line-soft)}
+  .pcard.enemy{flex-direction:row;text-align:left}
+  .pcard.enemy .pc-top,.pcard.enemy .pc-sub,.pcard.enemy .pc-stats{flex-direction:row}
+  .pcard.enemy .tags{justify-content:flex-start}
+  .pcard.enemy .claim2{align-self:flex-start}
+  .pcard.enemy.me{box-shadow:inset 3px 0 0 var(--ember)}
+  .pcard.enemy::before{background-position:70% 18%;
+    -webkit-mask-image:linear-gradient(90deg,#000,transparent 72%);mask-image:linear-gradient(90deg,#000,transparent 72%)}
+}
 
-/* per-lane coaching panel — opens under YOUR claimed row (auto for the publisher) */
-.coach{grid-column:1 / -1;background:var(--raised);border:1px solid var(--line);
-       border-left:3px solid var(--ember);border-radius:9px;padding:11px 14px;margin:1px 0 2px}
+/* per-lane coaching panel — expands FULL-WIDTH under its own lane (can't misalign the rest) */
+.coach{background:var(--raised);border-top:1px solid var(--line);
+       border-left:3px solid var(--ember);padding:11px 15px}
 .coach-h{font-family:var(--disp);font-size:12px;letter-spacing:.06em;text-transform:uppercase;
          color:var(--ember);display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .coach-h .vsface{width:22px;height:22px;border-radius:6px;font-size:9px}
@@ -355,7 +378,8 @@ async function loadMeta(patch){
       j(`${DD}/cdn/${ver}/data/en_US/runesReforged.json`),
       j(`${DD}/cdn/${ver}/data/en_US/summoner.json`)]);
     for (const c of Object.values(champs.data))
-      state.meta.champ[+c.key] = {name:c.name, img:`${DD}/cdn/${ver}/img/champion/${c.image.full}`};
+      state.meta.champ[+c.key] = {name:c.name, img:`${DD}/cdn/${ver}/img/champion/${c.image.full}`,
+        art:`${DD}/cdn/img/champion/loading/${c.id}_0.jpg`};   // portrait for the polished card wash
     for (const tree of runes) {
       state.meta.rune[tree.id] = {name:tree.name, icon:`${DD}/cdn/img/${tree.icon}`};
       for (const slot of tree.slots) for (const r of slot.runes)
@@ -513,32 +537,43 @@ function tagChips(t){
     return `<span class="tg ${tone}${i === 0 ? " p" : ""}">${esc(tg[0])}</span>`;
   }).join("") + `</div>`;
 }
-function scoutRow(r, i, ally, mine){
+/* one player as a polished card (mirrored for the enemy side). ally cards are claimable. */
+function pcard(r, side, ally, mine){
   const champ = r.c ? champName(r.c) : "";
-  const sub = [r.role ? ROLE_FULL[r.role.toLowerCase()] || r.role : "", champ].filter(Boolean).join(" · ");
+  const m = state.meta.champ[r.c] || {};
+  const art = (!state.noArt && m.art) ? ` style="--art:url('${m.art}')"` : "";
   const rec = [];
   if (r.g) rec.push(`<b>${r.w}-${r.g - r.w}</b>`);
   if (r.kda != null) rec.push(`${r.kda} KDA`);
   let recLine = rec.join(" · ");
   if (r.cg) {
     const good = r.cw * 2 >= r.cg;
-    recLine += ` · <span class="cw ${good ? "good" : "bad"}">${r.cw}-${r.cg - r.cw} on ${esc(champ)}</span>`;
+    recLine += ` · <span class="cw ${good ? "good" : "bad"}">${r.cw}-${r.cg - r.cw} ${esc(champ)}</span>`;
   }
-  // only ally rows are claimable; the publisher's own row is pre-marked "me"
-  const claimCell = ally
-    ? `<div class="claimcell"><button class="claim2 ${mine ? "on" : ""}" data-claim="${i}">${
-        mine ? "✓ me" : "This is me"}</button></div>`
-    : `<div class="claimcell"></div>`;
-  return `<div class="srow ${r.me ? "me" : ""} ${mine ? "claimed" : ""} ${
-      ally && !mine ? "claimable" : ""}"${ally ? ` data-rowclaim="${i}"` : ""}>
-    ${face(r.c, "")}
-    <div class="who"><div class="nm">${esc(r.n || champ || "?")}</div>
-      <div class="sub">${esc(sub)}</div></div>
-    <div class="rank">${rankBadge(r.rk)}</div>
-    <div class="mid-col">${formBars(r.f)}<div class="rec">${recLine}</div></div>
-    <div class="gradebox">${gradeChip(r.p)}</div>
-    ${tagChips(r.t)}
-    ${claimCell}
+  const mast = r.pts >= 20000 ? `<span class="mast">${Math.round(r.pts/1000)}k pts</span>` : "";
+  const claim = ally
+    ? `<button class="claim2 ${mine ? "on" : ""}" data-claim="${r._i}">${mine ? "✓ me" : "This is me"}</button>`
+    : "";
+  return `<div class="pcard ${side} ${r.me ? "me" : ""} ${mine ? "claimed" : ""} ${
+      ally && !mine ? "claimable" : ""}"${art}${ally ? ` data-rowclaim="${r._i}"` : ""}>
+    <div class="pc-art">${face(r.c, "pc")}</div>
+    <div class="pc-body">
+      <div class="pc-top"><span class="nm">${esc(r.n || champ || "?")}</span>${rankBadge(r.rk)}</div>
+      <div class="pc-sub"><span>${esc(champ || "?")}</span>${mast}</div>
+      <div class="pc-stats">${formBars(r.f)}<span class="rec">${recLine}</span></div>
+      ${tagChips(r.t)}
+      ${claim}
+    </div>
+    <div class="pc-grade">${gradeChip(r.p)}</div>
+  </div>`;
+}
+/* the center column of a lane: the role, plus a live GANK flag when this lane is the call */
+function laneMid(role, gankLane){
+  const rl = ROLES[(role || "").toLowerCase()] || (role || "?").toUpperCase();
+  const gank = gankLane && gankLane.toLowerCase() === (role || "").toLowerCase();
+  return `<div class="lane-mid ${gank ? "gank" : ""}">
+    <span class="lm-role">${esc(rl)}</span>
+    ${gank ? `<span class="lm-gank">GANK</span>` : `<span class="lm-vs">vs</span>`}
   </div>`;
 }
 function coachPanel(r, sc){
@@ -572,22 +607,35 @@ function scoutHtml(sc){
   // the publisher's own link (H.me) — a teammate who hasn't tapped sees no coach panel.
   const claim = state.claimed != null ? state.claimed
               : (H.me && sc.me != null && sc.me >= 0 ? sc.me : null);
-  const team = (rows, cls, title, note, ally) => {
-    let out = `<div class="steam"><div class="scout-h ${cls}"><h3>${title}</h3>`
-      + `<span class="rule"></span><span class="sub">${note}</span></div><div class="stable">`;
-    (rows || []).forEach((r, i) => {
-      out += scoutRow(r, i, ally, ally && claim === i);
-      if (ally && claim === i) out += coachPanel(r, sc);    // coaching opens under your row
-    });
-    return out + `</div></div>`;
+  const allies = sc.allies || [], enemies = sc.enemies || [];
+  allies.forEach((a, i) => { a._i = i; });
+  // pair each ally with its lane opponent: by role first, then fill by order — so all 5
+  // enemies land on a lane even when roles are messy (autofill / missing position).
+  const used = new Set();
+  const opp = a => {
+    const rl = (a.role || "").toLowerCase();
+    let j = enemies.findIndex((e, k) => !used.has(k) && (e.role || "").toLowerCase() === rl && rl);
+    if (j < 0) j = enemies.findIndex((e, k) => !used.has(k));
+    if (j >= 0) { used.add(j); return enemies[j]; }
+    return null;
   };
-  let h = `<p class="scout-legend">rank · last 10 · record on this champ · grade (how they play) `
-    + `· reads from each account — <b style="color:var(--ember)">tap your row</b> for how to play `
-    + `your lane</p>`
-    + `<div class="scoutcols">`
-    + team(sc.allies, "ally", "Your team", "tap “This is me” for your lane", true)
-    + team(sc.enemies, "enemy", "Enemy team", "reads from each account’s history", false)
-    + `</div>`;
+  const gankLane = (state.pay && state.pay.live && state.pay.live.gank) ? state.pay.live.gank.lane : null;
+  const lanes = allies.map((a, i) => {
+    const e = opp(a), mine = claim === i;
+    return `<div class="lane-wrap">
+      <div class="lane">
+        ${pcard(a, "ally", true, mine)}
+        ${laneMid(a.role, gankLane)}
+        ${e ? pcard(e, "enemy", false, false) : `<div class="pcard enemy empty">no lane opponent</div>`}
+      </div>
+      ${mine ? coachPanel(a, sc) : ""}
+    </div>`;
+  }).join("");
+  let h = `<div class="laneboard">
+    <div class="lb-head"><span class="lb-you">YOUR TEAM</span>
+      <span class="lb-tap"><b>tap your card</b> for your lane</span>
+      <span class="lb-them">ENEMY</span></div>
+    ${lanes}</div>`;
   const wc = sc.wincons || {};
   if ((sc.plan && sc.plan.length) || wc.win) {
     h += `<div class="plan"><h3>Game plan</h3>` +
