@@ -340,10 +340,13 @@ def main():
         st["prof"] = prof
         _render(keep_scroll=False)
         latest = (prof.get("games") or [{}])[0].get("review") or []
-        if latest:
-            status.config(text=f"{len(prof['games'])} games ({prof.get('queue_label') or 'recent'})  ·  latest review: {latest[0]}")
+        head = f"{len(prof['games'])} games ({prof.get('queue_label') or 'recent'})"
+        if prof.get("stale"):                      # served from disk: say so instead of lying
+            status.config(text=f"{head}  ·  {prof.get('stale_note') or 'cached copy'}")
+        elif latest:
+            status.config(text=f"{head}  ·  latest review: {latest[0]}")
         else:
-            status.config(text=f"{len(prof['games'])} games ({prof.get('queue_label') or 'recent'})  ·  click a game for the full breakdown")
+            status.config(text=f"{head}  ·  click a game for the full breakdown")
         loadbtn.config(state="normal", text="Load more")
         savebtn.config(state="normal", command=_save_card)
         refreshbtn.config(state="normal", text="⟳ Refresh")

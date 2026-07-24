@@ -69,8 +69,11 @@ def main():
         import phasecheck
         out = rest[0] if rest else os.path.join(tempfile.gettempdir(), "smiteless_phase.txt")
         try:
+            # DETAILED: the loading screen reports as 'Loading', so the AHK watcher can open
+            # the loading scout there while holding the in-game widget back until the match
+            # actually starts (see phasecheck.phase_detailed).
             with open(out, "w", encoding="utf-8") as f:
-                f.write(phasecheck.phase() or "")
+                f.write(phasecheck.phase_detailed() or "")
         except Exception:
             pass
     elif cmd == "autoaccept":

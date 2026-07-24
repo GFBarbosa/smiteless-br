@@ -11,6 +11,8 @@ So the brief carries both: per-player SCOUT tags (rank, hot/tilted streak, OTP, 
 per-champ good/bad tags + a plain game-plan for the comp. All read-only off the local client
 and the user's own Riot key.
 """
+import os, json, time, hashlib
+
 import lolgame as lg
 import lolbuild as lb
 import loltags as ltag
@@ -350,3 +352,116 @@ def brief(dd, key=None, scout=True):
     return {"allies": allies, "enemies": enemies,
             "plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en),
             "scouted": bool(key)}
+
+
+# ---------- ONE scout per lobby, shared by every surface ----------
+# The loading overlay, the web DraftBoard publisher and the in-game board all want the same
+# ten-account read, and they all wake up at the same moment — so they used to fire three
+# independent storms of ~100 Riot calls each into one rate limiter, throttle each other, and
+# every surface came back half-scouted. Now the FIRST caller builds it and everyone else reads
+# that build: a disk snapshot keyed by the lobby (so a new game never sees the old one) plus an
+# exclusive build lock, because these are separate PROCESSES — an in-memory cache can't help.
+SNAP_FILE = os.path.expanduser("~/.claude/cache/scout_snapshot.json")
+SNAP_LOCK = SNAP_FILE + ".lock"
+SNAP_TTL = 45 * 60          # a lobby's accounts don't change mid-game
+LOCK_STALE = 120            # a builder holding the lock longer than this is presumed dead
+_LOCAL = {"key": None, "brief": None}      # in-process memo, so repeat calls are free
+
+
+def _lobby_key():
+    """Stable id for THIS lobby: the ten (summonerId, championId) pairs. Changes the moment a
+    new game forms, which is what expires the snapshot — no time-based guessing."""
+    r = _roster()
+    if not r:
+        return None
+    my, en, _ = r
+    sig = sorted(f"{x.get('sid')}:{x.get('champ_id')}" for x in (my + en))
+    return hashlib.sha1("|".join(sig).encode()).hexdigest()[:16]
+
+
+def _snap_read(want_key):
+    try:
+        c = json.load(open(SNAP_FILE, encoding="utf-8"))
+    except Exception:
+        return None
+    if c.get("key") != want_key or time.time() - c.get("ts", 0) > SNAP_TTL:
+        return None
+    return c.get("brief") or None
+
+
+def _snap_write(lkey, brief):
+    try:
+        os.makedirs(os.path.dirname(SNAP_FILE), exist_ok=True)
+        tmp = f"{SNAP_FILE}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"key": lkey, "ts": time.time(), "brief": brief}, f)
+        os.replace(tmp, SNAP_FILE)
+    except Exception:
+        pass
+
+
+def _lock_acquire():
+    """True if we own the build. Exclusive-create is atomic across processes; a lock left
+    behind by a crashed builder goes stale and is reclaimed."""
+    try:
+        if os.path.exists(SNAP_LOCK) and time.time() - os.path.getmtime(SNAP_LOCK) > LOCK_STALE:
+            os.remove(SNAP_LOCK)
+    except Exception:
+        pass
+    try:
+        os.makedirs(os.path.dirname(SNAP_LOCK), exist_ok=True)
+        fd = os.open(SNAP_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except Exception:
+        return False
+
+
+def _lock_release():
+    try:
+        os.remove(SNAP_LOCK)
+    except Exception:
+        pass
+
+
+def brief_shared(dd, key=None, wait=40):
+    """The full scouted brief for this lobby, built ONCE and shared by every surface.
+
+    Returns the snapshot if someone already built it; otherwise builds it (holding a lock) and
+    publishes it. If another process is mid-build we wait for its result rather than duplicating
+    ~100 Riot calls — that duplication is what was rate-limiting the scout into partial data.
+    Falls back to building locally if the wait times out, so a surface is never left with
+    nothing. None only when there's no readable roster at all."""
+    lkey = _lobby_key()
+    if not lkey:
+        return None
+    if _LOCAL["key"] == lkey and _LOCAL["brief"]:
+        return _LOCAL["brief"]
+    snap = _snap_read(lkey)
+    if snap:
+        _LOCAL.update(key=lkey, brief=snap)
+        return snap
+    if _lock_acquire():
+        try:
+            b = brief(dd, key=key, scout=True)
+            if b and b.get("scouted"):
+                _snap_write(lkey, b)
+                _LOCAL.update(key=lkey, brief=b)
+            return b
+        finally:
+            _lock_release()
+    deadline = time.time() + wait                  # someone else is building -> use THEIR result
+    while time.time() < deadline:
+        time.sleep(1.0)
+        snap = _snap_read(lkey)
+        if snap:
+            _LOCAL.update(key=lkey, brief=snap)
+            return snap
+        if not os.path.exists(SNAP_LOCK):          # builder finished (or died) -> stop waiting
+            break
+    b = brief(dd, key=key, scout=True)             # last resort: build it ourselves
+    if b and b.get("scouted"):
+        _snap_write(lkey, b)
+        _LOCAL.update(key=lkey, brief=b)
+    return b

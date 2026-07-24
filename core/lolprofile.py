@@ -13,6 +13,7 @@ import base64
 import urllib.request
 
 import lolscout as ls
+import lollocal as llc          # YOUR match history straight off the client (Riot-API-free)
 import phasecheck
 
 _ctx = ssl._create_unverified_context()
@@ -694,48 +695,126 @@ def _behavior_track(mid, ts, hits, ev, win=None):
     return out[:3]
 
 
+# ---------- last-good profile on disk ----------
+# The home page must never come up EMPTY just because Riot's edge is having a bad minute.
+# Every successful build is written here; if a later build can't reach any source at all, the
+# last-good copy is served (flagged `stale`) so the page still loads, with its own age shown.
+PROFILE_CACHE = os.path.join(ls.CACHE, "profiles")
+
+
+def _profile_cache_path(rid):
+    os.makedirs(PROFILE_CACHE, exist_ok=True)
+    safe = "".join(c if c.isalnum() else "_" for c in (rid or "me"))
+    return os.path.join(PROFILE_CACHE, safe + ".json")
+
+
+def _save_profile(p):
+    """Persist a freshly built profile as the last-good copy for this riot id."""
+    if not p or p.get("error") or not p.get("n"):
+        return
+    try:
+        fp = _profile_cache_path(p.get("riot_id"))
+        tmp = f"{fp}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"ts": int(time.time()), "profile": p}, f)
+        os.replace(tmp, fp)
+    except Exception:
+        pass
+
+
+def _load_profile(rid):
+    """The last-good profile for this riot id, marked `stale` with its age, or None."""
+    try:
+        c = json.load(open(_profile_cache_path(rid), encoding="utf-8"))
+        p = c.get("profile")
+        if not p:
+            return None
+        p = dict(p)
+        p["stale"] = True
+        p["cached_ts"] = c.get("ts", 0)
+        age = max(0, int(time.time()) - int(c.get("ts", 0)))
+        p["stale_note"] = ("cached " + (f"{age // 3600}h ago" if age >= 3600
+                                        else f"{max(1, age // 60)}m ago")
+                           + " — live match history is unreachable right now")
+        return p
+    except Exception:
+        return None
+
+
 def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False):
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,
     LP trend and the tilt nudge are self-only (they come from the local snapshot history).
     Works with the client closed (identity is remembered from the last client sighting);
     None only if we've NEVER been able to tell who you are (fresh install, client closed)."""
+    other = bool(riot_id or puuid)
     key = key or ls.read_key()
-    if not key:
-        return {"error": "no Riot API key — add one in Settings"}
-    try:
-        ls.ensure_key_namespace(key)      # key rotated? old caches hold old-key puuids -> wipe
-        other = bool(riot_id or puuid)
-        rid = riot_id
-        if not other:
-            rid = current_riot_id()
-            if not rid:
-                return None
-        if not puuid:
-            puuid = ls.resolve_puuid(rid, key)
-        if not puuid:
-            return {"riot_id": rid, "error": "couldn't find that player — expired key? (check Settings)"}
-        if force:
-            ls.forget_player(puuid)            # Refresh: drop TTL'd caches so a fresh game shows
-        rk = ls.rank(puuid, key)
-        # RANKED SOLO by default: normals/flex distort the champion-pool, session and
-        # climb reads (you play differently in a normal). Falls back to all queues —
-        # labelled — only when the solo sample is too thin to coach from.
-        import smiteconfig as _cfg
-        solo = bool(_cfg.load().get("solo_coaching", True))
-        queue_label = "ranked solo"
-        ids = (ls.recent_ids(puuid, key, count, queue="ranked") or []) if solo else []
-        if len(ids) < 5:
-            ids = ls.recent_ids(puuid, key, count, queue="all") or []
-            queue_label = "all queues" + (" — thin solo sample" if solo else "")
-    except ls.KeyStale:
-        return {"riot_id": rid if 'rid' in dir() else None,
-                "error": "your Riot API key expired — paste a new one in Settings"}
+    import smiteconfig as _cfg
+    # RANKED SOLO by default: normals/flex distort the champion-pool, session and
+    # climb reads (you play differently in a normal). Falls back to all queues —
+    # labelled — only when the solo sample is too thin to coach from.
+    solo = bool(_cfg.load().get("solo_coaching", True))
+    queue_label = "ranked solo"
+    rid, rk, ids, local = riot_id, None, [], False
+    if not other:
+        rid = current_riot_id() or llc.my_riot_id()
+
+    # ---- source 1: the Riot web API (richest: timelines, other players, encrypted puuids) ----
+    if key:
+        try:
+            ls.ensure_key_namespace(key)  # key rotated? old caches hold old-key puuids -> wipe
+            if not puuid and rid:
+                puuid = ls.resolve_puuid(rid, key)
+            if puuid:
+                if force:
+                    ls.forget_player(puuid)   # Refresh: drop TTL'd caches so a fresh game shows
+                rk = ls.rank(puuid, key)
+                ids = (ls.recent_ids(puuid, key, count, queue="ranked") or []) if solo else []
+                if len(ids) < 5:
+                    allq = ls.recent_ids(puuid, key, count, queue="all") or []
+                    if allq:
+                        ids = allq
+                        queue_label = "all queues" + (" — thin solo sample" if solo else "")
+        except ls.KeyStale:
+            if other:                          # can't scout someone else without a working key
+                return {"riot_id": rid, "error": "your Riot API key expired — paste a new one in Settings"}
+        except Exception:
+            pass                               # any Riot-side failure -> try the client below
+
+    # ---- source 2: the local client (YOUR profile only) ----
+    # Riot's regional host is Cloudflare-gated and goes down regularly; when it does, puuid
+    # resolution fails and the old code blamed the user's key. The client on this machine has
+    # the same history, needs no key, and can't 403 — so for your own profile it takes over.
+    if not ids and not other and llc.available():
+        lids = llc.recent_game_ids(count, ranked_only=solo)
+        if len(lids) < 5 and solo:
+            allq = llc.recent_game_ids(count, ranked_only=False)
+            if allq:
+                lids = allq
+                queue_label = "all queues — thin solo sample"
+        if lids:
+            local, ids = True, lids
+            puuid = llc.my_puuid()             # LCU puuids are their own namespace
+            rk = llc.rank() or rk
+            rid = rid or llc.my_riot_id()
+            queue_label += " · from your client"
+
+    if not ids:
+        # nothing reachable — serve the last-good profile rather than an empty page
+        cached = None if other else _load_profile(rid)
+        if cached:
+            return cached
+        if not key:
+            return {"riot_id": rid, "error": "no Riot API key — add one in Settings"}
+        if not rid and not puuid:
+            return None
+        return {"riot_id": rid, "error": ("couldn't reach match history — Riot's API looks down; "
+                                          "open the League client and it'll load from there")}
     games, champ = [], {}
     wins = 0
     tl_done = False                                # timeline review only on the newest game (1 fetch)
     for mid in ids:
-        d = match_detail(mid, key)
+        d = llc.game_detail(dd, mid) if local else match_detail(mid, key)
         if not d or d.get("skip"):
             continue
         mine = next((p for p in d["parts"] if p["puuid"] == puuid), None)
@@ -744,7 +823,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         if other and not rid and mine.get("name"):
             rid = mine["name"]                     # clicked-through by puuid: recover the name
         score, letter, label = _grade_game(d["parts"], mine, d["dur"])
-        if not other:                              # GHOST: an A-grade self game may set a new
+        if not other and not local:                # GHOST: an A-grade self game may set a new
             try:                                   # champ+role pace record (see lolrecords)
                 import lolrecords
                 lolrecords.maybe_record(key, puuid, mid, mine, score, d.get("dur", 0))
@@ -752,7 +831,9 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
                 pass
         review = review_for_player(d["parts"], puuid, d.get("dur", 0), dd=dd)
         tips = review.get("tips", [])
-        if not tl_done:                            # newest game -> prepend a timeline post-game review
+        # The timeline reviews + behavior ledger are Match-V5 TIMELINE features; the client's
+        # history has no timeline, so on the local path they're skipped rather than half-faked.
+        if not tl_done and not local:              # newest game -> prepend a timeline post-game review
             tl_done = True
             try:
                 tl_bullets = timeline_review(dd, mid, puuid, key, d["parts"])
@@ -830,14 +911,18 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         except Exception:
             pass
         climb = {"pool_n": len(champs), "top_share": top_share, "sub12k": sub12k}
-    return {"riot_id": rid or "?", "puuid": puuid, "rank": rk, "n": n, "wins": wins,
-            "losses": n - wins, "other": other, "queue_label": queue_label,
-            "wr": round(wins / n * 100) if n else 0,
-            "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-            "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
-            "session": (None if other else _session(hist, games)),
-            "coach": _coach(champs), "lp_trend": trend, "climb": climb,
-            "insights": _insights(games), "records": _records(games)}
+    out = {"riot_id": rid or "?", "puuid": puuid, "rank": rk, "n": n, "wins": wins,
+           "losses": n - wins, "other": other, "queue_label": queue_label,
+           "source": ("client" if local else "riot"),
+           "wr": round(wins / n * 100) if n else 0,
+           "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
+           "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
+           "session": (None if other else _session(hist, games)),
+           "coach": _coach(champs), "lp_trend": trend, "climb": climb,
+           "insights": _insights(games), "records": _records(games)}
+    if not other:
+        _save_profile(out)          # last-good copy, so the page still loads through an outage
+    return out
 
 
 SESSION_SPLIT = 45 * 60 * 1000       # >45 min between games = a new sitting (ms, matches ts)

@@ -418,7 +418,9 @@ def _scout_phase(dd, db, cap_s=25 * 60):
         brief, live = None, None
         if in_game or (seen and gone < 3):             # keep publishing across a transient blip
             try:
-                brief = lolload.brief(dd, scout=True)   # both teams' rank/form/grade/tags (slow)
+                # SHARED: the loading overlay wants this same read at this same moment — one
+                # of us builds it, the other reuses it (see lolload.brief_shared).
+                brief = lolload.brief_shared(dd)       # both teams' rank/form/grade/tags (slow)
             except Exception as e:
                 _dlog(f"brief() raised {type(e).__name__}: {e}")
                 brief = None

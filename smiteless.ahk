@@ -148,8 +148,11 @@ SmiteWatch() {
     ph := ""
     try ph := Trim(FileRead(out), " `t`r`n")     ; strip CR/LF (Trim's default omits them)
     Run('"' PYW '" "' SCRIPTS '\smiteless_main.py" phase "' out '"', , "Hide")   ; writes phase to file (no console)
-    active := (ph = "ChampSelect" || ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
-    ingame := (ph = "GameStart" || ph = "InProgress" || ph = "Reconnect")
+    ; "Loading" = the loading screen (:2999 is answering but the game clock hasn't started).
+    ; It counts as an ACTIVE session (the loading scout belongs there) but NOT as in-game —
+    ; the item widget and death brief must not paint over the loading screen.
+    active := (ph = "ChampSelect" || ph = "GameStart" || ph = "Loading" || ph = "InProgress" || ph = "Reconnect")
+    ingame := (ph = "InProgress" || ph = "Reconnect")
     if (active) {
         if (!g_smiteOpened) {
             g_smiteOpened := true

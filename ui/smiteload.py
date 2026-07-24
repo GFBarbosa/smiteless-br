@@ -87,7 +87,7 @@ def _geom(W, H):
     card_w = (grid_w - (cols - 1) * col_gap) // cols
     avail_h = H - header_h - footer_h - 2 * M
     card_h = (avail_h - row_gap) // 2
-    banner_h = int(card_h * 0.42)
+    banner_h = int(card_h * 0.46)               # taller crop -> cinematic banner, not a thumbnail
     return {"s": s, "S": S, "cols": cols, "M": M, "header_h": header_h, "footer_h": footer_h,
             "col_gap": col_gap, "row_gap": row_gap, "card_w": card_w, "card_h": card_h,
             "banner_h": banner_h, "W": W, "H": H}
@@ -108,25 +108,48 @@ def _grade_of(perf):
     return "D", C_BAD
 
 
-def _top_threat(enemies):
-    """The single enemy account most likely to decide the game — perf-driven, sharpened
-    by OTP mastery, a live win streak, and champ comfort. None unless someone actually
-    stands out (a quiet lobby gets no scare line)."""
+def _carry_score(r):
+    """How likely this account is to decide the game on the champ they just locked: how they
+    actually play (perf) sharpened by mastery on this pick, a live win streak, and comfort."""
+    s = float(r.get("perf") or 50)
+    if r.get("pts", 0) >= 250_000:
+        s += 16                                  # true one-trick
+    elif r.get("pts", 0) >= 100_000:
+        s += 12
+    form = r.get("form") or []
+    if len(form) >= 3 and all(form[:3]):
+        s += 8                                   # walking in hot
+    if r.get("cg", 0) >= 5 and r.get("cw", 0) * 2 > r["cg"]:
+        s += 6                                   # proven on this champ recently
+    if (r.get("role") or "") in ("MID", "BOT", "TOP"):
+        s += 4                                   # a damage seat converts a lead into a win
+    return s
+
+
+def _carry_call(allies):
+    """WHO TO PLAY FOR on your own team — the header's one call. Enabling the teammate most
+    likely to carry (or recognizing that it's YOU) is a decision you act on; a scary enemy
+    name is only a warning. Returns (text, color) or None when nobody stands out."""
     best, bs = None, -1.0
-    for r in enemies or []:
+    for r in allies or []:
         if not r.get("scouted"):
             continue
-        s = float(r.get("perf") or 50)
-        if r.get("pts", 0) >= 100_000:
-            s += 12
-        form = r.get("form") or []
-        if len(form) >= 3 and all(form[:3]):
-            s += 8
-        if r.get("cg", 0) >= 5 and r.get("cw", 0) * 2 > r["cg"]:
-            s += 6
+        s = _carry_score(r)
         if s > bs:
             bs, best = s, r
-    return best if bs >= 78 else None
+    if not best or bs < 74:
+        return None
+    ev = ""                                      # cite the evidence, same rule as the tags
+    for txt, _tone in (best.get("tags") or []):
+        if any(w in txt for w in ("OTP", "main", "carries", "heater", "comfort", "climbing")):
+            ev = txt
+            break
+    if best.get("me"):
+        return ("YOU'RE THE WIN CONDITION" + (f" — {ev}" if ev else " — play for your own tempo"),
+                C_EMBER)
+    nm = (best.get("player") or "").split("#")[0] or best.get("champ", "")
+    return (f"PLAY FOR {best['champ'].upper()}" + (f" ({nm})" if nm else "")
+            + (f" — {ev}" if ev else ""), C_GOOD)
 
 
 def _rank_str(rk):
@@ -135,6 +158,32 @@ def _rank_str(rk):
     from lolload import _TIER
     t = _TIER.get(rk["tier"].upper(), rk["tier"].title())
     return f"{t} {rk.get('div', '')}".strip() + f" · {rk.get('lp', 0)} LP", t
+
+
+_LANE_ORDER = ("TOP", "JG", "MID", "BOT", "SUP")
+
+
+def _by_lane(rows):
+    """The five cards in LANE order — TOP · JG · MID · BOT · SUP — so a column IS a lane and
+    the ally card sits directly above the enemy it laned against. Riot's roster comes back in
+    lobby order, which is why mid kept landing in a random column. Rows whose position the
+    client didn't report (blind pick, autofill mid-swap) fill whatever slots are left, in
+    their original order, so nobody is ever dropped from the board."""
+    slots = {}
+    spare = []
+    for r in rows or []:
+        k = (r.get("role") or "").upper()
+        if k in _LANE_ORDER and k not in slots:
+            slots[k] = r
+        else:
+            spare.append(r)
+    out = []
+    for k in _LANE_ORDER:
+        if k in slots:
+            out.append(slots[k])
+        elif spare:
+            out.append(spare.pop(0))
+    return out + spare                      # anything left over (>5 rows) still renders
 
 
 def _circle_icon(img, d, dd, cid, cx, cy, r, ring_col, S):
@@ -198,22 +247,32 @@ def _player_card(img, d, dd, r, x, y, cw, ch, g, side_col, scouted):
     d.rounded_rectangle([x, y, x + cw, y + ch], rad, fill=C_SURF)
 
     # ---- splash banner ----
+    # The art is a BANNER, not a pasted thumbnail: it fills the card's shoulders and then
+    # dissolves into the body on every open edge (a long vertical ramp plus a soft vignette
+    # down each side), so there's no hard rectangle boundary anywhere. The dissolve is
+    # clipped by the card's own rounded silhouette so the corners stay round.
+    from PIL import ImageChops
+    shape = Image.new("L", (cw, banner_h), 0)            # the card's top silhouette
+    sd = ImageDraw.Draw(shape)
+    sd.rounded_rectangle((0, 0, cw - 1, banner_h - 1), radius=rad, fill=255)
+    sd.rectangle((0, banner_h // 2, cw, banner_h), fill=255)
     art = _cached_splash(cid, (cw, banner_h))
     if art:
-        mask = Image.new("L", (cw, banner_h), 0)
-        md = ImageDraw.Draw(mask)
-        md.rounded_rectangle((0, 0, cw, banner_h), radius=rad, fill=255)
-        md.rectangle((0, banner_h // 2, cw, banner_h), fill=255)
-        img.paste(art, (x, y), mask)
-        fade_h = int(banner_h * 0.60)                    # melt the art into the card body
-        grad = Image.new("L", (1, fade_h))
-        grad.putdata([int((i / max(1, fade_h - 1)) ** 1.3 * 255) for i in range(fade_h)])
-        img.paste(Image.new("RGB", (cw, fade_h), C_SURF), (x, y + banner_h - fade_h),
-                  grad.resize((cw, fade_h)))
+        img.paste(art, (x, y), shape)
+        fade_h = max(2, int(banner_h * 0.72))            # long ramp: art -> card body
+        vg = Image.new("L", (1, banner_h), 0)
+        vg.putdata([0] * (banner_h - fade_h)
+                   + [int((i / max(1, fade_h - 1)) ** 1.45 * 255) for i in range(fade_h)])
+        veil = vg.resize((cw, banner_h))
+        edge = max(3, int(cw * 0.11))                    # soft side vignette
+        hg = Image.new("L", (cw, 1), 0)
+        hg.putdata([int((1 - min(px, cw - 1 - px) / edge) ** 1.7 * 165)
+                    if min(px, cw - 1 - px) < edge else 0 for px in range(cw)])
+        veil = ImageChops.lighter(veil, hg.resize((cw, banner_h)))
+        veil = ImageChops.darker(veil, shape)            # never bleed past the rounded edge
+        img.paste(Image.new("RGB", (cw, banner_h), C_SURF), (x, y), veil)
     else:
-        md = ImageDraw.Draw(img)
-        d.rounded_rectangle([x, y, x + cw, y + banner_h], rad, fill=C_RAISED)
-        d.rectangle([x, y + banner_h // 2, x + cw, y + banner_h], fill=C_RAISED)
+        img.paste(Image.new("RGB", (cw, banner_h), C_RAISED), (x, y), shape)
 
     # side identity: a thin colored cap along the top edge
     d.rounded_rectangle([x + rad, y, x + cw - rad, y + S(4)], S(2), fill=side_col)
@@ -364,7 +423,7 @@ def render_frame(dd, b, W, H):
     d = ImageDraw.Draw(img)
     g = _geom(W, H)
     S = g["S"]
-    allies, enemies = b.get("allies") or [], b.get("enemies") or []
+    allies, enemies = _by_lane(b.get("allies")), _by_lane(b.get("enemies"))
     scouted = bool(b.get("scouted"))
     M, cols, cw, ch = g["M"], g["cols"], g["card_w"], g["card_h"]
     col_gap, row_gap = g["col_gap"], g["row_gap"]
@@ -379,10 +438,9 @@ def render_frame(dd, b, W, H):
         pass
     d.text((gx0 + S(28), hy), "SMITELESS", font=_dfont(S(22)), fill=C_EMBER)
     d.text((gx0 + S(178), hy + S(5)), "LOADING SCOUT", font=_dfont(S(15)), fill=C_MUTED)
-    thr = _top_threat(enemies) if scouted else None
-    if thr:
-        tags = " · ".join(t for t, _ in (thr.get("tags") or [])[:2])
-        sub, scol = f"WATCH {thr['champ'].upper()}" + (f" — {tags}" if tags else ""), C_WARN
+    call = _carry_call(allies) if scouted else None
+    if call:
+        sub, scol = call
     else:
         sub, scol = ("reading the ten accounts…" if not scouted
                      else "who they are, before minute one"), C_FAINT
@@ -548,7 +606,7 @@ def main():
         except Exception as e:
             _log(f"fast brief ERROR {type(e).__name__}: {e}")
         try:
-            full = ll.brief(dd, scout=True)
+            full = ll.brief_shared(dd)          # ONE scout per lobby, shared with the web board
             if full and state["run"]:
                 state["brief"] = full
                 _log("scout brief READY (ranks/tags) -> enriched")
