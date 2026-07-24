@@ -86,11 +86,18 @@ def _geom(W, H):
     grid_w = W - 2 * M
     card_w = (grid_w - (cols - 1) * col_gap) // cols
     avail_h = H - header_h - footer_h - 2 * M
-    card_h = (avail_h - row_gap) // 2
-    banner_h = int(card_h * 0.46)               # taller crop -> cinematic banner, not a thumbnail
+    # A BANNER IS WIDE AND SHORT. The art strip is sized off the card's WIDTH (a fixed ~2.4:1
+    # letterbox), not off its height — height-based sizing is what made it a near-square block.
+    banner_h = int(card_w / 2.4)
+    # Card height follows its CONTENT (banner + portrait + stats + two tag rows + damage bar)
+    # instead of stretching to fill the screen, which would leave a dead void under the art.
+    card_h = min((avail_h - row_gap) // 2, banner_h + int(card_w * 0.63))
+    # cards no longer stretch to fill, so center the two rows in the space between the header
+    # and the bottom-pinned footer — the leftover breathing room sits evenly, not in one lump.
+    grid_top = M + header_h + max(0, (avail_h - (2 * card_h + row_gap)) // 2)
     return {"s": s, "S": S, "cols": cols, "M": M, "header_h": header_h, "footer_h": footer_h,
             "col_gap": col_gap, "row_gap": row_gap, "card_w": card_w, "card_h": card_h,
-            "banner_h": banner_h, "W": W, "H": H}
+            "banner_h": banner_h, "grid_top": grid_top, "W": W, "H": H}
 
 
 def _cached_splash(cid, size):
@@ -259,7 +266,7 @@ def _player_card(img, d, dd, r, x, y, cw, ch, g, side_col, scouted):
     art = _cached_splash(cid, (cw, banner_h))
     if art:
         img.paste(art, (x, y), shape)
-        fade_h = max(2, int(banner_h * 0.72))            # long ramp: art -> card body
+        fade_h = max(2, int(banner_h * 0.42))            # short strip -> keep most of it visible
         vg = Image.new("L", (1, banner_h), 0)
         vg.putdata([0] * (banner_h - fade_h)
                    + [int((i / max(1, fade_h - 1)) ** 1.45 * 255) for i in range(fade_h)])
@@ -448,7 +455,7 @@ def render_frame(dd, b, W, H):
     d.text((gx0 + grid_w, hy + S(4)), sub, font=sf, fill=scol, anchor="ra")
 
     # ---------- team labels + card rows ----------
-    row_y = [hy + g["header_h"], hy + g["header_h"] + ch + row_gap]
+    row_y = [g["grid_top"], g["grid_top"] + ch + row_gap]
     for row_i, (team, title, tcol, side_col) in enumerate((
             (allies, "YOUR TEAM", C_GOOD, C_GOOD), (enemies, "ENEMY TEAM", C_BAD, C_BAD))):
         ly = row_y[row_i]
@@ -463,8 +470,8 @@ def render_frame(dd, b, W, H):
     # ---------- footer: game plan + win/lose ----------
     plan = b.get("plan") or []
     wc = b.get("wincons") or {}
-    fy = row_y[1] + ch + S(12)
     fh = g["footer_h"] - S(2)
+    fy = H - M - fh                      # pinned to the bottom edge, not trailing the cards
     if plan or wc:
         d.rounded_rectangle([gx0, fy, gx0 + grid_w, fy + fh], S(10), fill=C_SURF)
         d.rounded_rectangle([gx0, fy + S(6), gx0 + S(4), fy + fh - S(6)], S(2), fill=C_EMBER)

@@ -1,5 +1,9 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.48 - the splash art is an actual BANNER now
+- **The art is a wide letterbox strip, not a square block.** v0.9.47 sized the art off the card's HEIGHT and made it *taller*, which pushed it further toward a square (360x206, barely 1.7:1). It's now sized off the card's WIDTH at a fixed **2.4:1 letterbox** (360x150) - a real banner, at every resolution.
+- **Cards fit their content.** They no longer stretch to fill the screen, so there's no dead void under the art; the two rows are centered between the header and the game-plan strip, which is pinned to the bottom.
+
 ## v0.9.47 - lanes line up, one scout for everything, and your profile survives a Riot outage
 - **The loading board is in LANE ORDER now.** TOP . JG . MID . BOT . SUP, left to right, on both rows - so a column IS a lane and your card sits directly above the enemy you're laning against. Mid was landing in random columns because Riot hands back the roster in lobby order. Players whose position the client doesn't report (blind pick) fill the leftover slots instead of being dropped.
 - **The header tells you who to PLAY FOR, not who to fear.** It used to read "WATCH CASSIOPEIA" - true, but not something you act on. Now it names the teammate most likely to carry and why: **PLAY FOR AHRI (geminigwen) - Ahri main . 145k pts**. If that teammate is you, it says **YOU'RE THE WIN CONDITION**.
