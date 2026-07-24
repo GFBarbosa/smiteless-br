@@ -20,6 +20,12 @@ if (InStr(PYW, "\") && !FileExist(PYW))                     ; full path that doe
 SCRIPTS := A_ScriptDir          ; the .py files live in core/ ui/ tools/ under this dir
 ; ------------------------------------------------------------
 
+; Heartbeat anchor: hold the "Global\SmitelessTray" mutex for this tray's whole life. Every
+; surface (overlay/widget/loading/death/profile/settings) polls it and self-closes when it
+; disappears, so force-closing Smiteless leaves no orphan windows. (The Python tray already
+; holds this mutex; this makes the AHK tray hold it too.)
+DllCall("CreateMutexW", "Ptr", 0, "Int", 0, "WStr", "Global\SmitelessTray")
+
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
 
 if FileExist(SCRIPTS "\assets\smiteless.ico")

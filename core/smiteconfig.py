@@ -8,6 +8,57 @@ without parsing JSON), and "start with Windows" is a registry Run key.
 import os, sys, json
 
 PATH = os.path.expanduser("~/.claude/smiteless_settings.json")
+
+
+# ---------- tie every surface's lifetime to the tray (no orphan windows on force-close) ----------
+# The tray (AHK or pystray) holds the "Global\SmitelessTray" mutex for its whole life. Each
+# surface polls it: seen-alive-then-gone => the tray was force-closed/crashed => close myself.
+_TRAY_MUTEX = "Global\\SmitelessTray"
+_tray_seen = [False]
+
+
+def _tray_alive():
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenMutexW(0x00100000, False, _TRAY_MUTEX)     # SYNCHRONIZE
+        if h:
+            k.CloseHandle(h)                                 # never RETAIN it (that'd keep it alive)
+            return True
+    except Exception:
+        return True                                          # can't tell -> never false-kill a window
+    return False
+
+
+def tray_gone():
+    """True only once the tray has been seen alive and has since vanished. Always False when
+    there was never a tray (a surface launched standalone in dev), so `python ui/x.py` still runs."""
+    if _tray_alive():
+        _tray_seen[0] = True
+        return False
+    return _tray_seen[0]
+
+
+def watch_tray(root, interval=700):
+    """Tk helper: self-close `root` within ~<1s of the Smiteless tray going away, so no
+    overlay/widget is left orphaned when you force-close Smiteless. Call once after the window
+    is built. Snappy and cheap (a single OpenMutex probe per tick)."""
+    def tick():
+        if tray_gone():
+            try:
+                root.destroy()
+            except Exception:
+                pass
+            return
+        try:
+            root.after(interval, tick)
+        except Exception:
+            pass
+    tray_gone()                                              # latch 'seen' now — tray is up at spawn
+    try:
+        root.after(interval, tick)
+    except Exception:
+        pass
 NOAUTO = os.path.expanduser("~/.claude/smiteless_noautoopen")   # presence = auto-open OFF
 NOHOME = os.path.expanduser("~/.claude/smiteless_nohomeonstart")  # presence = open profile/home at startup OFF
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -806,6 +806,7 @@ def main():
     st["vol"] = int(cfg.load().get("dragon_volume", 30))   # live audio volume (slider + Settings)
 
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan widget on force-close)
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.attributes("-alpha", 0.96)

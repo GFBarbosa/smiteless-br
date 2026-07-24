@@ -395,6 +395,7 @@ def main():
         pass
     _log(f"LAUNCH monitor=({l},{t},{r},{b}) size={W}x{H} loading_overlay={cfg.load().get('loading_overlay', False)}")
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan loading brief)
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.configure(bg=CHROMA_HEX)

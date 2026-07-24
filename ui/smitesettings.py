@@ -43,6 +43,7 @@ def main():
     import tkinter as tk
     s = cfg.load()
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan settings window)
     root.title("Smiteless Settings")
     root.configure(bg=VOID)
     skin.dark_titlebar(root)

@@ -261,6 +261,7 @@ def main():
     from PIL import Image, ImageTk
 
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan overlay on force-close)
     root.overrideredirect(True)                 # borderless, no taskbar button
     # always-on-top is now a live SETTING (§8: "the board sits on top of everything") —
     # default on (the in-game behavior people expect), untick to let other windows cover it

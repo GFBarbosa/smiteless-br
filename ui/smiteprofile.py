@@ -176,6 +176,7 @@ def main():
           "scale": 1.0, "ox": 0, "_last_w": 0}                 # display scale + x-offset for window-fit
 
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan profile window)
     root.title("Smiteless — Profile")
     root.configure(bg=skin.VOID)
     skin.dark_titlebar(root)

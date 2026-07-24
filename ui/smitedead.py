@@ -374,6 +374,7 @@ def main():
     W, H = r - l, b - t
 
     root = tk.Tk()
+    cfg.watch_tray(root)                        # close with the tray (no orphan death brief)
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.configure(bg=CHROMA_HEX)
