@@ -37,6 +37,7 @@ $hidden = @("smiteoverlay","smitewidget","smitedead","smiteload","smitesettings"
             "loldead","lolload","loltags",
             "smitecard","smiteconfig","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
             "lollive","lolvision","lolprofile","lolrecords","lolaccounts","lolcreds","claudecli",
+            "lolugg","lollocal",   # scout fallback (u.gg) + your history off the client (LCU)
             "comtypes","comtypes.client","comtypes.gen","winsound","wave","PIL._tkinter_finder")
 $pyiArgs = @("--noconfirm","--onedir","--windowed","--name","SmitelessApp","--icon",$ico,
              "--paths",(Join-Path $repo "core"),"--paths",(Join-Path $repo "ui"),"--paths",(Join-Path $repo "tools"),
