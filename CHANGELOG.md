@@ -1,5 +1,27 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.49 - the QUEUE CALL: your own numbers, before you press Find Match
+
+- **New: the QUEUE CALL.** Sit in the lobby and a small card docks beside the client with the
+  one question left before Find Match - **is this one worth playing?** It reads your own ranked
+  history off the League client (no key, no Riot round-trip) and returns a single verdict:
+  **GO**, **LAST ONE**, **WAIT** or **STOP**, with the instruction spelled out - *THE SITTING IS
+  DONE*, *TAKE TEN FIRST*, *NOT YOUR WINDOW*. Four slices of your history are checked against the
+  state you're actually in: riding 2+ losses, deep into a sitting, queueing back inside 10
+  minutes, and the hour you're playing.
+- **It can't call a stop on a hunch.** A slice only becomes a verdict if it beats a two-proportion
+  significance test against the rest of your games *and* sits 10+ points under them; anything
+  short of that renders as **leaning cold** and leaves the verdict alone. Under 20 ranked games it
+  says so and gets out of the way. Every line carries its receipt - `game 4+ of a sitting - 33%
+  over 36 (vs 63% otherwise)` - so it's your data talking, not folklore.
+- The card never takes focus off the client, never covers it, and closes itself the moment you
+  queue. Off switch: **Settings -> Overlays & Boards -> "Queue call"**.
+- **Removed: the GHOST pace race.** The widget's `GHOST - CS +8 - deaths 1/2 - +340g` line is
+  gone, along with its records file, its fanfare and its setting. It was the one live row with no
+  decision attached to it: nothing you do differently on hearing you're 8 CS up on a personal
+  best, and if anything it pulled toward farming your own record instead of playing the objective
+  call sitting directly above it. The widget is one row quieter.
+
 ## v0.9.48 - the splash art is an actual BANNER now
 - **The art is a wide letterbox strip, not a square block.** v0.9.47 sized the art off the card's HEIGHT and made it *taller*, which pushed it further toward a square (360x206, barely 1.7:1). It's now sized off the card's WIDTH at a fixed **2.4:1 letterbox** (360x150) - a real banner, at every resolution.
 - **Cards fit their content.** They no longer stretch to fill the screen, so there's no dead void under the art; the two rows are centered between the header and the game-plan strip, which is pinned to the bottom.

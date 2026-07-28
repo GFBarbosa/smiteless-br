@@ -95,6 +95,21 @@ def c_tagspec():
     return FAIL, tail[-1] if tail else "tagcheck failed"
 
 
+def c_queuecall():
+    """The QUEUE CALL verdict engine, on fixtures that must each land on one verdict —
+    it reads your live history in the lobby, so a silent logic break would just look
+    like 'it always says GO'."""
+    import lolqueue as lq
+    want = {"stop": "STOP", "last": "LAST ONE", "wait": "WAIT"}
+    got = {k: lq.call(lq.demo(k))["verdict"] for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    if lq.call([])["verdict"] != "GO":
+        return FAIL, "empty history must fall through to GO"
+    return OK, "stop / last-one / wait fixtures each land on their verdict"
+
+
 def c_lcu():
     import lolgame as lg, lolbuild as lb
     lc = lg._lcu()
@@ -117,6 +132,7 @@ def main():
         ("claude CLI (matchup tips)", c_claude),
         ("Tag spec (docs/TAGS.md)", c_tagspec),
         ("Glyph coverage (tofu)", c_glyphs),
+        ("Queue call (verdict engine)", c_queuecall),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:

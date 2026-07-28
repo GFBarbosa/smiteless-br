@@ -26,7 +26,7 @@ ALERT_LEAD = 45                                    # within this many seconds = 
 SETUP_LEAD = 75                                    # inside this = start SETTING UP (shove + ward)
 
 # ---- ONE BRAIN: the live game-economy model. win_prob (here), the tempo engine's
-#      fight_edge (loltempo) and the GHOST gold trace (lolrecords) all read from the
+#      fight_edge (loltempo) and the live win read all read from the
 #      same per-player power estimate below, so the win% chip and the TAKE/GIVE coach
 #      can never tell opposite stories about the same game state. ----
 XP_CUM = {1: 0, 2: 280, 3: 660, 4: 1140, 5: 1720, 6: 2400, 7: 3180, 8: 4060, 9: 5040,
@@ -138,7 +138,7 @@ def _completed_items(dd, items):
 
 def team_split(data):
     """(me, allies, enemies, my_team) from an allgamedata payload, or None. THE shared
-    identity read - every live consumer (tempo, ghost, win read) goes through this."""
+    identity read - every live consumer (tempo, win read) goes through this."""
     players = data.get("allPlayers") or []
     act = data.get("activePlayer") or {}
     myg = lg._gname(act.get("riotId") or act.get("summonerName") or "")

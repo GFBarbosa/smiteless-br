@@ -22,7 +22,6 @@ import lolbuild as lb
 import lolitems as li
 import lollive as ll
 import loltempo as lt
-import lolrecords as lrec
 import phasecheck
 import smiteconfig as cfg
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
@@ -489,11 +488,11 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     return img.crop((0, 0, W, y + 8))
 
 
-def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318, ref=False):
+def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False):
     """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
     body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
     safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
-    full reference view: ghost pace, objective chips, all intel rows, recall + items. While
+    full reference view: objective chips, all intel rows, recall + items. While
     the player is DEAD the whole body is the single RESPAWN card."""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (W, 720), C_VOID)
@@ -579,21 +578,6 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318, ref=False
         d.text((x + 2, y + 2), "hover = full detail", font=_wfont(8), fill=C_FAINT)
         return img.crop((0, 0, W, y + 16))
 
-    # ---- GHOST pace row: you vs your best game on this champ (speedrun-timer style).
-    # One ambient line: glows ember while ahead, dims to a whisper when behind (a timer,
-    # not a nag); a crossed split briefly replaces it with the split result.
-    if ghost:
-        if ghost.get("split"):
-            txt, ok = ghost["split"]
-            gcol, gtxt = (C_GOOD if ok else C_BAD), f"★ {txt}"
-        elif ghost["status"] == "first":
-            gcol, gtxt = C_MUTED, "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
-        else:
-            gcol = C_EMBER if ghost["status"] == "ahead" else C_MUTED
-            gtxt = "★ " + ghost["line"].replace("GHOST ▸ ", "GHOST · ")
-        d.text((x + 2, y), gtxt, font=_tfont(gtxt, 10, ghost["status"] == "ahead"), fill=gcol)
-        y += 17
-
     # ---- objective timer chips ----
     objs = pulse.get("objectives") or []
     if tempo and tempo.get("phase") in ("FREE", "TAKE", "GIVE", "EVEN") and tempo.get("obj"):
@@ -668,7 +652,7 @@ def _render_body(dd, rec, pulse, recall, ghost=None, dead=None, W=318, ref=False
 # ---- LEGEND: the decoder card behind the header's "?" — every phase color, glyph, chip
 # and item tag the widget can show, drawn in the widget's own visual language so "teal =
 # FREE" is learned from the exact swatch that appears live. Meanings are one-liners of what
-# the engine actually computes (loltempo verdicts, lollive intel, lolrecords GHOST) — if a
+# the engine actually computes (loltempo verdicts, lollive intel) — if a
 # phase or tag is added there, add its row here.
 _LEGEND_PHASES = (
     ("FREE",  "their jungler provably can't contest — take it"),
@@ -686,7 +670,6 @@ _LEGEND_GLYPHS = (
     ("◎", C_GOOD,  "gank window — a lane is killable right now"),
     ("⚠", C_BAD,  "power spike — an enemy just completed items"),
     ("⌂", C_EMBER, "recall read — your next buy is ready"),
-    ("★", C_EMBER, "GHOST — pace vs your best game on this champ (amber = ahead)"),
 )
 _LEGEND_ITEMS = (
     ("core",     "core — your main build path"),
@@ -888,7 +871,7 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=VOID, bd=0)
 
-    def render(rec, pulse=None, recall=None, ghost=None, dead=None, ref=False):
+    def render(rec, pulse=None, recall=None, dead=None, ref=False):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -914,7 +897,7 @@ def main():
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall, ghost, dead, ref=ref)
+            im = _render_body(dd, rec, pulse, recall, dead, ref=ref)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1047,14 +1030,10 @@ def main():
         free_on = _cfg.get("free_alarm", True)
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
-        ghost_on = _cfg.get("ghost_race", True)
         respawn_on = _cfg.get("respawn_plan", True)
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
-        ghostrace = lrec.GhostRace()   # GHOST: live race vs your PB game. NOT named 'grace' -
-                                       # the quit logic below reuses that name for a float,
-                                       # which silently killed the race after any :2999 blip.
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
         if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (one-time)
@@ -1137,20 +1116,6 @@ def main():
                     and prev_rs > 1.5 >= rs and not st.get("muted", False)):
                 threading.Thread(target=_beep, args=(45, st["vol"]), daemon=True).start()
             st["respawn_prev"] = rs
-            ghost = None
-            if ghost_on and raw is not None:             # GHOST pace race vs your own best game
-                try:
-                    ghost = ghostrace.update(dd, raw)
-                except Exception:
-                    ghost = None
-                if ghost and ghost.get("new_record_event") and not st.get("muted", False):
-                    # beat your ghost: the triumphant "item get" jingle + a spoken stamp,
-                    # then the record itself is rewritten from Riot data on the next
-                    # profile load - so the fanfare is provisional, the ghost is exact.
-                    threading.Thread(target=_beep, args=(15, st["vol"]), daemon=True).start()
-                    if voice_on and st["vol"] > 0:
-                        threading.Thread(target=_say, args=("record", "New record.", st["vol"]),
-                                         daemon=True).start()
             if audio_on and raw is not None:             # dragon spawn reminder (45/30/15s)
                 drake = next((o for o in (pulse.get("objectives") or [])
                               if o.get("label") == "Drake"), None) if pulse else None
@@ -1164,7 +1129,7 @@ def main():
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
-                       "ghost": ghost, "dead": dead})
+                       "dead": dead})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -1218,7 +1183,7 @@ def main():
                 try:                                     # a render bug must never kill the pump
                     if isinstance(msg, dict) and "rec" in msg:
                         st["last_msg"] = msg             # kept so hover can re-render in place
-                        render(msg["rec"], msg.get("pulse"), msg.get("recall"), msg.get("ghost"),
+                        render(msg["rec"], msg.get("pulse"), msg.get("recall"),
                                msg.get("dead"), ref=st.get("ref_view", False))
                     else:
                         render(msg)                      # backward-compatible: bare rec
@@ -1235,7 +1200,7 @@ def main():
                 show_no_activate(toplevel_hwnd(root.winfo_id()))
             except Exception:
                 pass
-        # Adaptive transparency: ghost-quiet while nothing needs you (0.84), solid when a
+        # Adaptive transparency: near-invisible while nothing needs you (0.84), solid when a
         # call-to-action is up (0.97), fully opaque under your cursor. Keeps the info on
         # screen without sitting ON the game.
         try:
@@ -1255,7 +1220,7 @@ def main():
                 m = st.get("last_msg")
                 if m:
                     try:
-                        render(m["rec"], m.get("pulse"), m.get("recall"), m.get("ghost"),
+                        render(m["rec"], m.get("pulse"), m.get("recall"),
                                m.get("dead"), ref=inside)
                     except Exception:
                         pass

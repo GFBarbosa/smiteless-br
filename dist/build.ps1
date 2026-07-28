@@ -33,10 +33,10 @@ Remove-Item -Recurse -Force $build -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
 
 Write-Host "==> freeze Python app (PyInstaller)" -ForegroundColor Cyan
-$hidden = @("smiteoverlay","smitewidget","smitedead","smiteload","smitesettings","smiteprofile","phasecheck","smiteupdate","smitestats","smitekeycheck","selftest",
-            "loldead","lolload","loltags",
+$hidden = @("smiteoverlay","smitewidget","smitedead","smiteload","smitequeue","smitesettings","smiteprofile","phasecheck","smiteupdate","smitestats","smitekeycheck","selftest",
+            "loldead","lolload","loltags","lolqueue",
             "smitecard","smiteconfig","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
-            "lollive","lolvision","lolprofile","lolrecords","lolaccounts","lolcreds","claudecli",
+            "lollive","lolvision","lolprofile","lolaccounts","lolcreds","claudecli",
             "lolugg","lollocal",   # scout fallback (u.gg) + your history off the client (LCU)
             "comtypes","comtypes.client","comtypes.gen","winsound","wave","PIL._tkinter_finder")
 $pyiArgs = @("--noconfirm","--onedir","--windowed","--name","SmitelessApp","--icon",$ico,

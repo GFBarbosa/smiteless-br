@@ -281,14 +281,16 @@ TrayPhase() {
 ; end of a game is only believed after 2 consecutive definite non-game reads.
 g_overlayOpened := false
 g_widgetOpened := false
+g_queueOpened := false
 g_wasInGame := false
 g_endStreak := 0
 SmiteWatch() {
-    global g_overlayOpened, g_widgetOpened, g_wasInGame, g_endStreak, NOAUTO
+    global g_overlayOpened, g_widgetOpened, g_queueOpened, g_wasInGame, g_endStreak, NOAUTO
     autoOpen := !FileExist(NOAUTO)
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_overlayOpened := false
         g_widgetOpened := false
+        g_queueOpened := false
         g_wasInGame := false
         g_endStreak := 0
         SetTimer(SmiteWatch, -9000)                 ; client closed -> check back later
@@ -309,6 +311,17 @@ SmiteWatch() {
         }                      ; (spawned at the in-game flip it often arrived after loading ended)
     } else if (!active) {
         g_overlayOpened := false
+    }
+    ; QUEUE CALL - the lobby is the only phase where "should I play this one?" is still
+    ; actionable, so it opens there and closes itself the moment you leave (self-gates on
+    ; its setting). Once per visit to the lobby, never mid-queue.
+    if (ph = "Lobby") {
+        if (autoOpen && !g_queueOpened) {
+            g_queueOpened := true
+            Launch("queue")
+        }
+    } else {
+        g_queueOpened := false
     }
     if (ingame) {
         g_endStreak := 0

@@ -138,7 +138,7 @@ def main():
         font=skin.body(BODY), bd=0, highlightthickness=0)
     _chk2(_solo_wrap, "Coach from Ranked Solo games only (pool, session, climb)", solocoach).pack(side="left")
     dvol = scale_row("Audio volume (chime + voice)",
-                     "drake chime, voice callouts and the ghost fanfare (0 = silent). Applies next game.",
+                     "drake chime and the voice callouts (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
 
     def _test_audio():
@@ -176,7 +176,7 @@ def main():
     freev = tk.BooleanVar(value=s.get("free_alarm", True))
     tempov = tk.BooleanVar(value=s.get("tempo_voice", True))
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
-    ghostv = tk.BooleanVar(value=s.get("ghost_race", True))
+    queuecall = tk.BooleanVar(value=s.get("queue_call", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
@@ -215,12 +215,12 @@ def main():
         ("Free-objective alarm", freev),
         ("Voice callouts (base / take)", tempov),
         ("Dragon spawn audio", dragon),
-        ("Ghost race (chase your best)", ghostv),
         ("Respawn plan (death card)", respawnv),
     ])
     _feat_group("OVERLAYS & BOARDS", [
         ("Death brief (while dead)", deadbrief),
         ("Loading-screen scout (splash cards)", loadbrief),
+        ("Queue call (pre-queue stop/go)", queuecall),
         ("Matchup lane tips", tips),
         ("Duo / premade detection", duo),
         ("Keep live board always on top", boardtop),
@@ -718,7 +718,7 @@ def main():
                   "duo_detection": duo.get(), "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
-                  "dragon_audio": dragon.get(), "ghost_race": ghostv.get(),
+                  "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
                   "respawn_plan": respawnv.get(), "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -742,7 +742,7 @@ def main():
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
-        for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, ghostv,
+        for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, queuecall,
                   respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach,
                   draftlink):
             v.set(True)

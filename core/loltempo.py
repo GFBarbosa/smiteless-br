@@ -59,7 +59,7 @@ def death_timer(level, gt):
 
 
 # XP->gold table + per-player power/est-gold now live in lollive (ONE BRAIN): the same
-# economy model feeds fight_edge here, win_prob there, and the GHOST gold trace.
+# economy model feeds fight_edge here and win_prob there.
 BODY_GOLD = 900            # modeling assumption: man-advantage value beyond the missing gold
 
 # ---- travel model. Fountain->pit path length in map units (~14.8k-unit map, estimated

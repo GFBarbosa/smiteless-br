@@ -85,7 +85,6 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "free_alarm": True,      # widget: FREE — alarm when the enemy jungler provably can't contest an objective
          "tempo_voice": True,     # widget: spoken TEMPO callouts (Windows TTS: "Base now", "Take it", ...)
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
-         "ghost_race": True,      # widget: GHOST — live pace race vs your best game on this champ
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
          "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
@@ -94,6 +93,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
                                     #   the native overlay was retired must not suppress the rebuilt
                                     #   card board, so the gate reads this key, not the old one.
          "loading_overlay": False,  # LEGACY / ignored — superseded by `loading_scout` above.
+         "queue_call": True,      # LOBBY: the pre-queue stop/go verdict card (core/lolqueue)
          "dodge_alerts": True,    # champ select: high-confidence "consider dodging" banner
          "dock_champ_select": True,  # champ select helper docks as a tall panel LEFT of the client
          "board_topmost": True,   # live board/scoreboard stays above other windows (untick to allow covering)

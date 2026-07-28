@@ -47,6 +47,9 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
 - **The Loading-Screen Scout** — while the game loads, ten splash-art scoreboard rows read every ACCOUNT in the lobby: rank + LP + season record, last-10 form bars, KDA, mastery, record on the locked champ, a performance grade, and profile tags mined from their real history — `duo`, `SMURF READ`, `OTP · 612k pts`, `4L streak · tilt risk`, `first-time?`, `off-role`, `carries games`, `hardstuck`. Gone the instant the game starts
 
+### 🚦 Before you queue
+- **The Queue Call** — the lobby answers the only question left before Find Match: *is this one worth playing?* One verdict — **GO / LAST ONE / WAIT / STOP** — computed from your own ranked history (riding 2+ losses, deep into a sitting, straight back in under 10 minutes, the hour you're playing). It only calls a stop when that split beats a two-proportion significance test against the rest of your games, so it isn't superstition: every line carries its receipt — *"game 4+ of a sitting · 33% over 36 (vs 63% otherwise)"*. Docks beside the client, never takes focus, and closes itself the moment you queue
+
 ### 📈 Between games
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
 - **The climb system** — research-backed discipline: the 2-loss stop rule, champion-pool focus, and sample-aware "play more / ease off" coaching

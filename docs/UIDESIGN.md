@@ -184,6 +184,17 @@ Graceful fallback: if Bahnschrift is missing (old Win10 LTSB), fall back to
 - `RIOT KEY` label → H2 treatment; key state chip: `GOOD` pill `…abcd set` /
   `BAD` pill `not set`. Buttons per §4; entry in `SUNKEN` Consolas.
 
+### 5.8 Queue call (smitequeue.py)
+
+- Borderless `SURFACE` card, 400px, docked off the League client's right edge; the
+  left rail carries the verdict color (`GOOD` GO / `WARN` LAST ONE + WAIT / `BAD` STOP).
+- Verdict word: Bahnschrift 21 bold in the verdict color. Instruction under it:
+  Bahnschrift 13 `TXT`. The "why" wraps at `SMALL` in `MUTED`.
+- Evidence rows are `· `-led at `SMALL`, colored by tone (`BAD` proven / `WARN` a
+  lean / `GOOD` a good window). The basis line closes in `FAINT` 8.
+- No-activate + topmost: it appears next to a client the user is clicking, and must
+  never take the focus off it.
+
 ## 6. Legacy alias map (during migration)
 
 `smiteskin.py` keeps the old names as aliases so untouched call-sites still

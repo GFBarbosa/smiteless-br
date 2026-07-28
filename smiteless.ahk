@@ -135,13 +135,15 @@ RefreshAutoCheck() {
 ; gameflow phase via phasecheck.py (async) and opens the overlay once per active session.
 g_smiteOpened := false
 g_widgetOpened := false
+g_queueOpened := false
 SmiteWatch() {
-    global g_smiteOpened, g_widgetOpened, PYW, SCRIPTS, NOAUTO
+    global g_smiteOpened, g_widgetOpened, g_queueOpened, PYW, SCRIPTS, NOAUTO
     if FileExist(NOAUTO)                         ; auto-open disabled
         return
     if (!ProcessExist("LeagueClient.exe") && !ProcessExist("LeagueClientUx.exe") && !ProcessExist("League of Legends.exe")) {
         g_smiteOpened := false
         g_widgetOpened := false
+        g_queueOpened := false
         return
     }
     out := A_Temp "\smiteless_phase.txt"
@@ -163,6 +165,16 @@ SmiteWatch() {
         }
     } else {
         g_smiteOpened := false                   ; any non-active phase re-arms for the next game
+    }
+    ; QUEUE CALL — the lobby is the last moment "should I play this one?" can change
+    ; anything, so it opens there and closes itself as soon as the phase moves on.
+    if (ph = "Lobby") {
+        if (!g_queueOpened) {
+            g_queueOpened := true
+            Run('"' PYW '" "' SCRIPTS '\ui\smitequeue.py"', , "Hide")
+        }
+    } else {
+        g_queueOpened := false
     }
     if (ingame) {                                ; the floating item helper is in-game only
         if (!g_widgetOpened) {
