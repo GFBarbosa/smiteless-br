@@ -1,5 +1,21 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.51 - AUTO-MUTE: the game starts, everyone goes quiet
+
+- **New: AUTO-MUTE.** The moment the game clock starts, Smiteless sends Riot's own
+  **`/fullmute all`** for you - chat AND pings from every player, allies and enemies, gone for
+  that game. It's the one decision you were making the same way every game, at 0:15, while you
+  were trying to path; now you make it once in Settings. Your own pings still work, and nothing
+  is changed permanently: `/fullmute` lasts for that game only, so nobody is muted in your next
+  one and no client setting is touched.
+- **It will not type anywhere but the game.** The command has to go in as keystrokes (there's no
+  API for muting), so before every burst it checks that the foreground window really is the
+  League game - right window class, and its process really is `League of Legends.exe` - and
+  re-checks between opening chat and typing. If you're alt-tabbed it just waits and mutes when
+  you come back. A reconnect gets muted again, because a reconnect clears your mutes.
+- Off switch: **Settings -> Features -> In-game automation -> "Auto-mute everyone (chat + pings)"**.
+  On by default.
+
 ## v0.9.50 - the loading board is TALL, and it fills in seconds instead of a whole load screen
 
 - **The cards are tall portraits now, like the real League loading screen.** v0.9.48 pushed the

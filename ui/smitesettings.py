@@ -184,6 +184,7 @@ def main():
     dock = tk.BooleanVar(value=s.get("dock_champ_select", True))
     autoimp = tk.BooleanVar(value=s.get("auto_import", False))
     autoban = tk.BooleanVar(value=s.get("auto_ban", False))
+    automute = tk.BooleanVar(value=s.get("auto_mute", True))
     boardtop = tk.BooleanVar(value=s.get("board_topmost", True))
     draftlink = tk.BooleanVar(value=s.get("draft_link", True))
     draftopen = tk.BooleanVar(value=s.get("draft_autoopen", True))
@@ -234,6 +235,15 @@ def main():
         ("Live draft link (URL in chat)", draftlink),
         ("Also open the draft board for me", draftopen),
     ])
+    _feat_group("IN-GAME AUTOMATION", [
+        ("Auto-mute everyone (chat + pings)", automute),
+    ])
+    tk.Label(body, text="Auto-mute sends Riot's own /fullmute all the moment the game clock "
+             "starts — chat and pings from every player, hidden for that game only. Your own "
+             "pings still work and nothing is changed permanently. It waits until the game "
+             "window is focused, so the command is never typed anywhere else.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 
     # Auto-accept ROLE (position) swaps — pick which roles you'll swap INTO.
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
@@ -724,7 +734,8 @@ def main():
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
                   "ban_list": bans, "board_topmost": boardtop.get(),
-                  "auto_accept": autoq.get(), "flash_on_d": (flash_side.get() == 0),
+                  "auto_accept": autoq.get(), "auto_mute": automute.get(),
+                  "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
                   "draft_link": draftlink.get(), "draft_autoopen": draftopen.get(),
                   "draft_db": db_entry.get().strip(),
