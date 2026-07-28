@@ -1,5 +1,28 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.56 - auto-mute works. The bug was one missing scan code.
+
+- **`/fullmute all` is back, and this time chat actually opens.** Four releases of "fixing" this
+  were all fixing the wrong thing. Every CHARACTER was going out as a scan code - but the
+  **Enter** that opens the chat box went out as a virtual-key event with `wScan = 0`. The League
+  game reads scan codes. So Enter was ignored, the chat box never opened, and the letters landed
+  on your champion as gameplay binds. From the keyboard that is exactly what it looked like:
+  *"it sounded like you just hit keys."* Enter now goes out as scan code **0x1C** like every
+  other key, and the chat box opens.
+- **That also means v0.9.55's conclusion was wrong.** I claimed a kernel anti-cheat was filtering
+  injected input. It isn't - the letters proved it by casting spells. Injected input reaches the
+  game fine; only the Enter was malformed.
+- **Both layers are kept, deliberately.** The typed `/fullmute all` is the real thing (chat AND
+  ping markers, every player, that game - nothing else can suppress ping markers). Underneath it,
+  the client-settings layer from v0.9.55 still writes ally chat off / all-chat off / ping audio
+  off and verifies them by reading back, so a game where the typing misses is still quieter than
+  nothing. `python core\lolmute.py off` reverts the persistent half.
+- **The self-test now fails loudly if Enter ever loses its scan code**, because a zero there
+  doesn't look like a broken feature - it looks like your champion randomly mashing keys at the
+  start of every game.
+- Timings are the ones proven by hand against a live client: 0.60s for the chat box to take
+  keyboard focus after Enter, then 30ms per key.
+
 ## v0.9.55 - auto-mute, done properly: no typing, and it checks its own work
 
 - **Auto-mute never worked, and the reason wasn't the one I kept fixing.** v0.9.51 through

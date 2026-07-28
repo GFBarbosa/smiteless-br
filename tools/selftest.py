@@ -134,14 +134,25 @@ def c_mute():
     the client's own settings, which means the state is READABLE, and this check reads it.
     A key Riot renames must fail here rather than silently do nothing."""
     import lolmute as lm, lolgame as lg
+    # THE bug that cost four releases: Enter went out as a virtual key with wScan=0, the game
+    # reads scan codes, so chat never opened and every character hit a gameplay bind instead.
+    # A zero here means auto-mute is silently mashing keys at your champion. Guard it forever.
+    if not lm.ENTER_SCAN():
+        return FAIL, "Enter has no scan code - chat won't open and the command types into the game"
+    bad = [c for c in lm.CMD if lm.scan_of(c) is None]
+    if bad:
+        return FAIL, f"this keyboard layout can't type {bad!r}"
+    if lm.FIRE_AT < 3.0:
+        return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
+    detail = f"Enter=0x{lm.ENTER_SCAN():02x}, {lm.CMD!r} all mappable"
     if not lg._lcu():
-        return SKIP, "League client not running - can't verify the settings keys exist"
+        return OK, detail + "; client down, settings layer unverified"
     st = lm.read_state()
     if st is None:
-        want = [f"{g}.{k}" for g, ks in lm.MUTED.items() for k in ks]
-        return FAIL, "the client no longer exposes " + ", ".join(want)
+        return FAIL, "the client no longer exposes " + ", ".join(
+            f"{g}.{k}" for g, ks in lm.MUTED.items() for k in ks)
     on = all(st.get(f"{g}.{k}") == v for g, ks in lm.MUTED.items() for k, v in ks.items())
-    return OK, f"{len(st)} settings readable + writable; currently {'MUTED' if on else 'unmuted'}"
+    return OK, detail + f"; settings {'MUTED' if on else 'unmuted'}"
 
 
 def c_maxelo():
@@ -242,7 +253,7 @@ def main():
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
-        ("Auto-mute (client settings)", c_mute),
+        ("Auto-mute (chat + settings)", c_mute),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),
