@@ -3261,6 +3261,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             try:
                 import lolimport as limp
                 limp.ban_watch_update(dd, [], [], False)   # stale targets must not fire next draft
+                limp.pick_watch_update(dd, [], False)      # ... and never auto-lock into a dodge
             except Exception:
                 pass
             emit("hide")
@@ -3380,6 +3381,14 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     targets = [c for c in listed if c] + [c for c, _ in ideas]
                     limp.ban_watch_update(dd, targets, ally_ids,
                                           settings.get("auto_ban", False))
+                    # MAX ELO: hold the pool to one champ and lock it. Same dedicated-watcher
+                    # shape as the ban, for the same reason — this render loop is too slow to
+                    # be trusted with a firing window.
+                    pool = [dd["name2id"].get(dd["norm"](nm2))
+                            for nm2 in (settings.get("max_elo_main"),
+                                        settings.get("max_elo_backup")) if nm2]
+                    limp.pick_watch_update(dd, [c for c in pool if c],
+                                           settings.get("max_elo", False))
                 except Exception:
                     pass
                 if settings.get("auto_swap_roles"):      # teammate offered a role you want? -> accept

@@ -91,6 +91,127 @@ def main():
     tk.Label(body, text="Changes apply live - the overlay's gank tags update within a few seconds.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL)).pack(anchor="w", padx=skin.PAD_WIN, pady=(0, 8))
 
+    from tkinter import ttk
+    import lolbuild as _lb
+    try:
+        _dd = _lb.ddragon()
+        _champ_names = sorted(_dd["id2name"].values())
+        _norm, _name2id, _id2name = _dd["norm"], _dd["name2id"], _dd["id2name"]
+    except Exception:
+        _champ_names, _name2id, _id2name = [], {}, {}
+        _norm = lambda x: "".join(c for c in (x or "").lower() if c.isalnum())
+
+    # dark-ish theming for the ttk combobox (field + its dropdown list)
+    try:
+        _st = ttk.Style()
+        _st.theme_use("clam")
+        _st.configure("Fav.TCombobox", fieldbackground=SUNKEN, background=RAISED, foreground=TXT,
+                      arrowcolor=TXT, bordercolor=RAISED, lightcolor=RAISED, darkcolor=RAISED)
+        root.option_add("*TCombobox*Listbox.background", SUNKEN)
+        root.option_add("*TCombobox*Listbox.foreground", TXT)
+        root.option_add("*TCombobox*Listbox.selectBackground", HOVER)
+        root.option_add("*TCombobox*Listbox.selectForeground", TXT)
+    except Exception:
+        pass
+
+    # ---- MAX ELO -----------------------------------------------------------------------
+    # The one switch. Name your champion and its backup, hit ARM, and every climb feature in
+    # cfg.MAX_ELO_ON comes on at once while champ select is held to that pool and locked for
+    # you. It sits at the very top because it is the only control most sessions need to touch.
+    maxelo_main = tk.StringVar(value=s.get("max_elo_main", ""))
+    maxelo_back = tk.StringVar(value=s.get("max_elo_backup", ""))
+    maxelo_on = {"v": bool(s.get("max_elo", False))}
+
+    me_card = skin.card(body, rail=EMBER)
+    me_card.pack(fill="x", padx=14, pady=(2, 8))
+    me_in = tk.Frame(me_card.body, bg=SURFACE)
+    me_in.pack(fill="x", padx=12, pady=(9, 10))
+    me_head = tk.Frame(me_in, bg=SURFACE)
+    me_head.pack(fill="x")
+    tk.Label(me_head, text="MAX ELO", bg=SURFACE, fg=EMBER,
+             font=skin.display(17, bold=True)).pack(side="left")
+    me_state = tk.Label(me_head, text="", bg=SURFACE, font=skin.body(SMALL, bold=True))
+    me_state.pack(side="left", padx=(10, 0), pady=(6, 0))
+    tk.Label(me_in, text="One champion. Everything that shortens the climb, on. Smiteless "
+             "auto-accepts, bans the champ that threatens your team, LOCKS your champ for you "
+             "(backup if it's gone), imports the runes, mutes the lobby, and runs every "
+             "in-game read. The pool discipline is the point: it takes the 30 seconds before "
+             "a game where the LP goes and removes the decisions from them.",
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", pady=(4, 6))
+    me_row = tk.Frame(me_in, bg=SURFACE)
+    me_row.pack(fill="x", pady=(0, 8))
+    tk.Label(me_row, text="Main", bg=SURFACE, fg=TXT,
+             font=skin.body(SMALL, bold=True)).pack(side="left", padx=(0, 5))
+    me_cb1 = ttk.Combobox(me_row, textvariable=maxelo_main, values=_champ_names, width=15,
+                          style="Fav.TCombobox", font=skin.body(SMALL))
+    me_cb1.pack(side="left")
+    tk.Label(me_row, text="Backup", bg=SURFACE, fg=TXT,
+             font=skin.body(SMALL, bold=True)).pack(side="left", padx=(12, 5))
+    me_cb2 = ttk.Combobox(me_row, textvariable=maxelo_back, values=_champ_names, width=15,
+                          style="Fav.TCombobox", font=skin.body(SMALL))
+    me_cb2.pack(side="left")
+
+    def _me_filter(cb, var):
+        def f(_e=None):
+            t = var.get().strip().lower()
+            cb["values"] = [n for n in _champ_names if t in n.lower()] if t else _champ_names
+        return f
+    me_cb1.bind("<KeyRelease>", _me_filter(me_cb1, maxelo_main))
+    me_cb2.bind("<KeyRelease>", _me_filter(me_cb2, maxelo_back))
+
+    me_btnrow = tk.Frame(me_in, bg=SURFACE)
+    me_btnrow.pack(fill="x")
+    me_note = tk.Label(me_in, text="", bg=SURFACE, fg=MUTED, font=skin.body(SMALL),
+                       anchor="w", justify="left", wraplength=430)
+    me_note.pack(fill="x", pady=(6, 0))
+
+    def _me_paint():
+        on = maxelo_on["v"]
+        me_state.config(text=("ARMED" if on else "STANDING BY"), fg=(EMBER if on else MUTED))
+        me_btn.config(text=("STAND DOWN" if on else "ARM MAX ELO"))
+        if on:
+            mn = maxelo_main.get().strip() or "?"
+            bk = maxelo_back.get().strip()
+            me_note.config(text=f"Locked to {mn}" + (f", backup {bk}." if bk else ".")
+                           + " Champ select is on rails — change your mind here, not in the lobby.",
+                           fg=EMBER)
+        else:
+            me_note.config(text="Nothing is being locked. Arming also switches on every feature "
+                                "below that shortens the climb.", fg=MUTED)
+
+    def _me_toggle():
+        if maxelo_on["v"]:
+            cfg.stand_down_max_elo()
+            maxelo_on["v"] = False
+            status.config(text="MAX ELO stood down - champ select is yours again", fg=MUTED)
+            _me_paint()
+            return
+        main_nm = _canon(maxelo_main.get())
+        if not main_nm:
+            me_note.config(text="Pick a main champion first - that's the whole idea.", fg=BAD)
+            return
+        back_nm = _canon(maxelo_back.get()) or ""
+        maxelo_main.set(main_nm)
+        maxelo_back.set(back_nm)
+        cfg.arm_max_elo(main_nm, back_nm)
+        maxelo_on["v"] = True
+        for _v, _k in _MAXELO_VARS:              # reflect the forced-on toggles in the UI
+            _v.set(True)
+        _me_paint()
+        status.config(text=f"MAX ELO armed - {main_nm}"
+                           + (f" / {back_nm}" if back_nm else "") + ", everything climb-focused on",
+                      fg=GOOD)
+
+    # THE button: this window's one primary (UIDESIGN §: exactly one EMBER-filled button per
+    # window), sized up — it's the only control most sessions touch. Save drops to secondary.
+    me_btn = tk.Button(me_btnrow, text="ARM MAX ELO", command=lambda: _me_toggle(),
+                       bg=EMBER, fg=VOID, activebackground=EMBER_DEEP, activeforeground=VOID,
+                       relief="flat", bd=0, padx=26, pady=8, cursor="hand2",
+                       font=skin.display(13, bold=True))
+    me_btn.pack(side="left")
+    _me_paint()
+
     def scale_row(title, desc, lo, hi, res, val, fmt):
         outer = skin.card(body, rail=LINE)
         outer.pack(fill="x", padx=14, pady=5)
@@ -191,6 +312,18 @@ def main():
     draftopen = tk.BooleanVar(value=s.get("draft_autoopen", True))
     flash_side = tk.IntVar(value=(0 if s.get("flash_on_d", True) else 1))  # 0=D, 1=F
 
+    # Which checkboxes MAX ELO switches on, so arming it visibly ticks them instead of quietly
+    # changing settings behind the panel. Mirrors cfg.MAX_ELO_ON — anything there without a
+    # control here just has no checkbox (gank_kit, solo_coaching live elsewhere/nowhere).
+    _MAXELO_VARS = [(autoq, "auto_accept"), (autoban, "auto_ban"), (autoimp, "auto_import"),
+                    (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
+                    (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
+                    (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
+                    (loadbrief, "loading_scout"), (queuecall, "queue_call"),
+                    (dodge, "dodge_alerts"), (tips, "matchup_tips"), (duo, "duo_detection"),
+                    (dock, "dock_champ_select"), (draftlink, "draft_link"),
+                    (draftopen, "draft_autoopen"), (solocoach, "solo_coaching")]
+
     # FEATURES, grouped (§15): one card per surface family instead of a flat two-column
     # dump of 19 checkboxes — you find a toggle by asking "where does it live", and each
     # card's rail marks the group.
@@ -282,29 +415,6 @@ def main():
         tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=VOID, fg=TXT,
                        selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
                        font=skin.body(BODY), bd=0, highlightthickness=0).pack(side="left", padx=(0, 8))
-
-    from tkinter import ttk
-    import lolbuild as _lb
-    try:
-        _dd = _lb.ddragon()
-        _champ_names = sorted(_dd["id2name"].values())
-        _norm, _name2id, _id2name = _dd["norm"], _dd["name2id"], _dd["id2name"]
-    except Exception:
-        _champ_names, _name2id, _id2name = [], {}, {}
-        _norm = lambda x: "".join(c for c in (x or "").lower() if c.isalnum())
-
-    # dark-ish theming for the ttk combobox (field + its dropdown list)
-    try:
-        _st = ttk.Style()
-        _st.theme_use("clam")
-        _st.configure("Fav.TCombobox", fieldbackground=SUNKEN, background=RAISED, foreground=TXT,
-                      arrowcolor=TXT, bordercolor=RAISED, lightcolor=RAISED, darkcolor=RAISED)
-        root.option_add("*TCombobox*Listbox.background", SUNKEN)
-        root.option_add("*TCombobox*Listbox.foreground", TXT)
-        root.option_add("*TCombobox*Listbox.selectBackground", HOVER)
-        root.option_add("*TCombobox*Listbox.selectForeground", TXT)
-    except Exception:
-        pass
 
     def _canon(nm):
         nm = (nm or "").strip()
@@ -665,6 +775,9 @@ def main():
                   "auto_import": autoimp.get(), "auto_ban": autoban.get(),
                   "ban_list": bans, "board_topmost": boardtop.get(),
                   "auto_accept": autoq.get(), "auto_mute": automute.get(),
+                  "max_elo": maxelo_on["v"],
+                  "max_elo_main": _canon(maxelo_main.get()) or "",
+                  "max_elo_backup": _canon(maxelo_back.get()) or "",
                   "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
                   "draft_link": draftlink.get(), "draft_autoopen": draftopen.get(),
@@ -703,7 +816,7 @@ def main():
 
     btns = tk.Frame(body, bg=VOID)
     btns.pack(fill="x", padx=14, pady=(10, 16))
-    skin.button(btns, "Save", save, primary=True).pack(side="left", padx=4)
+    skin.button(btns, "Save", save).pack(side="left", padx=4)
     skin.button(btns, "Reset", reset).pack(side="left", padx=4)
     skin.button(btns, "Close", root.destroy).pack(side="right", padx=4)
 

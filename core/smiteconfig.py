@@ -107,7 +107,21 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "solo_coaching": True,   # profile/climb/session coaching from RANKED SOLO games only
          "draft_link": True,      # champ select: publish the live draft board + post the link in chat
          "draft_autoopen": True,  # champ select: also OPEN the draft board in your own browser
+         "max_elo": False,        # MAX ELO: one champ, locked, everything climb-focused armed
          "legend_seen": False}    # widget: LEGEND card already auto-opened once (state, not a toggle)
+
+# MAX ELO — the one switch. Arming it turns on every surface and automation that shortens the
+# climb and nothing that doesn't, then holds you to ONE champion (max_elo_main, falling back to
+# max_elo_backup if it's banned or taken) and locks it for you. The pool discipline is the point:
+# the decisions that cost the most LP are the ones made in the 30 seconds before a game, and
+# this removes them. Anything NOT in this list is deliberately absent — auto_ban is here because
+# banning the champ that threatens your team is climb work, `flash_on_d` is not a climb lever at
+# all, and `board_topmost` is taste.
+MAX_ELO_ON = ("auto_accept", "auto_ban", "auto_import", "auto_mute",
+              "item_widget", "game_intel", "tempo_coach", "free_alarm", "re_entry",
+              "respawn_plan", "death_brief", "loading_scout", "queue_call",
+              "dodge_alerts", "matchup_tips", "duo_detection", "dock_champ_select",
+              "draft_link", "draft_autoopen", "solo_coaching", "gank_kit")
 
 # Free-text settings (trimmed strings, no validation beyond str()).
 # draft_db: the user's own Firebase RTDB url ('' = draft link feature dormant); see docs/DRAFTLINK.md.
@@ -117,7 +131,9 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 # surface leaves nothing behind in the user's settings file.
 RETIRED = ("fav_champs", "ghost_race")
 
-STRINGS = {"draft_db": "",
+STRINGS = {"max_elo_main": "",      # MAX ELO: the one champion you play ('' = not chosen yet)
+           "max_elo_backup": "",    # ... and the one you take when the main is banned/taken
+           "draft_db": "",
            "draft_page": "https://bobbyroylee.github.io/smiteless/draft/",
            "draft_msg": ""}
 
@@ -152,6 +168,23 @@ def load():
     except Exception:
         pass
     return s
+
+
+def arm_max_elo(main, backup=""):
+    """Arm MAX ELO: every climb feature on, the champion pool set to main (+ backup), saved.
+    Returns the written settings dict. Deliberately a WRITE, not a read-time override — the
+    checkboxes must show the truth, and un-arming must not silently undo choices you made."""
+    upd = {k: True for k in MAX_ELO_ON}
+    upd.update(max_elo=True, max_elo_main=str(main or "").strip(),
+               max_elo_backup=str(backup or "").strip())
+    return save(upd)
+
+
+def stand_down_max_elo():
+    """Turn the champion LOCK off and nothing else. The features MAX ELO switched on stay on —
+    they were good ideas before you armed it and they still are; the only thing you asked to
+    stop is being auto-locked onto one champion."""
+    return save({"max_elo": False})
 
 
 def save(s):

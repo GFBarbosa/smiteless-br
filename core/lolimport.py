@@ -211,6 +211,143 @@ def ban_watch_update(dd, targets, avoid, enabled):
     th.start()
 
 
+# ---- MAX ELO: auto-LOCK your one champion --------------------------------------------------
+# The pool-discipline half of the MAX ELO switch. You name a main and a backup; when your pick
+# turn comes this hovers the first one that's still available and LOCKS it. No deliberating, no
+# last-second "I'll try something", no autofilled off-champ — the single highest-confidence
+# climbing lever there is, enforced instead of intended.
+PICK_WAIT_MS = 8000        # lock with this much left on the clock (later than the ban: a
+                           # teammate may still trade/hover, and locking early kills that)
+_PICK_LOG = os.path.expanduser("~/.claude/smiteless_pick.log")
+_PICK_LOG_STATE = {"last": ""}
+
+
+def _picklog(msg, dedupe=False):
+    """One line per auto-lock event. Same rule as the ban log: a pick that didn't happen must
+    never be silent, because you only find out when you're staring at a random champion."""
+    if dedupe and msg == _PICK_LOG_STATE["last"]:
+        return
+    _PICK_LOG_STATE["last"] = msg
+    try:
+        with open(_PICK_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+
+def auto_pick(dd, cids):
+    """If it's YOUR pick turn, hover-then-LOCK the first champion in `cids` that's still
+    available (not banned, not taken by either team). Returns the locked championId or None.
+    Never raises — like auto_ban, this must never be able to disrupt champ select."""
+    cids = [int(c) for c in (cids or []) if c]
+    if not cids:
+        return None
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+    except Exception:
+        return None
+    if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
+        return None
+    cell = sess.get("localPlayerCellId")
+    action_id = None
+    for group in (sess.get("actions") or []):
+        for a in group:
+            if (a.get("actorCellId") == cell and a.get("type") == "pick"
+                    and a.get("isInProgress") and not a.get("completed")):
+                action_id = a.get("id")
+    if action_id is None:
+        return None                              # not your pick turn (or already locked)
+    gone = set()
+    b = sess.get("bans") or {}
+    for c in (b.get("myTeamBans") or []) + (b.get("theirTeamBans") or []):
+        if c:
+            gone.add(int(c))
+    for group in (sess.get("actions") or []):    # anything already LOCKED by anyone
+        for a in group:
+            if a.get("completed") and a.get("championId"):
+                gone.add(int(a["championId"]))
+    nm = (dd.get("id2name") or {}) if isinstance(dd, dict) else {}
+    want = next((c for c in cids if c not in gone), None)
+    if want is None:
+        _picklog(f"main AND backup are both gone ({[nm.get(c, c) for c in cids]}) — "
+                 f"standing down, pick it yourself")
+        return None
+    label = nm.get(want, str(want))
+    tmr = sess.get("timer") or {}
+    left = tmr.get("adjustedTimeLeftInPhase")
+    if (not tmr.get("isInfinite")) and isinstance(left, (int, float)) and left > PICK_WAIT_MS:
+        try:                                     # hover early so the team sees it + we get runes
+            _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+                      {"championId": want})
+        except Exception:
+            pass
+        _picklog(f"hovering {label}, locking at {PICK_WAIT_MS // 1000}s "
+                 f"({int(left) // 1000}s left)", dedupe=True)
+        return None
+    try:
+        _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+                  {"championId": want, "completed": True})
+    except Exception as e:
+        _picklog(f"PATCH lock {label} raised {type(e).__name__} — trying two-step")
+    if _pick_completed(action_id):
+        _picklog(f"LOCKED {label} (action {action_id}, one-shot)")
+        return want
+    try:                                         # two-step: some client builds want it
+        _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
+                  {"championId": want})
+        _lcu_json("POST", f"/lol-champ-select/v1/session/actions/{action_id}/complete",
+                  {"championId": want})
+    except Exception as e:
+        _picklog(f"two-step lock {label} raised {type(e).__name__}")
+    if _pick_completed(action_id):
+        _picklog(f"LOCKED {label} (action {action_id}, two-step)")
+        return want
+    _picklog(f"FAILED to lock {label} — action {action_id} still open after both attempts")
+    return None
+
+
+def _pick_completed(action_id):
+    """Re-read the session: did OUR pick action actually complete? A 2xx on the PATCH is not
+    proof (that's the lesson the ban path already paid for)."""
+    try:
+        sess = _lcu_json("GET", "/lol-champ-select/v1/session")
+        for group in (sess.get("actions") or []):
+            for a in group:
+                if a.get("id") == action_id:
+                    return bool(a.get("completed"))
+    except Exception:
+        pass
+    return False
+
+
+_PICK_WATCH = {"thread": None, "cids": [], "dd": None, "on": False}
+
+
+def pick_watch_update(dd, cids, enabled):
+    """Same contract as ban_watch_update: the champ-select render loop refreshes this every
+    poll, and a dedicated 1s thread does the actual locking. The render loop can stall for
+    seconds on network work — far too slow to hit an 8s firing window."""
+    _PICK_WATCH.update(dd=dd, cids=list(cids or []), on=bool(enabled))
+    th = _PICK_WATCH.get("thread")
+    if th and th.is_alive():
+        return
+    import threading
+
+    def _loop():
+        while True:
+            try:
+                if _PICK_WATCH["on"] and _PICK_WATCH["cids"]:
+                    if auto_pick(_PICK_WATCH["dd"], _PICK_WATCH["cids"]):
+                        time.sleep(5)            # locked; our turn is over
+                time.sleep(1 if _PICK_WATCH["on"] else 2)
+            except Exception:
+                time.sleep(2)                    # never die: a dead watcher = a silent no-pick
+
+    th = threading.Thread(target=_loop, daemon=True, name="smiteless-pick-watch")
+    _PICK_WATCH["thread"] = th
+    th.start()
+
+
 _POS_SWAP_LAST = {"sid": None, "ts": 0.0}     # anti-spam for our outgoing ROLE-swap requests
 
 
