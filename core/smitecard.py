@@ -3381,14 +3381,25 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     targets = [c for c in listed if c] + [c for c, _ in ideas]
                     limp.ban_watch_update(dd, targets, ally_ids,
                                           settings.get("auto_ban", False))
-                    # MAX ELO: hold the pool to one champ and lock it. Same dedicated-watcher
-                    # shape as the ban, for the same reason — this render loop is too slow to
-                    # be trusted with a firing window.
+                    # MAX ELO: hold the pool and lock it. Same dedicated-watcher shape as the
+                    # ban, for the same reason — this render loop is too slow to be trusted
+                    # with a firing window.
                     pool = [dd["name2id"].get(dd["norm"](nm2))
                             for nm2 in (settings.get("max_elo_main"),
                                         settings.get("max_elo_backup")) if nm2]
-                    limp.pick_watch_update(dd, [c for c in pool if c],
-                                           settings.get("max_elo", False))
+                    pool = [c for c in pool if c]
+                    if settings.get("max_elo") and not pool and my_role:
+                        # NO CHAMPION SET -> lock the best pick for THIS draft instead of
+                        # standing down. Same recommender the panel's GOOD THIS GAME strip
+                        # shows (counters into the locked enemies + comp fit, merit only),
+                        # best-first, and it already excludes anything banned or taken — so
+                        # the list doubles as its own backup chain.
+                        try:
+                            pool = suggest_champs(dd, my_role, ally_ids, enemy_ids,
+                                                  topn=5, fam=None)
+                        except Exception:
+                            pool = []
+                    limp.pick_watch_update(dd, pool, settings.get("max_elo", False))
                 except Exception:
                     pass
                 if settings.get("auto_swap_roles"):      # teammate offered a role you want? -> accept

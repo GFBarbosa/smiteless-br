@@ -33,9 +33,10 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 ## What it does
 
 ### 🔥 MAX ELO — the one button
-Name your champion and a backup, hit **ARM**, and the app goes on rails for the climb: it
-**auto-locks that champion** for you when your pick turn comes (the backup if it's banned or
-taken), bans the champ that most threatens your team, auto-accepts, imports your runes and
+Hit **ARM** and the app goes on rails for the climb. Name a champion and a backup to be held
+to one pick, or **leave them empty and it locks the best champion for that draft** — counters
+into the enemies who've locked plus comp fit, falling through the list if the top one is gone.
+Then it bans the champ that most threatens your team, auto-accepts, imports your runes and
 summoners, mutes the lobby, and switches on all 21 climb-focused reads at once. Champion-pool
 discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
 it. **STAND DOWN** releases the lock and leaves the reads on.

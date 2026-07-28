@@ -1,5 +1,18 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.59 - MAX ELO with no champion set now locks the best pick for the draft
+
+- **You can arm MAX ELO with the Main and Backup boxes EMPTY.** It used to refuse ("pick a main
+  first"), which meant the one button needed setup before it did anything. Leave them blank and
+  it locks **the best pick for that specific draft** instead - the same read the panel's GOOD
+  THIS GAME strip shows (counters into the enemies who've locked + comp fit, merit only,
+  best-first). The list already excludes anything banned or taken, so it doubles as its own
+  backup chain: if the top pick goes, it takes the next one.
+- Name a Main (and a Backup) if you'd rather be held to one champion - that behaviour is
+  unchanged, and it still wins over the recommender when it's set.
+- What it would lock right now, per role: jungle **Nunu**, mid **Anivia**, top **Warwick**,
+  adc **Hwei**, support **Teemo** - each falling through its own list if those are gone.
+
 ## v0.9.58 - auto-mute types ONCE, in the fountain, and never while you're moving
 
 - **It cast Flash. Sorry.** v0.9.56 sent a second "confirming" `/fullmute all` at 25 seconds,
