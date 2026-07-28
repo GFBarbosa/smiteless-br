@@ -1999,6 +1999,14 @@ MIN_MASTERY = 12000     # only suggest champs with at least this many mastery PO
 PREF_MASTERY = 30000    # ...preferring 30k+ ("real comfort") first
 
 
+def _mates(ally_ids, my_cid):
+    """Your team's champs WITHOUT your own hover. suggest_champs treats every ally champ as
+    unavailable and as comp already covered — and your own hovered champ is an ally champ, so
+    leaving it in makes the whole recommendation move every time you hover something. The
+    answer to "what's good this game" must not depend on what you're currently holding."""
+    return [c for c in (ally_ids or []) if c and c != my_cid]
+
+
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     """A few role-appropriate champ suggestions for champ select, scored by enemy counters
     (op.gg) + ally comp fit. When `fam` (a {championId: masteryPOINTS} map, pooled across all
@@ -3397,8 +3405,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         # topn=12, not 5: auto_pick filters this to champions you can actually
                         # pick, and a five-deep list can be emptied by ownership + bans alone.
                         try:
-                            pool = suggest_champs(dd, my_role, ally_ids, enemy_ids,
-                                                  topn=12, fam=None)
+                            pool = suggest_champs(dd, my_role, _mates(ally_ids, my_cid),
+                                                  enemy_ids, topn=12, fam=None)
                         except Exception:
                             pool = []
                     limp.pick_watch_update(dd, pool, settings.get("max_elo", False))
@@ -3507,7 +3515,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     # overlay to tell you. The climb warning above still fires if you hover
                     # something you don't know, so the guard isn't lost, just moved off the
                     # recommendation.
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=12, fam=None)
+                    sugg = suggest_champs(dd, my_role, _mates(ally_ids, my_cid), enemy_ids,
+                                          topn=12, fam=None)
                     # ...but only show what you can actually pick. This is NOT the old mastery
                     # gate (a champ you own with 0 games still qualifies) — it just drops the
                     # ones the client would refuse. Unavailable list -> show them all rather

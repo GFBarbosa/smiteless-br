@@ -1,5 +1,23 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.61 - MAX ELO actually locks the champ it hovers
+
+- **It hovered a champion and then never locked it.** Root cause: the recommendation was being
+  computed with your own hovered champion counted as taken. Smiteless hovers Warwick -> Warwick
+  disappears from "what's good this game" -> Hecarim is now top -> it hovers Hecarim -> Warwick
+  comes back -> it hovers Warwick. Once a second, forever. And because the 2.5-second lock timer
+  restarts whenever the target changes, **the lock was never reached.** The flip-flop and the
+  no-lock were the same bug.
+- **"What's good this game" no longer takes your current champion into account.** The answer to
+  "what's strong into this draft" must not move every time you hover something. This applies to
+  the panel's list and to the auto-lock pool.
+- **Once a champion is on your pick slot, that is the one it locks.** It reads the slot from the
+  live client instead of its own memory, so a momentary network blip in the suggestion fetch
+  can't wipe the commitment and restart the timer either. If you move the hover yourself, it
+  locks what you moved it to.
+- Verified against a simulated draft where the pool deliberately flips order every single poll:
+  it hovers Warwick at 0s, holds it through six reversals, and locks at 3s.
+
 ## v0.9.60 - MAX ELO only tries champions you actually own, and moves down the list
 
 - **The auto-lock was trying to lock champions you don't own.** Dropping the mastery gate in

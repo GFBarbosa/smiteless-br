@@ -286,12 +286,13 @@ def auto_pick(dd, cids):
     if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
         return None
     cell = sess.get("localPlayerCellId")
-    action_id = None
+    action_id, hovered = None, 0
     for group in (sess.get("actions") or []):
         for a in group:
             if (a.get("actorCellId") == cell and a.get("type") == "pick"
                     and a.get("isInProgress") and not a.get("completed")):
                 action_id = a.get("id")
+                hovered = int(a.get("championId") or 0)   # what's on YOUR pick slot right now
     if action_id is None:
         return None                              # not your pick turn (or already locked)
     gone = set()
@@ -317,7 +318,22 @@ def auto_pick(dd, cids):
     # a champ the client has already refused 3x is not going to start working — drop it and
     # move down the list rather than burning the whole timer on it
     cids = [c for c in cids if _PICK_FAIL.get((action_id, c), 0) < 3]
-    want = next((c for c in cids if c not in gone), None)
+
+    def _ok(c):
+        return (c and c not in gone and (own is None or c in own)
+                and _PICK_FAIL.get((action_id, c), 0) < 3)
+
+    # ONCE A CHAMPION IS ON THE SLOT, THAT IS THE ONE WE LOCK.
+    # We hover, then we lock what we hovered — we do not re-ask the recommender first. Read
+    # from the live session rather than our own memory, so a momentarily empty pool (a network
+    # blip in suggest_champs) can't wipe the commitment and restart the 2.5s timer.
+    # This is what was broken: the target changed every tick, and a changed target restarts the
+    # timer, so the lock was never reached. It hovered forever.
+    prev = _PICK_HOVER["cid"] if _PICK_HOVER["action"] == action_id else 0
+    if _ok(hovered):
+        want = hovered                           # already on the slot (ours, or you moved it)
+    else:
+        want = prev if _ok(prev) else next((c for c in cids if c not in gone), None)
     if want is None:
         _picklog("nothing left to lock — everything on the list is banned, taken, unowned or "
                  "refused. Pick it yourself.", dedupe=True)
@@ -393,7 +409,10 @@ def pick_watch_update(dd, cids, enabled):
     """Same contract as ban_watch_update: the champ-select render loop refreshes this every
     poll, and a dedicated 1s thread does the actual locking. The render loop can stall for
     seconds on network work — far too slow to hit an 8s firing window."""
-    if not enabled or not cids:            # a fresh draft must never inherit stale pick state
+    # Only a DISABLED watcher resets the commitment. An empty pool must not: suggest_champs
+    # does network work and can transiently return nothing, and wiping the hover state there
+    # restarted the lock timer mid-draft.
+    if not enabled:
         _PICK_HOVER.update(action=None, cid=0, ts=0.0)
         _PICK_FAIL.clear()
     _PICK_WATCH.update(dd=dd, cids=list(cids or []), on=bool(enabled))

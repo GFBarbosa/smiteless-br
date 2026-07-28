@@ -241,6 +241,24 @@ def c_autolock():
             bad.append("owning nothing on the list must lock nothing")
         if lock(Fake(), [YAS, YONE], owned={YAS, YONE}) != YAS:
             bad.append("owning both must still take the best one")
+        # FLIP-FLOP. The pool is rebuilt every poll and suggest_champs treats an ally's champ as
+        # unavailable — and our own hover IS an ally pick, so hovering A promoted B and hovering
+        # B promoted A. It oscillated once a second and never locked. auto_pick must COMMIT to
+        # its target: a pool that reorders underneath it changes nothing.
+        f = Fake()
+        limp._lcu_json = f
+        limp.pickable_ids = lambda *a, **k: {YAS, YONE}
+        limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
+        limp.auto_pick(dd, [YAS, YONE])          # commits to Yasuo
+        first = f.act["championId"]
+        for i in range(6):                       # pool flips order under it, once a "second"
+            limp.auto_pick(dd, ([YONE, YAS] if i % 2 == 0 else [YAS, YONE]))
+        if f.act["championId"] != first:
+            bad.append("target changed when the pool reordered (the flip-flop is back)")
+        limp._PICK_HOVER["ts"] -= limp.PICK_SETTLE_S + 0.1
+        if limp.auto_pick(dd, [YONE, YAS]) != first:
+            bad.append("did not lock the champion it committed to")
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
         limp._PICK_FAIL.clear()
     finally:
