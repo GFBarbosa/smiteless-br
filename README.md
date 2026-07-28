@@ -18,7 +18,7 @@ git push origin main
 git switch -c feat/my-change
 ```
 
-After testing, push the feature branch to this fork and open a Pull Request from `GFBarbosa/smiteless-br` to `bobbyroylee/smiteless` on `main`. Include the user-visible outcome, tests run, and screenshots for UI changes. Keep `main` as the synchronized base; isolate each contribution in its own branch.
+After testing, push the feature branch to this fork and open a Pull Request to `GFBarbosa/smiteless-br` on `main`. Include the user-visible outcome, tests run, and screenshots for UI changes. Keep `main` as the synchronized base; isolate each contribution in its own branch.
 
 ![The in-game scoreboard](docs/board.png)
 
