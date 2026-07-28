@@ -1,5 +1,37 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.53 - the MAX ELO button, and auto-mute actually mutes now
+
+- **New: MAX ELO.** One button at the top of Settings. Name your champion and a backup, hit
+  **ARM**, and the whole app goes on rails for the climb:
+  - **You play that champion.** When your pick turn comes it hovers your main and **LOCKS it**
+    for you - or the backup, if the main got banned or taken. No deliberating, no last-second
+    "I'll try something", no autofilled off-champ. Champion pool discipline is the single
+    highest-confidence lever in ranked, and this one enforces it instead of suggesting it.
+  - **It bans for you** (your perma-ban list first, then the live pick that most threatens your
+    team's hovers), **auto-accepts the queue**, **imports your runes + summs on lock**, and
+    **mutes the lobby**.
+  - **And every read comes on at once** - Tempo, the free-objective alarm, the re-entry guard,
+    live intel, the death brief, the loading scout, the queue call, dodge alerts, matchup tips,
+    the draft link. 21 toggles, one click, and you can watch them all tick on in the panel.
+  - **STAND DOWN** releases the champion lock and leaves the features on, because they were
+    good ideas before you armed it. The lock also drops itself if you dodge.
+  - Every auto-lock attempt writes to `~/.claude/smiteless_pick.log`, so a pick that didn't
+    happen is never a mystery - same rule the auto-ban has followed since v0.9.44.
+- **Fixed: AUTO-MUTE never actually muted anyone.** v0.9.51 shipped it typing with Windows'
+  *unicode* key events - which is right for the Riot login window (a browser) and wrong for the
+  League game, a DirectX client that reads RAW keyboard input and throws unicode events away.
+  It logged a confident `SENT '/fullmute all'` every single game and nothing was ever muted. It
+  now types **scan codes**, one key at a time with a human-sized gap, exactly like a real
+  keyboard. Two more things were wrong with it: it fired at game-time **1.7 seconds**, while the
+  client is still coming out of the load transition and swallowing input (now 4s), and it only
+  ever tried **once** - so a single dropped burst meant a whole game of pings. It now sends
+  again at 25s. `/fullmute all` sets the mute rather than toggling it (only `/unmute all`
+  reverses), so the second send can only help.
+  - You can prove it yourself in a custom game: `python core\lolmute.py test`.
+  - The self-test now checks the keystroke path every run - it can't catch "did the mute land",
+    but it does catch the layout/timing half, which is the half that broke.
+
 ## v0.9.52 - RE-ENTRY: the 90 seconds after you respawn are now guarded
 
 - **New: the RE-ENTRY guard.** Your own match history has one split bigger than any other in

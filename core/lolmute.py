@@ -28,9 +28,21 @@ for _s in ("stdout", "stderr"):
             pass
 
 import smiteconfig as cfg
-from lolcreds import _type, _tap, VK_RET       # the proven SendInput path (unicode + vk taps)
+from lolcreds import _ki, _send, _tap, VK_RET   # raw SendInput plumbing (shared with the login path)
 
 CMD = "/fullmute all"                          # chat + pings, every player, this game only
+# The League GAME window is a DirectX client reading RAW keyboard input, and it ignores
+# KEYEVENTF_UNICODE events almost entirely — which is why v0.9.51 logged "SENT" every game and
+# nothing was ever muted. lolcreds._type (unicode, whole string in ONE SendInput burst) is
+# correct for the Riot LOGIN client, a Chromium window, and wrong here. This module types with
+# SCAN CODES and a per-key gap instead: that's the same shape a real keyboard produces, and it
+# is what the game actually reads.
+KEY_GAP = 0.022        # seconds between keystrokes - a zero-gap burst gets coalesced/dropped
+CHAT_OPEN_S = 0.45     # after Enter opens the chat box, before the first character
+PRE_SEND_S = 0.30      # after the last character, before the Enter that submits
+FIRE_AT = 4.0          # game clock (s) of the first attempt - see main()
+CONFIRM_AT = 25.0      # ... and a second one here. /fullmute all SETS the mute (only /unmute
+                       # all reverses it), so a repeat is harmless and covers a dropped first.
 GAME_CLASS = "RiotWindowClass"
 GAME_EXE = "league of legends.exe"
 _LOG = os.path.expanduser("~/.claude/smiteless_mute.log")
@@ -99,6 +111,58 @@ def game_focused():
         return False
 
 
+_VK_SHIFT = 0x10
+_KEYUP, _SCANCODE = 0x0002, 0x0008
+_MAPVK_VK_TO_VSC = 0
+# Signatures matter here: without them ctypes passes the Python str as a POINTER and
+# VkKeyScanW answers garbage for every character (which is how the first cut of this silently
+# mapped nothing and refused to type at all).
+_u32.VkKeyScanW.argtypes = [ctypes.c_wchar]
+_u32.VkKeyScanW.restype = ctypes.c_short
+_u32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+_u32.MapVirtualKeyW.restype = wintypes.UINT
+
+
+def _scan_of(ch):
+    """(scan code, needs_shift) for one character on the CURRENT keyboard layout, or None if
+    this layout can't produce it. VkKeyScanW gives the virtual key + modifier state; the game
+    reads scan codes, so we translate one more step."""
+    r = _u32.VkKeyScanW(ch)
+    if r == -1:
+        return None
+    vk, mods = r & 0xFF, (r >> 8) & 0xFF
+    if mods & 0x06:                 # needs Ctrl and/or Alt (AltGr) — out of scope, bail honestly
+        return None
+    scan = _u32.MapVirtualKeyW(vk, _MAPVK_VK_TO_VSC)
+    if not scan:
+        return None
+    return scan, bool(mods & 0x01)
+
+
+def _type_scan(text):
+    """Type `text` into the focused window as scan-code key events, one key at a time with a
+    human-sized gap. Returns False if the layout can't produce a character (caller aborts
+    rather than sending a mangled command)."""
+    keys = []
+    for ch in text:
+        s = _scan_of(ch)
+        if s is None:
+            _log(f"ABORT layout cannot produce {ch!r} — not typing a mangled command")
+            return False
+        keys.append(s)
+    sh = _u32.MapVirtualKeyW(_VK_SHIFT, _MAPVK_VK_TO_VSC) or 0x2A
+    for scan, shift in keys:
+        if shift:
+            _send([_ki(0, sh, _SCANCODE)])
+        _send([_ki(0, scan, _SCANCODE)])
+        time.sleep(KEY_GAP)
+        _send([_ki(0, scan, _SCANCODE | _KEYUP)])
+        if shift:
+            _send([_ki(0, sh, _SCANCODE | _KEYUP)])
+        time.sleep(KEY_GAP)
+    return True
+
+
 def send_fullmute():
     """Open chat, type the command, send it. Returns True if the keystrokes went out.
     Re-checks focus immediately before each burst: the user can alt-tab between our poll and
@@ -106,11 +170,13 @@ def send_fullmute():
     if not game_focused():
         return False
     _tap(VK_RET)                    # Enter opens the in-game chat input (not rebindable)
-    time.sleep(0.25)
+    time.sleep(CHAT_OPEN_S)
     if not game_focused():          # focus lost between opening chat and typing -> abort
         return False
-    _type(CMD)
-    time.sleep(0.10)
+    if not _type_scan(CMD):
+        _tap(0x1B)                  # Escape — close the chat box we opened, leave no mess
+        return False
+    time.sleep(PRE_SEND_S)
     if not game_focused():
         return False
     _tap(VK_RET)                    # send it
@@ -135,6 +201,7 @@ def main():
     _log(f"LAUNCH auto_mute=on cmd={CMD!r}")
 
     armed = True                 # waiting to fire for the current game session
+    confirmed = False            # the CONFIRM_AT second send has gone out
     seen = False                 # the clock has been observed running at least once
     gone = 0                     # consecutive polls with :2999 down
     waits = 0                    # polls spent waiting for the game to be focused
@@ -152,7 +219,7 @@ def main():
             if seen and gone >= 10:
                 if not armed:
                     _log("connection lost for 10 polls -> re-arming for a possible reconnect")
-                armed = True
+                armed, confirmed = True, False
             if seen and gone >= 60:
                 _log("EXIT game over (:2999 down 60 polls)")
                 return
@@ -161,18 +228,45 @@ def main():
         gone = 0
         if gt > 1.0:
             seen = True
-            if armed:
-                if send_fullmute():
-                    armed = False
-                    waits = 0
-                    _log(f"SENT {CMD!r} at gameTime={gt:.1f}")
-                else:
-                    waits += 1
-                    if waits in (1, 15, 60) or waits % 120 == 0:
-                        _log(f"waiting for the game window to be focused ({waits}s, gt={gt:.1f})")
+        # FIRE_AT, not "the clock moved at all". v0.9.51 fired at gameTime 1.7 — the match has
+        # begun but the client is still coming out of the load transition and swallows the
+        # keystrokes. A few seconds in, the chat box is reliably live.
+        if armed and gt >= FIRE_AT:
+            if send_fullmute():
+                armed = False
+                waits = 0
+                _log(f"SENT {CMD!r} at gameTime={gt:.1f} (scan-code)")
+            else:
+                waits += 1
+                if waits in (1, 15, 60) or waits % 120 == 0:
+                    _log(f"waiting for the game window to be focused ({waits}s, gt={gt:.1f})")
+        elif (not armed) and (not confirmed) and gt >= CONFIRM_AT:
+            # Second, confirming send. We cannot read the mute state back from anywhere, and
+            # `/fullmute all` SETS the mute rather than toggling it (only `/unmute all`
+            # reverses), so re-sending is free insurance against a swallowed first attempt.
+            confirmed = True
+            _log(f"CONFIRM send at gameTime={gt:.1f} -> {send_fullmute()}")
         time.sleep(1.0)
     _log("EXIT deadline")
 
 
+def test():
+    """`python core\\lolmute.py test` — prove the keystroke path in a custom game. Waits for
+    the League game window to be focused, sends the command once, and reports. Never touches
+    any other window (same focus gate as the real thing)."""
+    print(f"layout check: {'OK' if all(_scan_of(c) for c in CMD) else 'FAILED'} for {CMD!r}")
+    print("focus the League game window — sending as soon as it's in front (60s)...")
+    for _ in range(60):
+        if game_focused():
+            ok = send_fullmute()
+            print(f"sent={ok} — look for 'muted' in the game's chat; log: {_LOG}")
+            return
+        time.sleep(1.0)
+    print("the game window never came to the front — nothing was typed.")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "test":
+        test()
+    else:
+        main()

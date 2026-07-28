@@ -32,6 +32,14 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 
 ## What it does
 
+### 🔥 MAX ELO — the one button
+Name your champion and a backup, hit **ARM**, and the app goes on rails for the climb: it
+**auto-locks that champion** for you when your pick turn comes (the backup if it's banned or
+taken), bans the champ that most threatens your team, auto-accepts, imports your runes and
+summoners, mutes the lobby, and switches on all 21 climb-focused reads at once. Champion-pool
+discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
+it. **STAND DOWN** releases the lock and leaves the reads on.
+
 ### 🧠 In champ select
 - **Scouts everyone live** — rank, form, player grades (S–F from how they actually *play*), duo detection, and a **dodge read** that flags tilted or struggling teammates *while you can still dodge*
 - **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, with optional **auto-ban** that waits until the last seconds for maximum hover intel

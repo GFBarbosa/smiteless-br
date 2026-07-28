@@ -128,6 +128,36 @@ def c_reentry():
     return OK, "hold / clear / reset fixtures each land on their verdict"
 
 
+def c_mute():
+    """AUTO-MUTE's keystroke path. v0.9.51 logged 'SENT' every single game and muted nobody:
+    it typed with KEYEVENTF_UNICODE, which the League game window ignores. There is no way to
+    read the mute state back, so the only guard possible is this - every character of the
+    command must map to a real scan code on the CURRENT keyboard layout."""
+    import lolmute as lm
+    bad = [c for c in lm.CMD if lm._scan_of(c) is None]
+    if bad:
+        return FAIL, f"this keyboard layout can't type {bad!r} - auto-mute would abort"
+    if lm.FIRE_AT < 3.0:
+        return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
+    return OK, f"{lm.CMD!r} maps to scan codes; fires at {lm.FIRE_AT:.0f}s + {lm.CONFIRM_AT:.0f}s"
+
+
+def c_maxelo():
+    """MAX ELO arms a list of setting keys by name. A typo there is invisible - the switch
+    would look armed and quietly leave a feature off - so every key must be a real toggle."""
+    import smiteconfig as cfg
+    unknown = [k for k in cfg.MAX_ELO_ON if k not in cfg.BOOLS]
+    if unknown:
+        return FAIL, f"MAX_ELO_ON names settings that don't exist: {unknown}"
+    for k in ("auto_accept", "auto_ban", "auto_mute", "re_entry", "tempo_coach"):
+        if k not in cfg.MAX_ELO_ON:
+            return FAIL, f"MAX_ELO_ON is missing {k!r} - that's a climb feature"
+    import lolimport as limp
+    if not (hasattr(limp, "auto_pick") and hasattr(limp, "pick_watch_update")):
+        return FAIL, "the champ auto-lock is missing - MAX ELO can't hold your pool"
+    return OK, f"{len(cfg.MAX_ELO_ON)} climb toggles, all real; auto-lock present"
+
+
 def c_lcu():
     import lolgame as lg, lolbuild as lb
     lc = lg._lcu()
@@ -152,6 +182,8 @@ def main():
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
+        ("Auto-mute (keystroke path)", c_mute),
+        ("MAX ELO (one-switch arming)", c_maxelo),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:
