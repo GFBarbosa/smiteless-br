@@ -1,5 +1,34 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.60 - MAX ELO only tries champions you actually own, and moves down the list
+
+- **The auto-lock was trying to lock champions you don't own.** Dropping the mastery gate in
+  v0.9.57 made the recommender rank on merit alone - which is what you wanted - but it also
+  meant the auto-lock pool had no idea whether you could *pick* the champion. The client
+  refuses a pick action for a champion you don't own, so it sat there failing once a second
+  until the timer ran out and the draft picked for you. Your log, verbatim: *hovering Nasus -
+  locking in 2.5s*, then **eleven** identical *FAILED to lock Nasus*. You don't own Nasus.
+- **It now reads what you can actually pick** (`pickable-champion-ids` - which also accounts for
+  free rotation and bans) and walks the list: best champion first, and if you don't own it, the
+  second, then the third. Your real chains right now:
+
+  | role | it will try, in order |
+  |---|---|
+  | jungle | Nunu → Hecarim → Warwick → Sejuani → Rammus |
+  | mid | Irelia → Twisted Fate → Ekko |
+  | top | Warwick → Malphite → Volibear → Sett |
+  | adc | Hwei → Xerath → Mel → Syndra |
+  | support | Amumu → Teemo → Poppy → Blitzcrank → Leona |
+
+- **A refused champion is now dropped after 3 attempts instead of retried forever**, and the
+  next one is tried immediately. The pool is also 12 deep rather than 5, because ownership plus
+  bans can empty a short list - mid only yields three champions you own.
+- **GOOD THIS GAME no longer suggests champions you can't pick either.** This is not the old
+  mastery gate coming back: a champion you own with zero games on it still shows. It only drops
+  the ones the client would refuse.
+- The self-test now covers ownership: an unowned top pick must fall through to the next, owning
+  nothing must lock nothing, and owning everything must still take the best one.
+
 ## v0.9.59 - MAX ELO with no champion set now locks the best pick for the draft
 
 - **You can arm MAX ELO with the Main and Backup boxes EMPTY.** It used to refuse ("pick a main

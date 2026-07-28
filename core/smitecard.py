@@ -3394,9 +3394,11 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         # shows (counters into the locked enemies + comp fit, merit only),
                         # best-first, and it already excludes anything banned or taken — so
                         # the list doubles as its own backup chain.
+                        # topn=12, not 5: auto_pick filters this to champions you can actually
+                        # pick, and a five-deep list can be emptied by ownership + bans alone.
                         try:
                             pool = suggest_champs(dd, my_role, ally_ids, enemy_ids,
-                                                  topn=5, fam=None)
+                                                  topn=12, fam=None)
                         except Exception:
                             pool = []
                     limp.pick_watch_update(dd, pool, settings.get("max_elo", False))
@@ -3505,7 +3507,19 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     # overlay to tell you. The climb warning above still fires if you hover
                     # something you don't know, so the guard isn't lost, just moved off the
                     # recommendation.
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5, fam=None)
+                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=12, fam=None)
+                    # ...but only show what you can actually pick. This is NOT the old mastery
+                    # gate (a champ you own with 0 games still qualifies) — it just drops the
+                    # ones the client would refuse. Unavailable list -> show them all rather
+                    # than an empty strip.
+                    try:
+                        import lolimport as _limp
+                        _own = _limp.pickable_ids()
+                        if _own:
+                            sugg = [c for c in sugg if c in _own]
+                    except Exception:
+                        pass
+                    sugg = sugg[:5]
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     if settings.get("dock_champ_select", True):

@@ -186,7 +186,7 @@ def c_autolock():
     import lolbuild as lb, lolimport as limp
     dd = lb.ddragon()
     YAS, YONE = dd["name2id"]["yasuo"], dd["name2id"]["yone"]
-    real, real_log = limp._lcu_json, limp._picklog
+    real, real_log, real_own = limp._lcu_json, limp._picklog, limp.pickable_ids
     # smiteless_pick.log is a DIAGNOSTIC — it exists to answer "why didn't my champ lock".
     # Fixture runs writing fake LOCKED lines into it makes it useless for that, so they don't.
     limp._picklog = lambda *a, **k: None
@@ -211,9 +211,11 @@ def c_autolock():
                 self.act["completed"] = True
             return {}
 
-    def lock(fake, pool, settle=True):
+    def lock(fake, pool, settle=True, owned=None):
         limp._lcu_json = fake
+        limp.pickable_ids = (lambda *a, **k: owned) if owned is not None else (lambda *a, **k: None)
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
         limp.auto_pick(dd, pool)                 # tick 1: hover only, never a lock
         if settle:
             limp._PICK_HOVER["ts"] -= limp.PICK_SETTLE_S + 0.1
@@ -229,9 +231,20 @@ def c_autolock():
         bad = [n for n, f, pool, want in cases if lock(f, pool) != want]
         if lock(Fake(), [YAS, YONE], settle=False) is not None:
             bad.append("locked before the hover settled")
+        # OWNERSHIP. Dropping the mastery gate made the pool merit-only, which includes
+        # champions you don't own — the client refuses those, and v0.9.59 retried one every
+        # second until the timer ran out and the draft picked for you. The top pick being
+        # unowned must fall straight through to the next one.
+        if lock(Fake(), [YAS, YONE], owned={YONE}) != YONE:
+            bad.append("an unowned top pick must skip to the next champion")
+        if lock(Fake(), [YAS, YONE], owned=set()) is not None:
+            bad.append("owning nothing on the list must lock nothing")
+        if lock(Fake(), [YAS, YONE], owned={YAS, YONE}) != YAS:
+            bad.append("owning both must still take the best one")
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
     finally:
-        limp._lcu_json, limp._picklog = real, real_log
+        limp._lcu_json, limp._picklog, limp.pickable_ids = real, real_log, real_own
     if bad:
         return FAIL, "auto-lock wrong on: " + "; ".join(bad)
     return OK, "hover-then-lock, ban/taken fallback to backup, stands down when both are gone"

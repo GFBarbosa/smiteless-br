@@ -239,6 +239,39 @@ def _picklog(msg, dedupe=False):
         pass
 
 
+_PICKABLE = {"ids": None, "ts": 0.0}
+_PICK_FAIL = {}            # (action_id, cid) -> consecutive failed lock attempts
+
+
+def pickable_ids(ttl=5.0):
+    """Champion ids you can ACTUALLY pick right now, or None if the client won't say.
+
+    This is the thing that was missing and it cost a whole draft: since the recommender stopped
+    gating on mastery it ranks champions on merit alone, which includes champions you don't own.
+    The client refuses to complete a pick action for one of those, so auto-lock sat there
+    failing every second while the timer ran out. `pickable-champion-ids` is the honest answer
+    during champ select (it accounts for free rotation and bans too); owned-champions-minimal
+    is the fallback outside it."""
+    now = time.monotonic()
+    if _PICKABLE["ids"] is not None and (now - _PICKABLE["ts"]) < ttl:
+        return _PICKABLE["ids"]
+    ids = None
+    for path in ("/lol-champ-select/v1/pickable-champion-ids",
+                 "/lol-champions/v1/owned-champions-minimal"):
+        try:
+            r = _lcu_json("GET", path)
+        except Exception:
+            continue
+        if isinstance(r, list) and r:
+            got = {c if isinstance(c, int) else c.get("id") for c in r}
+            got = {int(c) for c in got if c}
+            if got:
+                ids = got
+                break
+    _PICKABLE.update(ids=ids, ts=now)
+    return ids
+
+
 def auto_pick(dd, cids):
     """If it's YOUR pick turn, hover-then-LOCK the first champion in `cids` that's still
     available (not banned, not taken by either team). Returns the locked championId or None.
@@ -271,10 +304,23 @@ def auto_pick(dd, cids):
             if a.get("completed") and a.get("championId"):
                 gone.add(int(a["championId"]))
     nm = (dd.get("id2name") or {}) if isinstance(dd, dict) else {}
+    own = pickable_ids()
+    # `is not None`, NOT truthiness: None means "the client wouldn't tell us" (don't filter),
+    # an empty set means "you can pick nothing" (filter everything). Collapsing those two made
+    # the guard silently do nothing in the one case it most needed to bite.
+    if own is not None:                          # never try to lock a champion you don't have
+        unowned = [c for c in cids if c not in own]
+        if unowned:
+            _picklog(f"skipping (you don't own / can't pick): "
+                     f"{[nm.get(c, c) for c in unowned]}", dedupe=True)
+        cids = [c for c in cids if c in own]
+    # a champ the client has already refused 3x is not going to start working — drop it and
+    # move down the list rather than burning the whole timer on it
+    cids = [c for c in cids if _PICK_FAIL.get((action_id, c), 0) < 3]
     want = next((c for c in cids if c not in gone), None)
     if want is None:
-        _picklog(f"main AND backup are both gone ({[nm.get(c, c) for c in cids]}) — "
-                 f"standing down, pick it yourself")
+        _picklog("nothing left to lock — everything on the list is banned, taken, unowned or "
+                 "refused. Pick it yourself.", dedupe=True)
         return None
     label = nm.get(want, str(want))
     # Hover ONCE (not a PATCH every poll), then lock a beat later. The hover is what makes the
@@ -296,6 +342,7 @@ def auto_pick(dd, cids):
     except Exception as e:
         _picklog(f"PATCH lock {label} raised {type(e).__name__} — trying two-step")
     if _pick_completed(action_id):
+        _PICK_FAIL.clear()
         _picklog(f"LOCKED {label} (action {action_id}, one-shot)")
         return want
     try:                                         # two-step: some client builds want it
@@ -306,9 +353,22 @@ def auto_pick(dd, cids):
     except Exception as e:
         _picklog(f"two-step lock {label} raised {type(e).__name__}")
     if _pick_completed(action_id):
+        _PICK_FAIL.clear()
         _picklog(f"LOCKED {label} (action {action_id}, two-step)")
         return want
-    _picklog(f"FAILED to lock {label} — action {action_id} still open after both attempts")
+    # Count the refusal and FALL THROUGH TO THE NEXT CHAMPION. v0.9.59 re-tried the same
+    # champion once a second until the timer ran out (11 identical "FAILED to lock Nasus" lines,
+    # then a random pick) — a client that has refused a champion three times is telling you
+    # something, so believe it and move down the list.
+    k = (action_id, want)
+    _PICK_FAIL[k] = _PICK_FAIL.get(k, 0) + 1
+    _PICK_HOVER.update(action=None, cid=0, ts=0.0)     # re-hover whatever comes next
+    if _PICK_FAIL[k] >= 3:
+        nxt = [nm.get(c, c) for c in cids if c != want and c not in gone]
+        _picklog(f"GIVING UP on {label} after 3 refusals (you may not own it) — "
+                 f"next: {nxt[:3] or 'nothing left'}")
+    else:
+        _picklog(f"lock {label} refused ({_PICK_FAIL[k]}/3) — retrying, then moving on")
     return None
 
 
@@ -333,8 +393,9 @@ def pick_watch_update(dd, cids, enabled):
     """Same contract as ban_watch_update: the champ-select render loop refreshes this every
     poll, and a dedicated 1s thread does the actual locking. The render loop can stall for
     seconds on network work — far too slow to hit an 8s firing window."""
-    if not enabled or not cids:            # a fresh draft must never inherit a stale hover clock
+    if not enabled or not cids:            # a fresh draft must never inherit stale pick state
         _PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        _PICK_FAIL.clear()
     _PICK_WATCH.update(dd=dd, cids=list(cids or []), on=bool(enabled))
     th = _PICK_WATCH.get("thread")
     if th and th.is_alive():
