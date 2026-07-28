@@ -1,5 +1,33 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.55 - auto-mute, done properly: no typing, and it checks its own work
+
+- **Auto-mute never worked, and the reason wasn't the one I kept fixing.** v0.9.51 through
+  v0.9.54 tried to TYPE `/fullmute all` into the game. The diagnosis is now conclusive rather
+  than a guess: with the game window focused, Windows reports every keystroke **accepted**
+  (`SendInput` inserts 2/2 events, no error) and both processes sit at the same integrity level,
+  so nothing in the OS is dropping them - **the OS delivers the keys and the game discards
+  them.** That's what a kernel anti-cheat filtering injected input looks like, and no amount of
+  unicode-vs-scan-code or timing tuning was ever going to change it.
+- It was also the wrong thing to build. Every other surface here says plainly that it never
+  sends an input to the game - that's the line this app draws, and typing into a live match
+  crossed it.
+- **It now writes League's own settings instead**, through the client, with nothing typed
+  anywhere: **ally chat hidden**, **all-chat hidden**, **ping audio silenced**. And - the part
+  the old one structurally could not do - **it reads the setting back and verifies it took**.
+  That's why it lied for four releases: it had no way to tell success from failure, so it
+  reported success. The new one can only report what the client actually confirms.
+- **Two honest limits, stated up front:** ping MARKERS still draw on the minimap (the client
+  exposes no setting for those, only their sound), and because these are client settings they
+  **persist** until you turn them off - here, or in League's own settings. That's arguably what
+  you wanted anyway: decide once, not at 0:15 every game. `python core\lolmute.py off` reverts
+  all three.
+- The self-test now reads the live mute state every run, so a setting Riot renames fails loudly
+  instead of silently doing nothing.
+- **Fixed: the self-test was writing fake entries into `smiteless_pick.log`.** That log exists
+  to answer "why didn't my champ lock" - filling it with fixture LOCKs made it useless for the
+  one job it has.
+
 ## v0.9.54 - MAX ELO locks your champ immediately, not at the buzzer
 
 - **The auto-lock no longer sits there hovering.** v0.9.53 hovered your champion the moment your

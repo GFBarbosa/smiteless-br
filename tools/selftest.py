@@ -129,17 +129,19 @@ def c_reentry():
 
 
 def c_mute():
-    """AUTO-MUTE's keystroke path. v0.9.51 logged 'SENT' every single game and muted nobody:
-    it typed with KEYEVENTF_UNICODE, which the League game window ignores. There is no way to
-    read the mute state back, so the only guard possible is this - every character of the
-    command must map to a real scan code on the CURRENT keyboard layout."""
-    import lolmute as lm
-    bad = [c for c in lm.CMD if lm._scan_of(c) is None]
-    if bad:
-        return FAIL, f"this keyboard layout can't type {bad!r} - auto-mute would abort"
-    if lm.FIRE_AT < 3.0:
-        return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
-    return OK, f"{lm.CMD!r} maps to scan codes; fires at {lm.FIRE_AT:.0f}s + {lm.CONFIRM_AT:.0f}s"
+    """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
+    that landed - so it claimed success for four releases while muting nobody. It now writes
+    the client's own settings, which means the state is READABLE, and this check reads it.
+    A key Riot renames must fail here rather than silently do nothing."""
+    import lolmute as lm, lolgame as lg
+    if not lg._lcu():
+        return SKIP, "League client not running - can't verify the settings keys exist"
+    st = lm.read_state()
+    if st is None:
+        want = [f"{g}.{k}" for g, ks in lm.MUTED.items() for k in ks]
+        return FAIL, "the client no longer exposes " + ", ".join(want)
+    on = all(st.get(f"{g}.{k}") == v for g, ks in lm.MUTED.items() for k, v in ks.items())
+    return OK, f"{len(st)} settings readable + writable; currently {'MUTED' if on else 'unmuted'}"
 
 
 def c_maxelo():
@@ -165,7 +167,10 @@ def c_autolock():
     import lolbuild as lb, lolimport as limp
     dd = lb.ddragon()
     YAS, YONE = dd["name2id"]["yasuo"], dd["name2id"]["yone"]
-    real = limp._lcu_json
+    real, real_log = limp._lcu_json, limp._picklog
+    # smiteless_pick.log is a DIAGNOSTIC — it exists to answer "why didn't my champ lock".
+    # Fixture runs writing fake LOCKED lines into it makes it useless for that, so they don't.
+    limp._picklog = lambda *a, **k: None
 
     class Fake:                                  # PATCH sets intent; completed (or POST) locks
         def __init__(self, bans=(), locked=(), in_progress=True):
@@ -207,7 +212,7 @@ def c_autolock():
             bad.append("locked before the hover settled")
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
     finally:
-        limp._lcu_json = real
+        limp._lcu_json, limp._picklog = real, real_log
     if bad:
         return FAIL, "auto-lock wrong on: " + "; ".join(bad)
     return OK, "hover-then-lock, ban/taken fallback to backup, stands down when both are gone"
@@ -237,7 +242,7 @@ def main():
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
-        ("Auto-mute (keystroke path)", c_mute),
+        ("Auto-mute (client settings)", c_mute),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

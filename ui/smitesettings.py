@@ -370,13 +370,15 @@ def main():
         ("Live draft link (URL in chat)", draftlink),
         ("Also open the draft board for me", draftopen),
     ])
-    _feat_group("IN-GAME AUTOMATION", [
-        ("Auto-mute everyone (chat + pings)", automute),
+    _feat_group("IN-GAME QUIET", [
+        ("Auto-mute (chat off, pings silent)", automute),
     ])
-    tk.Label(body, text="Auto-mute sends Riot's own /fullmute all the moment the game clock "
-             "starts — chat and pings from every player, hidden for that game only. Your own "
-             "pings still work and nothing is changed permanently. It waits until the game "
-             "window is focused, so the command is never typed anywhere else.",
+    tk.Label(body, text="Hides ally chat and all-chat and silences ping audio, by writing "
+             "League's OWN settings through the client — nothing is typed into the game, and "
+             "Smiteless reads the setting back to confirm it took. Two honest limits: ping "
+             "MARKERS still draw on the minimap (the client has no setting for those), and "
+             "because it's a client setting it PERSISTS until you turn it off — here, or in "
+             "League's own Audio/Interface settings.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 
