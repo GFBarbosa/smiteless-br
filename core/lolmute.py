@@ -64,12 +64,25 @@ VK_RETURN, VK_SHIFT, VK_ESCAPE = 0x0D, 0x10, 0x1B
 
 # Timings proven by hand against a live client — chat needs a real beat to take keyboard focus
 # after Enter, and a zero-gap character burst gets coalesced.
-CHAT_OPEN_S = 0.60     # after Enter opens chat, before the first character
+CHAT_OPEN_S = 0.85     # after Enter opens chat, before the first character
 KEY_HOLD_S = 0.035     # how long each key is held down
 KEY_GAP_S = 0.030      # gap between keys
 PRE_SEND_S = 0.35      # after the last character, before the submitting Enter
-FIRE_AT = 4.0          # game clock (s) of the first attempt
-CONFIRM_AT = 25.0      # and a second: /fullmute all SETS the mute (only /unmute all reverses)
+
+# ONE attempt, at ~4s, and never again. This is a safety limit, not a tuning knob.
+#
+# Typing into a live game is only safe while the chat box holds keyboard focus — and in League,
+# CLICKING TO MOVE takes that focus away. Any character that misses the box lands on your
+# champion as a keybind, and `/fullmute all` contains `f`, `a`, `e`, `t`, `l`, `m`. On a Flash-on-F
+# setup that is a wasted Flash.
+#
+# v0.9.56 sent a second "confirming" command at 25s. At 25s you are walking to a camp, i.e.
+# clicking, i.e. exactly when the chat box loses focus mid-type. It cast Flash. The confirm is
+# gone: the one attempt fires at FIRE_AT, when you are stationary in the fountain, and if it
+# misses we accept the miss — the client-settings layer below is the fallback, which is why it
+# exists. Do not add a retry here.
+FIRE_AT = 4.0
+LATE_LIMIT = 20.0      # past this you've left the fountain — stop trying, don't type on the move
 
 SETTINGS_PATH = "/lol-game-settings/v1/game-settings"
 MUTED = {"HUD": {"ShowAlliedChat": False, "ShowAllChannelChat": False},
@@ -240,7 +253,7 @@ def main():
     ok, detail = apply(True)                    # layer 2 first — it needs no game, no focus
     _log(f"settings {'OK' if ok else 'FAILED'} - {detail}")
 
-    armed, confirmed, seen, gone, waits = True, False, False, 0, 0
+    armed, seen, gone, waits = True, False, 0, 0
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:
         if cfg.tray_gone():
@@ -252,7 +265,7 @@ def main():
             if seen and gone >= 10:              # a reconnect is a fresh game session
                 if not armed:
                     _log("connection lost 10 polls -> re-arming for a possible reconnect")
-                armed, confirmed = True, False
+                armed = True
             if seen and gone >= 60:
                 _log("EXIT game over (:2999 down 60 polls)")
                 return
@@ -264,14 +277,18 @@ def main():
         if armed and gt >= FIRE_AT:
             if send_fullmute():
                 armed, waits = False, 0
-                _log(f"TYPED {CMD!r} at gameTime={gt:.1f}")
+                _log(f"TYPED {CMD!r} at gameTime={gt:.1f} (one attempt only, by design)")
             else:
                 waits += 1
-                if waits in (1, 15, 60) or waits % 120 == 0:
+                # Only keep waiting while you're still parked in base. Past LATE_LIMIT you are
+                # out on the map and clicking, so typing stops being safe — give up quietly and
+                # let the settings layer carry it.
+                if gt > LATE_LIMIT:
+                    armed = False
+                    _log(f"gave up at gameTime={gt:.1f} — too late to type safely "
+                         f"(you're on the map); the client settings still apply")
+                elif waits in (1, 5, 10) or waits % 30 == 0:
                     _log(f"waiting for the game window to be focused ({waits}s, gt={gt:.1f})")
-        elif (not armed) and (not confirmed) and gt >= CONFIRM_AT:
-            confirmed = True
-            _log(f"CONFIRM at gameTime={gt:.1f} -> {send_fullmute()}")
         time.sleep(1.0)
     _log("EXIT deadline")
 

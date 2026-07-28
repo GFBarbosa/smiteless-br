@@ -1,5 +1,21 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.58 - auto-mute types ONCE, in the fountain, and never while you're moving
+
+- **It cast Flash. Sorry.** v0.9.56 sent a second "confirming" `/fullmute all` at 25 seconds,
+  on the reasoning that a repeat was free insurance. It isn't. Typing into a live game is only
+  safe while the chat box holds keyboard focus, and **clicking to move takes that focus away** -
+  so the resend fired while you were walking to a camp, the box dropped focus mid-command, and
+  the **`f` in "fullmute" hit Flash**. (Every letter in that command is a keybind: `f a e t l m u`.)
+- **There is now exactly one attempt, at ~4 seconds, while you're parked in the fountain** - the
+  moment the first send already worked. If it misses, it misses; there is no retry, and it stops
+  trying entirely once the clock passes 20s because by then you're out on the map and clicking.
+  The client-settings layer (ally chat off, all-chat off, ping audio off) is the fallback for a
+  missed attempt - that is exactly why it's there.
+- **The self-test now fails the build if a retry is ever re-added**, or if the give-up time
+  drifts past 30s. This was a safety limit dressed up as a tuning constant, and it cost you a
+  Flash; it's enforced now rather than commented.
+
 ## v0.9.57 - champ select recommends what's GOOD, not what you already own
 
 - **"GOOD THIS GAME" now uses the web DraftBoard's algorithm - because it was mostly showing

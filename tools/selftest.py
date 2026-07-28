@@ -144,6 +144,14 @@ def c_mute():
         return FAIL, f"this keyboard layout can't type {bad!r}"
     if lm.FIRE_AT < 3.0:
         return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
+    # SAFETY, not tuning. Typing is only safe while you're parked in the fountain: clicking to
+    # move takes focus off League's chat box, and a character that misses it becomes a keybind
+    # ('f' in "fullmute" = Flash). v0.9.56's 25s "confirming" resend cast Flash mid-walk. There
+    # must be exactly one attempt, and it must stop before you're out on the map.
+    if hasattr(lm, "CONFIRM_AT"):
+        return FAIL, "a second mute attempt is back - it types while you're moving and casts Flash"
+    if getattr(lm, "LATE_LIMIT", 999) > 30.0:
+        return FAIL, f"still typing at gameTime {lm.LATE_LIMIT}s - you're on the map by then"
     detail = f"Enter=0x{lm.ENTER_SCAN():02x}, {lm.CMD!r} all mappable"
     if not lg._lcu():
         return OK, detail + "; client down, settings layer unverified"
