@@ -69,7 +69,7 @@ def main():
     body.bind("<Configure>", _sync_scroll)
     canvas.bind("<Configure>", _sync_scroll)
     def _wheel(e):
-        # don't hijack the wheel from embedded lists (fav picks, accounts) — over a
+        # don't hijack the wheel from embedded lists (perma-bans, accounts) — over a
         # Listbox/Text the widget scrolls itself; everywhere else the page scrolls
         w = root.winfo_containing(e.x_root, e.y_root)
         if isinstance(w, (tk.Listbox, tk.Text)):
@@ -178,6 +178,7 @@ def main():
     dragon = tk.BooleanVar(value=s.get("dragon_audio", True))
     queuecall = tk.BooleanVar(value=s.get("queue_call", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
+    reentryv = tk.BooleanVar(value=s.get("re_entry", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -217,6 +218,7 @@ def main():
         ("Voice callouts (base / take)", tempov),
         ("Dragon spawn audio", dragon),
         ("Respawn plan (death card)", respawnv),
+        ("Re-entry guard (90s after respawn)", reentryv),
     ])
     _feat_group("OVERLAYS & BOARDS", [
         ("Death brief (while dead)", deadbrief),
@@ -304,37 +306,6 @@ def main():
     except Exception:
         pass
 
-    skin.section_rule(body, "FAVOURITE PICKS").pack(fill="x", padx=18, pady=(12, 2))
-    tk.Label(body, text="Pick a champ from the dropdown and Add it — order is priority (use ↑/↓). "
-             "A role limits it to that role. In champ select the panel lists your top still-open "
-             "picks (recommend-only — it never hovers or locks).",
-             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
-             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
-    favfr = skin.card(body, rail=LINE)
-    favfr.pack(fill="x", padx=14, pady=(0, 6))
-
-    addrow = tk.Frame(favfr.body, bg=SURFACE)
-    addrow.pack(fill="x", padx=8, pady=(8, 4))
-    champ_var = tk.StringVar()
-    champ_cb = ttk.Combobox(addrow, textvariable=champ_var, values=_champ_names, width=18,
-                            style="Fav.TCombobox", font=skin.body(SMALL))
-    champ_cb.pack(side="left")
-    role_var = tk.StringVar(value="any role")
-    role_om = tk.OptionMenu(addrow, role_var, "any role", "top", "jungle", "mid", "adc", "support")
-    role_om.config(bg=RAISED, fg=TXT, activebackground=HOVER, activeforeground=TXT, relief="flat",
-                   highlightthickness=0, font=skin.body(SMALL), width=8, cursor="hand2")
-    role_om["menu"].config(bg=SURFACE, fg=TXT, activebackground=HOVER)
-    role_om.pack(side="left", padx=6)
-
-    listfr = tk.Frame(favfr.body, bg=SURFACE)
-    listfr.pack(fill="x", padx=8, pady=(0, 8))
-    fav_list = tk.Listbox(listfr, height=5, bg=SUNKEN, fg=TXT, selectbackground=HOVER,
-                          selectforeground=TXT, relief="flat", highlightthickness=0, bd=0,
-                          font=skin.mono(SMALL), activestyle="none")
-    fav_list.pack(side="left", fill="x", expand=True)
-    for _entry in (s.get("fav_champs") or []):
-        fav_list.insert("end", _entry)
-
     def _canon(nm):
         nm = (nm or "").strip()
         if not nm:
@@ -343,47 +314,6 @@ def main():
             return nm
         cid = _name2id.get(_norm(nm))
         return _id2name.get(cid) if cid else None
-
-    def _filter_champs(_e=None):
-        t = champ_var.get().strip().lower()
-        champ_cb["values"] = [n for n in _champ_names if t in n.lower()] if t else _champ_names
-
-    def _add_fav(_e=None):
-        nm = _canon(champ_var.get())
-        if not nm:
-            return
-        role = role_var.get()
-        entry = nm if role == "any role" else f"{nm}, {role}"
-        if entry.lower() not in [fav_list.get(i).lower() for i in range(fav_list.size())]:
-            fav_list.insert("end", entry)
-        champ_var.set("")
-        champ_cb["values"] = _champ_names
-
-    def _rm_fav():
-        sel = fav_list.curselection()
-        if sel:
-            fav_list.delete(sel[0])
-
-    def _move(delta):
-        sel = fav_list.curselection()
-        if not sel:
-            return
-        i = sel[0]
-        j = i + delta
-        if 0 <= j < fav_list.size():
-            v = fav_list.get(i)
-            fav_list.delete(i)
-            fav_list.insert(j, v)
-            fav_list.selection_set(j)
-
-    skin.button(addrow, "+ Add", _add_fav).pack(side="left", padx=(6, 0))
-    champ_cb.bind("<KeyRelease>", _filter_champs)
-    champ_cb.bind("<Return>", _add_fav)
-    favbtns = tk.Frame(listfr, bg=SURFACE)
-    favbtns.pack(side="left", fill="y", padx=(6, 0))
-    skin.button(favbtns, "Remove", _rm_fav).pack(fill="x", pady=1)
-    skin.button(favbtns, "↑", lambda: _move(-1)).pack(fill="x", pady=1)
-    skin.button(favbtns, "↓", lambda: _move(1)).pack(fill="x", pady=1)
 
     skin.section_rule(body, "PERMA-BAN LIST").pack(fill="x", padx=18, pady=(12, 2))
     tk.Label(body, text="With auto-ban on, your ban locks the highest champ on this list that's "
@@ -712,7 +642,6 @@ def main():
     status.pack(anchor="w", padx=18, pady=(6, 0))
 
     def save():
-        favs = [fav_list.get(i) for i in range(fav_list.size())]
         bans = [ban_list.get(i) for i in range(ban_list.size())]
         try:
             ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
@@ -729,10 +658,11 @@ def main():
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
-                  "respawn_plan": respawnv.get(), "death_brief": deadbrief.get(),
+                  "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
+                  "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
-                  "auto_import": autoimp.get(), "auto_ban": autoban.get(), "fav_champs": favs,
+                  "auto_import": autoimp.get(), "auto_ban": autoban.get(),
                   "ban_list": bans, "board_topmost": boardtop.get(),
                   "auto_accept": autoq.get(), "auto_mute": automute.get(),
                   "flash_on_d": (flash_side.get() == 0),
@@ -754,8 +684,8 @@ def main():
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, deadbrief, loadbrief, dodge, dock, auto, homeonstart, solocoach,
-                  draftlink):
+                  respawnv, reentryv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
+                  solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)

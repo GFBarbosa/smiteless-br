@@ -37,11 +37,12 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 - **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, with optional **auto-ban** that waits until the last seconds for maximum hover intel
 - **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
 - **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
-- **One-click (or automatic) runes + summoners import**, multiple rune sets, favourite picks
+- **One-click (or automatic) runes + summoners import**, multiple rune sets
 - **Climb guards** — warns when you hover a champ you barely play (sub-12k-mastery picks win ~44%, per a 1M-game study), and only suggests champs you actually main — pooled across all your accounts
 
 ### ⚡ In game
 - **The Tempo engine** — a live director for the ~90 seconds before every objective: your farm window, exact recall deadline, when to rotate, and a **TAKE / GIVE / 50-50 verdict** from death timers, levels and gold (fog-of-war aware). With spoken callouts: *"Base now"*, *"Rotate to dragon"*, *"Give it, trade elsewhere"*
+- **RE-ENTRY, the 90-second guard** — the moment you respawn, a clock starts on the window that actually loses games: dying *again* inside 90 seconds. While it runs the widget answers one thing off live data — can they punish you right now? **HOLD** (the champion who killed you is up and ahead, or you lose any fight this second) takes over the directive card with the productive thing to do instead; **CLEAR** names the enemies who are dead and how long you own the map. It carries its receipt: your own W/L split for the habit, straight out of your match history
 - **Enemy jungle tracker** — where they were seen, when they're dead, when to respect the gank
 - **Win probability, objective timers with audio, power-spike alerts, item coaching** — one compact draggable HUD that fades when nothing needs you, and is fully click-through during a live game so it can never eat a click (hold **Ctrl+Alt** to touch it)
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs

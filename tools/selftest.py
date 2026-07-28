@@ -110,6 +110,24 @@ def c_queuecall():
     return OK, "stop / last-one / wait fixtures each land on their verdict"
 
 
+def c_reentry():
+    """The RE-ENTRY verdict engine (the 90s guard after you respawn). Fires from a state
+    machine inside a live game, so a logic break is otherwise invisible until it silently
+    says HOLD forever — or never."""
+    import lolreentry as lre
+    want = {"hold": "HOLD", "clear": "CLEAR", "reset": "RESET"}
+    got = {k: lre._verdict(lre.demo(k))["verdict"] for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    if lre.WINDOW != 90.0:
+        return FAIL, f"window is {lre.WINDOW}s — it must match the death_cluster tag's 90s"
+    g = lre.Guard()                              # dead -> alive must arm; no data must not
+    if g.observe(None, None) is not None or g.armed_until is not None:
+        return FAIL, "guard armed itself with no game data"
+    return OK, "hold / clear / reset fixtures each land on their verdict"
+
+
 def c_lcu():
     import lolgame as lg, lolbuild as lb
     lc = lg._lcu()
@@ -133,6 +151,7 @@ def main():
         ("Tag spec (docs/TAGS.md)", c_tagspec),
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
+        ("Re-entry guard (90s window)", c_reentry),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:

@@ -86,6 +86,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "tempo_voice": True,     # widget: spoken TEMPO callouts (Windows TTS: "Base now", "Take it", ...)
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
+         "re_entry": True,        # widget: RE-ENTRY — the 90s-after-respawn guard (core/lolreentry)
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
          "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
                                     #   profile-read tags, damage lean) while the game loads. FRESH
@@ -112,6 +113,10 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 # draft_db: the user's own Firebase RTDB url ('' = draft link feature dormant); see docs/DRAFTLINK.md.
 # draft_page: where the static draft board is hosted (GitHub Pages serves /docs on main).
 # draft_msg: the champ-select chat line the link is posted with ('' = the branded default).
+# Settings keys belonging to features that have been CUT. save() drops them, so a retired
+# surface leaves nothing behind in the user's settings file.
+RETIRED = ("fav_champs", "ghost_race")
+
 STRINGS = {"draft_db": "",
            "draft_page": "https://bobbyroylee.github.io/smiteless/draft/",
            "draft_msg": ""}
@@ -121,7 +126,6 @@ def load():
     s = dict(DEFAULTS)
     s.update(BOOLS)
     s.update(STRINGS)
-    s["fav_champs"] = []          # ordered favourite picks: ["Kha'Zix", "Ahri, mid", ...]
     s["ban_list"] = ["Shyvana"]   # ordered PERMA-BAN priority: highest still-available gets banned
     s["auto_swap_roles"] = []     # champ select: role (position) swaps to auto-accept INTO
     s["auto_pick_swap"] = ""      # champ select pick order: "" off / "any" / "first" / "last"
@@ -138,8 +142,6 @@ def load():
         for k in STRINGS:
             if k in raw:
                 s[k] = str(raw[k]).strip()
-        if isinstance(raw.get("fav_champs"), list):
-            s["fav_champs"] = [str(x).strip() for x in raw["fav_champs"] if str(x).strip()][:20]
         if isinstance(raw.get("ban_list"), list):
             s["ban_list"] = [str(x).strip() for x in raw["ban_list"] if str(x).strip()][:10]
         if isinstance(raw.get("auto_swap_roles"), list):
@@ -184,10 +186,6 @@ def save(s):
             clean[k] = str(s[k]).strip()
         elif k not in clean:
             clean[k] = STRINGS[k]
-    if "fav_champs" in s:
-        clean["fav_champs"] = [str(x).strip() for x in (s.get("fav_champs") or []) if str(x).strip()][:20]
-    elif "fav_champs" not in clean:
-        clean["fav_champs"] = []
     if "ban_list" in s:
         clean["ban_list"] = [str(x).strip() for x in (s.get("ban_list") or []) if str(x).strip()][:10]
     elif "ban_list" not in clean:
@@ -202,6 +200,8 @@ def save(s):
         clean["auto_pick_swap"] = pk if pk in PICK_SWAP_VALUES else ""
     elif "auto_pick_swap" not in clean:
         clean["auto_pick_swap"] = ""
+    for k in RETIRED:                       # a cut feature must not leave its key behind
+        clean.pop(k, None)
     try:
         os.makedirs(os.path.dirname(PATH), exist_ok=True)
         tmp = f"{PATH}.{os.getpid()}.tmp"

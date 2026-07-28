@@ -21,6 +21,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
 import lolbuild as lb
 import lolitems as li
 import lollive as ll
+import lolreentry as lre
 import loltempo as lt
 import phasecheck
 import smiteconfig as cfg
@@ -456,6 +457,40 @@ def _chip(d, x, y, text, fg, bg, f):
 _TONE_C = {"go": C_ARC, "hold": C_BAD, "plan": C_EMBER}
 
 
+def _render_reentry(d, card, x, y, wrapw, W):
+    """RE-ENTRY (lolreentry): the 90-second window after you respawn, drawn as a directive
+    card with its clock. Only the HOLD verdict gets the card — CLEAR/RESET ride a quiet row
+    (see _render_body) so the tempo engine keeps right-of-way when there's an actual play."""
+    pc = _TONE_C.get(card.get("tone"), C_EMBER)
+    tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_VOID, pc))
+    lf = _dfont(12, bold=True)
+    lines = _wwrap(d, card.get("line") or "", lf, wrapw - 20)
+    subs = _wwrap(d, card.get("sub") or "", _wfont(10), wrapw - 20)
+    ev = card.get("evidence")
+    evs = _wwrap(d, ev, _wfont(9), wrapw - 20) if ev else []
+    ch = 12 + 19 + len(lines) * 17 + len(subs) * 14 + 3 + (len(evs) * 12 + 3 if evs else 0)
+    d.rounded_rectangle([x, y, W - x, y + ch], radius=9, fill=tint, outline=pc, width=1)
+    # header row, same shape as the RESPAWN card: what this is, and the clock it runs on
+    d.text((x + 10, y + 7), "RE-ENTRY", font=_wfont(9, 1), fill=C_MUTED)
+    cf = _dfont(14, bold=True)
+    ct = f"{max(0, int(card.get('left') or 0))}s"
+    d.text((W - x - 10 - d.textlength(ct, font=cf), y + 4), ct, font=cf, fill=C_TXT)
+    yy = y + 26
+    for ln in lines:
+        d.text((x + 10, yy), ln, font=lf, fill=pc)
+        yy += 17
+    yy += 3
+    for ln in subs:
+        d.text((x + 10, yy), ln, font=_wfont(10), fill=C_MUTED)
+        yy += 14
+    if evs:
+        yy += 3
+        for ln in evs:
+            d.text((x + 10, yy), ln, font=_wfont(9), fill=C_MUTED)
+            yy += 12
+    return y + ch + 7
+
+
 def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     """RESPAWN: the death-screen card. The grey screen is the only zero-cost reading
     window in a live game, so the ENTIRE widget collapses to one card: countdown, one
@@ -488,7 +523,7 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     return img.crop((0, 0, W, y + 8))
 
 
-def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False):
+def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=None):
     """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
     body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
     safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
@@ -514,8 +549,24 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False):
         _chip(d, W - x - cw, y + 2, t, C_GOOD if wp["ahead"] else C_BAD, C_SURFACE, f)
     y += 26
 
+    # ---- RE-ENTRY: the 90s after you respawn (lolreentry) ----
+    # HOLD owns the directive slot — for those seconds "don't walk back in" IS the call, and
+    # the widget's rule is ONE directive. CLEAR/RESET are a quiet row: nothing is trying to
+    # kill you, so the tempo engine keeps the card.
+    hold = bool(reentry and reentry.get("verdict") == "HOLD")
+    if hold:
+        y = _render_reentry(d, reentry, x, y, wrapw, W)
+    elif reentry:
+        vc = C_ARC if reentry["verdict"] == "CLEAR" else C_MUTED
+        d.text((x + 2, y), "RE-ENTRY", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 62, y - 1), f"{reentry['left']}s · {reentry['line'].split(' — ')[0].lower()}",
+               font=_dfont(11, bold=True), fill=vc)
+        y += 18
+
     # ---- tempo directive card ----
-    tempo = pulse.get("tempo")
+    # Collapsed view under a HOLD: the re-entry card IS the one directive, so tempo stands
+    # down for those seconds. Hovering (ref) is the full read — both cards show there.
+    tempo = pulse.get("tempo") if not (hold and not ref) else None
     if tempo and tempo["phase"] == "FARM":
         # routine farm reminder: a plain quiet row - the bordered card is reserved for
         # phases that are actually a decision (v0.2.93: farm lines stand alone)
@@ -665,6 +716,12 @@ _LEGEND_PHASES = (
     ("PUSH",  "you can't reach it — shove for the cross-trade"),
     ("FARM",  "nothing live yet — farm to the deadline"),
 )
+# RE-ENTRY verdicts (lolreentry) — the 90 seconds after you respawn, colored by tone.
+_LEGEND_REENTRY = (
+    ("HOLD",  C_BAD, "just respawned + you lose any fight now — farm it out"),
+    ("CLEAR", C_ARC, "they're a body down — the window is yours"),
+    ("RESET", C_MUTED, "even — no free trade, don't go hunting one"),
+)
 _LEGEND_GLYPHS = (
     ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
     ("◎", C_GOOD,  "gank window — a lane is killable right now"),
@@ -737,6 +794,16 @@ def _render_legend(W=330):
                         "the play for when you're back, and the buy.", _wfont(10), wrapw - 4):
         d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
+
+    section("RE-ENTRY — THE 90s AFTER YOU COME BACK")
+    for ln in _wwrap(d, "two deaths inside 90s is the split that costs you games. The clock "
+                        "runs from respawn; the verdict is read off their death timers.",
+                     _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
+        y += 14
+    y += 4
+    for vd, col, txt in _LEGEND_REENTRY:
+        row(vd, col, txt, 46, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
 
@@ -872,7 +939,7 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=VOID, bd=0)
 
-    def render(rec, pulse=None, recall=None, dead=None, ref=False):
+    def render(rec, pulse=None, recall=None, dead=None, ref=False, reentry=None):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -894,11 +961,12 @@ def main():
         champ.pack_forget()
         tempo = (pulse or {}).get("tempo")
         st["hot"] = bool(dead                     # dead = solid: you're reading the plan
+                         or (reentry and reentry.get("verdict") == "HOLD")
                          or (tempo and (tempo.get("urgent") or tempo.get("phase")
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall, dead, ref=ref)
+            im = _render_body(dd, rec, pulse, recall, dead, ref=ref, reentry=reentry)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1032,6 +1100,8 @@ def main():
         voice_on = _cfg.get("tempo_voice", True)
         audio_on = _cfg.get("dragon_audio", True)
         respawn_on = _cfg.get("respawn_plan", True)
+        reentry_on = _cfg.get("re_entry", True)
+        guard90 = lre.Guard()                             # RE-ENTRY: the 90s-after-respawn window
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
@@ -1131,6 +1201,12 @@ def main():
                     dead = lt.respawn_plan(dd, raw)
                 except Exception:
                     dead = None
+            reentry = None
+            if reentry_on and raw is not None:           # RE-ENTRY: the 90s guard after respawn
+                try:
+                    reentry = guard90.observe(dd, raw)
+                except Exception:
+                    reentry = None
             # "you're up" chime: one soft two-note cue as the respawn timer crosses ~1.5s,
             # so eyes-off-screen death time ends with a nudge instead of lost seconds.
             rs = (dead or {}).get("secs")
@@ -1152,7 +1228,7 @@ def main():
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
-                       "dead": dead})
+                       "dead": dead, "reentry": reentry})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -1207,7 +1283,8 @@ def main():
                     if isinstance(msg, dict) and "rec" in msg:
                         st["last_msg"] = msg             # kept so hover can re-render in place
                         render(msg["rec"], msg.get("pulse"), msg.get("recall"),
-                               msg.get("dead"), ref=st.get("ref_view", False))
+                               msg.get("dead"), ref=st.get("ref_view", False),
+                               reentry=msg.get("reentry"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:
@@ -1274,7 +1351,7 @@ def main():
                 if m:
                     try:
                         render(m["rec"], m.get("pulse"), m.get("recall"),
-                               m.get("dead"), ref=inside)
+                               m.get("dead"), ref=inside, reentry=m.get("reentry"))
                     except Exception:
                         pass
             mode = ("hint" if st.get("ct") else "vol") if inside else None

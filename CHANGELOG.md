@@ -1,5 +1,35 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.52 - RE-ENTRY: the 90 seconds after you respawn are now guarded
+
+- **New: the RE-ENTRY guard.** Your own match history has one split bigger than any other in
+  it: games where two of your deaths landed within 90 seconds of each other were won at
+  **35% (8W-15L)**; games without that, **65% (11W-6L)**. Dying is normal. Dying *again* a
+  minute later is what actually loses the game - you walk back into a lane where you're a
+  level and a wave down, against the player who just proved he beats you there. So the moment
+  you respawn, a 90-second clock starts on the widget and answers one question off live data:
+  **can they punish you right now?**
+  - **HOLD** - *"Kha'Zix is up and ahead"*, or you simply lose any fight this second. It takes
+    over the directive card and tells you the productive thing to do instead ("reset your own
+    camps, safe side first - no counter-jungle"). This is the moment the whole feature exists for.
+  - **CLEAR** - they're a body down: *"Viego 21s - Ahri 34s - the map is yours until they're
+    back"*. Quiet row, and the Tempo engine keeps the card, because there's a real play on.
+  - **RESET** - even. Farm the window out, don't go hunting a trade.
+- **It carries its receipt.** The card prints YOUR split for the habit - *"your games where two
+  deaths landed inside 90s - with it: 8W-15L - without: 11W-6L"* - so it's your data talking,
+  not folklore. The verdict itself is read off their death timers, their item gold and their
+  levels (the same fight math the TAKE/GIVE verdict uses), never a vibe.
+- The clock is exactly the 90 seconds Smiteless already uses to tag the habit in your profile,
+  so the overlay and the post-game read are measuring the same thing. New legend section
+  explains all three verdicts. Off switch: **Settings -> In-game widget -> "Re-entry guard"**.
+- **Removed: FAVOURITE PICKS.** The ordered "my go-to champs" list in Settings, and the YOUR
+  PICKS icon row it drew in the champ-select panel, are gone. It was the largest block of
+  controls in the Settings window - a dropdown, a role filter, a list, Add/Remove/up/down - and
+  the list had never had a single champ added to it, so the row it fed had never once rendered.
+  The strip directly beneath it, **GOOD THIS GAME**, already does the same job better and
+  without being configured: it's derived from your real mastery pooled across all your accounts,
+  filtered to your role and to what's still open, and you can click a face to hover it.
+
 ## v0.9.51 - AUTO-MUTE: the game starts, everyone goes quiet
 
 - **New: AUTO-MUTE.** The moment the game clock starts, Smiteless sends Riot's own

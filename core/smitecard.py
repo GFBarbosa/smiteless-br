@@ -539,29 +539,6 @@ def _norm_role(r):
     return _ROLE_ALIAS.get((r or "").strip().lower(), (r or "").strip().lower())
 
 
-def recommend_favs(dd, my_role, taken, fav_list, topn=6):
-    """Ordered champ ids from the user's favourites still OPEN this champ select (not banned
-    or picked). A favourite tagged with a role ('Ahri, mid') only shows when it matches your
-    assigned role; untagged favourites always qualify. Recommend-only — never hovers/locks."""
-    mr = _norm_role(my_role)
-    taken = set(taken or [])
-    out, seen = [], set()
-    for entry in (fav_list or []):
-        parts = [p.strip() for p in str(entry).split(",")]
-        name = parts[0] if parts else ""
-        tag = _norm_role(parts[1]) if len(parts) > 1 and parts[1] else None
-        cid = dd["name2id"].get(dd["norm"](name)) if name else None
-        if not cid or cid in seen or cid in taken:
-            continue
-        if tag and mr and tag != mr:
-            continue
-        out.append(cid)
-        seen.add(cid)
-        if len(out) >= topn:
-            break
-    return out
-
-
 # Gank score = transparent weighted math (no AI). The champ-vs-champ matchup is the
 # BASE (dominant); the enemy laner's recent form is ~a 30% modifier that COMPOUNDS
 # with the length of their win/loss streak; and an extreme (near-0%/100% winrate or
@@ -2404,7 +2381,7 @@ def _rune_chip(d, x, y, idx, wr, sel, hits):
 
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
                        enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
-                       note=None, favs=None, auto_ban=False):
+                       note=None, auto_ban=False):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
@@ -2506,19 +2483,6 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         for i, ln in enumerate(wrapped):
             d.text((22, y + 22 + i * 14), ln, font=font(10, text="▸"), fill=TEXT)
         y += ph_ + 6
-    # YOUR favorites, in your priority order, filtered to what's still open for your role
-    # (#5, recommend-only: no hover/lock, purely "pick one of these").
-    if favs:
-        d.text((20, y), "YOUR PICKS", font=display_font(9, True), fill=GOLD)
-        xx = 20
-        for rank_i, cid in enumerate(favs[:6]):
-            fic = get_icon(dd, cid, 40)
-            if fic:
-                img.paste(fic, (xx, y + 16), fic)
-                _rrect(d, (xx, y + 16, xx + 15, y + 30), 4, fill=BG)
-                d.text((xx + 3, y + 17), str(rank_i + 1), font=display_font(9, True), fill=GOLD)
-            xx += 50
-        y += 66
     # suggested picks (horizontal icons) — click a face to HOVER it in champ select (not lock)
     d.text((20, y), "GOOD THIS GAME", font=display_font(9, True), fill=GOLD)
     if suggestions:
@@ -3398,7 +3362,6 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                 ally_ids = [c for c, _ in allies if c]
                 enemy_ids = [c for c, _ in enemies if c]
                 taken = set(bans_my) | set(bans_their) | set(ally_ids) | set(enemy_ids)
-                favs = recommend_favs(dd, my_role, taken, settings.get("fav_champs"))
                 # Ban ideas: the champ that threatens the TEAM'S hovers most (every ally's
                 # pick intent + yours, counters aggregated), falling back to your champ's
                 # counters, then to high-priority solo-q bans (bans happen before picks, so
@@ -3513,7 +3476,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        tuple(sorted((c, r) for c, r in enemies if c)), bool(build),
                        tuple(bans_my), tuple(bans_their),
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
-                       auto_note, climb_note, team_read["text"], get_rune_idx(), tuple(favs))
+                       auto_note, climb_note, team_read["text"], get_rune_idx())
                 if sig != last_cs_sig:
                     # champs you actually play, pooled across ALL your accounts (main + smurfs):
                     # the live current-account mastery merged with the cross-account aggregate.
@@ -3528,7 +3491,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              suggestions=sugg, bans=(bans_my, bans_their),
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
-                             note=(auto_note or team_read["text"] or climb_note), favs=favs,
+                             note=(auto_note or team_read["text"] or climb_note),
                              auto_ban=bool(settings.get("auto_ban", False))))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
