@@ -20,6 +20,10 @@ surfaces so we stop stepping on each other.**
   It bumps VERSION, builds, commits `Release vX.Y.Z`, pushes, and publishes a GitHub Release
   with the installer. The in-app updater reads **only** `/releases/latest` — old releases are
   pure history, leave them.
+- **Never build on top of a live game.** `make-release` is a multi-minute PyInstaller freeze +
+  installer build; running it while `tools\phasecheck.py` says GameStart/InProgress/Reconnect
+  costs him FPS in the ranked game this whole project exists to win. Poll the phase and cut the
+  release when he's out. Don't ask — just wait, then ship.
 - **Version numbering:** bump +0.0.1 (0.9.40 → 0.9.41). Never jump to 1.0 without his say-so.
 - **CHANGELOG.md first:** add an entry (top of file) before `make-release` — it feeds the
   in-app Patch Notes window. Each release needs ≥1 change the user can SEE in a minute;
