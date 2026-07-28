@@ -46,7 +46,7 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 - **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
 - **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
 - **One-click (or automatic) runes + summoners import**, multiple rune sets
-- **Climb guards** — warns when you hover a champ you barely play (sub-12k-mastery picks win ~44%, per a 1M-game study), and only suggests champs you actually main — pooled across all your accounts
+- **Climb guards** — warns when you hover a champ you barely play (sub-12k-mastery picks win ~44%, per a 1M-game study), pooled across all your accounts so a smurf pick your main knows is fine
 
 ### ⚡ In game
 - **The Tempo engine** — a live director for the ~90 seconds before every objective: your farm window, exact recall deadline, when to rotate, and a **TAKE / GIVE / 50-50 verdict** from death timers, levels and gold (fog-of-war aware). With spoken callouts: *"Base now"*, *"Rotate to dragon"*, *"Give it, trade elsewhere"*
@@ -54,7 +54,7 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 - **Enemy jungle tracker** — where they were seen, when they're dead, when to respect the gank
 - **Win probability, objective timers with audio, power-spike alerts, item coaching** — one compact draggable HUD that fades when nothing needs you, and is fully click-through during a live game so it can never eat a click (hold **Ctrl+Alt** to touch it)
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
-- **Auto-mute** — the instant the game clock starts, Smiteless sends Riot's own `/fullmute all`: chat *and* pings from every player, hidden for that game only. Your own pings still work, nothing is changed permanently, and it waits for the game window to be focused so the command is never typed anywhere else. On by default; **Settings → In-game automation**
+- **Auto-mute** — a few seconds into the game Smiteless types Riot's own `/fullmute all` for you: chat *and* ping markers from every player, gone for that game. Your own pings still work, and it waits for the game window to be focused so the command is never typed anywhere else. Underneath that it also sets League's own options (ally chat off, all-chat off, ping audio off) and verifies them by reading them back — those persist until you turn them off. On by default; **Settings → In-game quiet**
 - **The Loading-Screen Scout** — while the game loads, ten tall portrait cards (Riot's own loading art, laid out like the real loading screen) read every ACCOUNT in the lobby: rank + LP + season record, last-10 form bars, KDA, mastery, record on the locked champ, a performance grade, and profile tags mined from their real history — `duo`, `SMURF READ`, `OTP · 612k pts`, `4L streak · tilt risk`, `first-time?`, `off-role`, `carries games`, `hardstuck`. Gone the instant the game starts
 
 ### 🚦 Before you queue

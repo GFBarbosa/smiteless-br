@@ -1,5 +1,28 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.57 - champ select recommends what's GOOD, not what you already own
+
+- **"GOOD THIS GAME" now uses the web DraftBoard's algorithm - because it was mostly showing
+  you nothing.** The champ-select panel and the web board have always shared one scoring
+  function (counters into the locked enemies + comp fit), but champ select was passing your
+  pooled mastery into it, which applied a HARD 12,000-point gate on top. The result, on your
+  own account, right now:
+
+  | role | before | after |
+  |---|---|---|
+  | jungle | *(nothing at all)* | Nunu, Xin Zhao, Master Yi, Sylas, Lee Sin |
+  | adc | *(nothing at all)* | Hwei, Viktor, Samira, Seraphine, Xerath |
+  | mid | Yasuo | Anivia, Katarina, Veigar, Lissandra, Twisted Fate |
+  | top | Cho'Gath, Yasuo | Warwick, Kayle, Mordekaiser, Locke, Gragas |
+
+  For your main role it was rendering an empty strip and the line "no 12k+ mastery picks for
+  this role". A list of champs you already play is not something you need an overlay to tell
+  you; what's strong into *this* draft is. Same change on the queue card.
+- **The climb guard is untouched.** Hover something you barely play and you still get
+  *"⚠ 4k mastery pick — sub-12k wins ~44% (1M-game study)"*. The warning was always the useful
+  half of that idea; silently deleting the recommendations was not.
+- Click a suggested face to hover it, exactly as before.
+
 ## v0.9.56 - auto-mute works. The bug was one missing scan code.
 
 - **`/fullmute all` is back, and this time chat actually opens.** Four releases of "fixing" this

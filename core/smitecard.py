@@ -2495,7 +2495,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
-        d.text((20, y + 20), "no 12k+ mastery picks for this role", font=font(10), fill=MUTED)
+        d.text((20, y + 20), "suggestions load in a moment…", font=font(10), fill=MUTED)
     y += 66
     # bans/draft band — one railed card wrapping GOOD BANS + lobby BANS + ENEMY PICKS,
     # BAD rail (UIDESIGN §5.1). Numbers move to Bahnschrift; slash icons are unchanged.
@@ -3283,8 +3283,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             sugg = None
             if q.get("roles") and q.get("queue") not in _NO_ROLE_QUEUES:
                 try:
-                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # queue card: same rule as champ select — what's strong, not what you own
+                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6, fam=None)
                 except Exception:
                     sugg = None
             emit(render_queue_card(dd, q, sugg))
@@ -3487,10 +3487,14 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
                        auto_note, climb_note, team_read["text"], get_rune_idx())
                 if sig != last_cs_sig:
-                    # champs you actually play, pooled across ALL your accounts (main + smurfs):
-                    # the live current-account mastery merged with the cross-account aggregate.
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # WHAT'S GOOD THIS GAME — the same call the web DraftBoard makes (fam=None):
+                    # counters into the locked enemies + comp fit, ranked on merit alone.
+                    # It used to pass your pooled mastery, which applied a HARD 12k+ gate and
+                    # turned this into "champs you already play" — a list you don't need an
+                    # overlay to tell you. The climb warning above still fires if you hover
+                    # something you don't know, so the guard isn't lost, just moved off the
+                    # recommendation.
+                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5, fam=None)
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     if settings.get("dock_champ_select", True):
