@@ -216,10 +216,14 @@ def ban_watch_update(dd, targets, avoid, enabled):
 # turn comes this hovers the first one that's still available and LOCKS it. No deliberating, no
 # last-second "I'll try something", no autofilled off-champ — the single highest-confidence
 # climbing lever there is, enforced instead of intended.
-PICK_WAIT_MS = 8000        # lock with this much left on the clock (later than the ban: a
-                           # teammate may still trade/hover, and locking early kills that)
+# Hover, let the client register it (that's what feeds auto-import its champ), then LOCK.
+# Deliberately NOT "wait for the end of the timer like the auto-ban does": the ban gets sharper
+# the longer you wait for teammates to hover, a pick doesn't. Sitting hovered just invites
+# someone to argue for your lane. MAX ELO's whole promise is that the pick is not a discussion.
+PICK_SETTLE_S = 2.5
 _PICK_LOG = os.path.expanduser("~/.claude/smiteless_pick.log")
 _PICK_LOG_STATE = {"last": ""}
+_PICK_HOVER = {"action": None, "cid": 0, "ts": 0.0}   # when we first hovered this pick action
 
 
 def _picklog(msg, dedupe=False):
@@ -273,16 +277,18 @@ def auto_pick(dd, cids):
                  f"standing down, pick it yourself")
         return None
     label = nm.get(want, str(want))
-    tmr = sess.get("timer") or {}
-    left = tmr.get("adjustedTimeLeftInPhase")
-    if (not tmr.get("isInfinite")) and isinstance(left, (int, float)) and left > PICK_WAIT_MS:
-        try:                                     # hover early so the team sees it + we get runes
+    # Hover ONCE (not a PATCH every poll), then lock a beat later. The hover is what makes the
+    # client - and our own auto-import - agree on which champion this is before it's final.
+    if _PICK_HOVER["action"] != action_id or _PICK_HOVER["cid"] != want:
+        _PICK_HOVER.update(action=action_id, cid=want, ts=time.monotonic())
+        try:
             _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
                       {"championId": want})
         except Exception:
             pass
-        _picklog(f"hovering {label}, locking at {PICK_WAIT_MS // 1000}s "
-                 f"({int(left) // 1000}s left)", dedupe=True)
+        _picklog(f"hovering {label} — locking in {PICK_SETTLE_S:.1f}s")
+        return None
+    if (time.monotonic() - _PICK_HOVER["ts"]) < PICK_SETTLE_S:
         return None
     try:
         _lcu_json("PATCH", f"/lol-champ-select/v1/session/actions/{action_id}",
@@ -327,6 +333,8 @@ def pick_watch_update(dd, cids, enabled):
     """Same contract as ban_watch_update: the champ-select render loop refreshes this every
     poll, and a dedicated 1s thread does the actual locking. The render loop can stall for
     seconds on network work — far too slow to hit an 8s firing window."""
+    if not enabled or not cids:            # a fresh draft must never inherit a stale hover clock
+        _PICK_HOVER.update(action=None, cid=0, ts=0.0)
     _PICK_WATCH.update(dd=dd, cids=list(cids or []), on=bool(enabled))
     th = _PICK_WATCH.get("thread")
     if th and th.is_alive():

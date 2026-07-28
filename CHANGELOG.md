@@ -1,5 +1,20 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.54 - MAX ELO locks your champ immediately, not at the buzzer
+
+- **The auto-lock no longer sits there hovering.** v0.9.53 hovered your champion the moment your
+  pick turn opened and then waited until the last 8 seconds of the timer to lock it - copied from
+  the auto-ban, where waiting genuinely helps (every extra second of teammate hovers sharpens the
+  ban math). A pick gets nothing from waiting; it just leaves you hovered for 20 seconds while
+  someone types "can I mid". It now hovers, gives the client **2.5 seconds** to register it (which
+  is what feeds auto-import the right champion), and **locks**. The pick is not a discussion.
+- It also stopped re-sending the hover every single second while it waited, and a new draft can no
+  longer inherit the previous one's hover clock.
+- **The self-test now drives the whole auto-lock through a simulated champ select** - main free,
+  main banned, main taken by an ally, both gone, not your turn, no pool - because this is a thing
+  you cannot trigger on demand, and a break means finding out mid-draft with a champion you didn't
+  ask for and no way back.
+
 ## v0.9.53 - the MAX ELO button, and auto-mute actually mutes now
 
 - **New: MAX ELO.** One button at the top of Settings. Name your champion and a backup, hit

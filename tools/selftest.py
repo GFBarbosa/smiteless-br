@@ -158,6 +158,61 @@ def c_maxelo():
     return OK, f"{len(cfg.MAX_ELO_ON)} climb toggles, all real; auto-lock present"
 
 
+def c_autolock():
+    """MAX ELO's auto-LOCK, against a simulated champ-select session. This can't be triggered
+    on demand in a real client, and a break means you find out by getting a champion you didn't
+    ask for, mid-draft, with no way back. So every branch runs here every time."""
+    import lolbuild as lb, lolimport as limp
+    dd = lb.ddragon()
+    YAS, YONE = dd["name2id"]["yasuo"], dd["name2id"]["yone"]
+    real = limp._lcu_json
+
+    class Fake:                                  # PATCH sets intent; completed (or POST) locks
+        def __init__(self, bans=(), locked=(), in_progress=True):
+            self.act = {"id": 7, "actorCellId": 0, "type": "pick", "isInProgress": in_progress,
+                        "completed": False, "championId": 0}
+            self.bans, self.locked = list(bans), list(locked)
+
+        def __call__(self, method, path, payload=None, timeout=5):
+            if method == "GET":
+                other = [{"id": 9, "actorCellId": 3, "type": "pick", "completed": True,
+                          "championId": c} for c in self.locked]
+                return {"localPlayerCellId": 0, "timer": {"adjustedTimeLeftInPhase": 27000},
+                        "bans": {"myTeamBans": self.bans, "theirTeamBans": []},
+                        "myTeam": [], "actions": [[self.act], other]}
+            if method == "PATCH":
+                self.act["championId"] = payload.get("championId", 0)
+                self.act["completed"] = self.act["completed"] or bool(payload.get("completed"))
+            if method == "POST" and path.endswith("/complete"):
+                self.act["completed"] = True
+            return {}
+
+    def lock(fake, pool, settle=True):
+        limp._lcu_json = fake
+        limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp.auto_pick(dd, pool)                 # tick 1: hover only, never a lock
+        if settle:
+            limp._PICK_HOVER["ts"] -= limp.PICK_SETTLE_S + 0.1
+        return limp.auto_pick(dd, pool)          # tick 2: the lock
+
+    try:
+        cases = [("main free", Fake(), [YAS, YONE], YAS),
+                 ("main banned -> backup", Fake(bans=[YAS]), [YAS, YONE], YONE),
+                 ("main taken -> backup", Fake(locked=[YAS]), [YAS, YONE], YONE),
+                 ("both gone", Fake(bans=[YAS], locked=[YONE]), [YAS, YONE], None),
+                 ("not my turn", Fake(in_progress=False), [YAS, YONE], None),
+                 ("no pool", Fake(), [], None)]
+        bad = [n for n, f, pool, want in cases if lock(f, pool) != want]
+        if lock(Fake(), [YAS, YONE], settle=False) is not None:
+            bad.append("locked before the hover settled")
+        limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+    finally:
+        limp._lcu_json = real
+    if bad:
+        return FAIL, "auto-lock wrong on: " + "; ".join(bad)
+    return OK, "hover-then-lock, ban/taken fallback to backup, stands down when both are gone"
+
+
 def c_lcu():
     import lolgame as lg, lolbuild as lb
     lc = lg._lcu()
@@ -184,6 +239,7 @@ def main():
         ("Re-entry guard (90s window)", c_reentry),
         ("Auto-mute (keystroke path)", c_mute),
         ("MAX ELO (one-switch arming)", c_maxelo),
+        ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:
