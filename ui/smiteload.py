@@ -12,6 +12,7 @@ Read-only off the local client + the user's own Riot key (loading exposes summon
 LCU resolves to real riot ids, so the full scout works here).
 """
 import sys, os, time, threading, ctypes
+import concurrent.futures as _futures
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):
@@ -47,63 +48,73 @@ _TIER_COL = {"iron": (150, 130, 120), "bronze": (176, 120, 84), "silver": (158, 
              "challenger": (128, 205, 255)}
 
 
+# Riot IDs are not Latin-only. Segoe UI has no CJK coverage and PIL does no font-linking, so a
+# name like 没有人 drew as three tofu boxes on the board — the account we're scouting, unreadable.
+# Anything past the Latin/Greek/Cyrillic block goes through a font that actually has the glyphs.
+_NAME_FALLBACKS = ("msyh.ttc", "msjh.ttc", "malgun.ttf", "meiryo.ttc", "seguisym.ttf")
+_NAME_F = {}
+
+
+def _name_font(txt, sz):
+    if all(ord(c) < 0x0590 for c in txt):
+        return _wfont(sz, True)
+    if sz not in _NAME_F:
+        from PIL import ImageFont
+        f = None
+        for cand in _NAME_FALLBACKS:
+            try:
+                f = ImageFont.truetype(cand, sz)
+                break
+            except Exception:
+                continue
+        _NAME_F[sz] = f or _wfont(sz, True)
+    return _NAME_F[sz]
+
+
 def _tier_color(rank):
     return _TIER_COL.get((rank or "").split()[0].lower(), C_MUTED) if rank else C_MUTED
 
 
-def _cached_icon(dd, cid, size):
-    """Champion square icon ONLY if already cached (memory/disk) — never downloads, so it can't
-    block the render thread. The fetch worker warms the cache; misses just render a placeholder."""
-    ck = (cid, size)
-    if ck in sc._ICONS:
-        return sc._ICONS[ck]
-    key = dd.get("id2key", {}).get(cid)
-    if not key:
-        return None
-    fp = os.path.join(sc.ICONCACHE, dd["ver"], key + ".png")
-    if os.path.exists(fp):
-        try:
-            from PIL import Image
-            im = Image.open(fp).convert("RGBA").resize((size, size))
-            sc._ICONS[ck] = im
-            return im
-        except Exception:
-            return None
-    return None
+def _cached_art(cid, size):
+    """The card's tall portrait ONLY if already in smitecard's memory cache — never downloads,
+    so the render thread can't stall. The fetch worker warms these."""
+    return sc._LOADART.get((cid, size)) or sc._SPLASH.get((cid, size))
+
+
+CARD_ASPECT = 0.60          # w/h — Riot's own loading portrait is 308x560 (0.55)
 
 
 def _geom(W, H):
-    """Card-grid geometry for the loading board: five tall splash cards per team, two teams
-    stacked (yours on top, theirs below). Returns a dict the renderer and the icon-warmer both
-    read, so every splash banner is warmed at EXACTLY the size a card will crop it to (cache
-    hit, never a stall on the render thread)."""
+    """Card-grid geometry for the loading board: five TALL portrait cards per team, two teams
+    stacked (yours on top, theirs below). Returns a dict the renderer and the art-warmer both
+    read, so every card's art is warmed at EXACTLY the size it will be cropped to (cache hit,
+    never a stall on the render thread).
+
+    The card is a tall rectangle like the real League loading screen — so HEIGHT is the fixed
+    quantity (fill the row) and width follows from it. Deriving the card from the available
+    WIDTH instead is what produced the old letterboxed strip: five full-bleed columns on a
+    16:9 screen can only ever be short and wide. The art fills the whole card; the read sits
+    on a scrim over its lower half."""
     s = max(0.70, min(1.75, H / 1080.0))
     def S(v): return int(v * s)
     cols = 5
-    M = S(30)                                   # outer margin
+    M = S(26)                                   # outer margin
     header_h, footer_h = S(50), S(58)
-    col_gap, row_gap = S(14), S(16)
-    grid_w = W - 2 * M
-    card_w = (grid_w - (cols - 1) * col_gap) // cols
+    # the row gap has to clear the ENEMY TEAM label that hangs under the ally row
+    min_gap, row_gap = S(12), S(34)
+    avail_w = W - 2 * M
     avail_h = H - header_h - footer_h - 2 * M
-    # A BANNER IS WIDE AND SHORT. The art strip is sized off the card's WIDTH (a fixed ~2.4:1
-    # letterbox), not off its height — height-based sizing is what made it a near-square block.
-    banner_h = int(card_w / 2.4)
-    # Card height follows its CONTENT (banner + portrait + stats + two tag rows + damage bar)
-    # instead of stretching to fill the screen, which would leave a dead void under the art.
-    card_h = min((avail_h - row_gap) // 2, banner_h + int(card_w * 0.63))
-    # cards no longer stretch to fill, so center the two rows in the space between the header
-    # and the bottom-pinned footer — the leftover breathing room sits evenly, not in one lump.
+    card_h = (avail_h - row_gap) // 2
+    # portrait width from the row height, but never wider than an even five-across split
+    card_w = min((avail_w - (cols - 1) * min_gap) // cols, int(card_h * CARD_ASPECT))
+    # narrow cards leave horizontal slack: spend it on the column gaps (up to a cap) and
+    # center what's left, so the board reads as a deliberate row and not a hugged-left grid
+    slack = avail_w - (cols * card_w + (cols - 1) * min_gap)
+    col_gap = min_gap + max(0, min(slack // (cols - 1), S(58)))
     grid_top = M + header_h + max(0, (avail_h - (2 * card_h + row_gap)) // 2)
     return {"s": s, "S": S, "cols": cols, "M": M, "header_h": header_h, "footer_h": footer_h,
             "col_gap": col_gap, "row_gap": row_gap, "card_w": card_w, "card_h": card_h,
-            "banner_h": banner_h, "grid_top": grid_top, "W": W, "H": H}
-
-
-def _cached_splash(cid, size):
-    """Face-cropped splash ONLY if already in smitecard's memory cache — never downloads,
-    so the render thread can't stall. The fetch worker warms these."""
-    return sc._SPLASH.get((cid, size))
+            "grid_top": grid_top, "W": W, "H": H}
 
 
 def _grade_of(perf):
@@ -193,21 +204,6 @@ def _by_lane(rows):
     return out + spare                      # anything left over (>5 rows) still renders
 
 
-def _circle_icon(img, d, dd, cid, cx, cy, r, ring_col, S):
-    """Champ portrait as a ringed circle, straddling the banner/body seam (the porofessor
-    signature). Draws a filled disc first so a missing icon still reads as a portrait slot."""
-    from PIL import Image, ImageDraw
-    d.ellipse([cx - r - S(3), cy - r - S(3), cx + r + S(3), cy + r + S(3)], fill=C_VOID)
-    ic = _cached_icon(dd, cid, r * 2)
-    if ic:
-        mask = Image.new("L", (r * 2, r * 2), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, r * 2, r * 2), fill=255)
-        img.paste(ic, (cx - r, cy - r), mask)
-    else:
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=C_RAISED)
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=ring_col, width=max(2, S(2)))
-
-
 def _dmg_split(dd, cid):
     """(ad_frac, ap_frac, label) — the champ's damage lean from Data Dragon's attack/magic
     info (0-10 each). Not a per-game stat; a stable profile read that's always available, so
@@ -222,184 +218,113 @@ def _dmg_split(dd, cid):
     return adf, 1 - adf, label
 
 
+# Tag text is EVIDENCE ("off-champ · 6 of last 10 on Ahri") — on a portrait-width card the
+# chip has to stay narrow enough that the evidence survives instead of eliding to "on A…".
+_PILL_F, _PILL_PAD, _PILL_MAX = 10, 9, 38
+
+
+def _pill_txt(txt):
+    return txt if len(txt) <= _PILL_MAX else txt[:_PILL_MAX - 1] + "…"
+
+
+def _pill_w(d, txt, S):
+    """Laid-out width of a tag chip — the bottom-up card has to measure a row before it knows
+    where to start drawing it."""
+    return int(d.textlength(_pill_txt(txt), font=_wfont(S(_PILL_F), True))) + S(_PILL_PAD * 2)
+
+
 def _pill(d, x, y, txt, col, maxx, S, primary=False):
     """One tag chip. The first tag is the sharpest read -> filled; the rest sit quiet."""
-    f = _wfont(S(11), True)
-    txt = txt if len(txt) <= 30 else txt[:29] + "…"
-    w = int(d.textlength(txt, font=f))
-    if x + w + S(13) > maxx:
+    f = _wfont(S(_PILL_F), True)
+    txt = _pill_txt(txt)
+    w = int(d.textlength(txt, font=f)) + S(_PILL_PAD * 2)
+    if x + w > maxx:
         return None
     if primary:
-        d.rounded_rectangle([x, y, x + w + S(12), y + S(20)], S(9),
-                            fill=tuple(int(c * 0.26) for c in col))
-        d.text((x + S(6), y + S(3)), txt, font=f, fill=col)
+        d.rounded_rectangle([x, y, x + w, y + S(19)], S(9),
+                            fill=tuple(int(c * 0.30) for c in col))
+        d.text((x + S(_PILL_PAD), y + S(3)), txt, font=f, fill=col)
     else:
-        d.rounded_rectangle([x, y, x + w + S(12), y + S(20)], S(9), fill=C_SUNKEN,
+        d.rounded_rectangle([x, y, x + w, y + S(19)], S(9), fill=C_SUNKEN,
                             outline=tuple(int(c * 0.42) for c in col), width=1)
-        d.text((x + S(6), y + S(3)), txt, font=f, fill=tuple(int(c * 0.85) for c in col))
-    return x + w + S(12) + S(5)
+        d.text((x + S(_PILL_PAD), y + S(3)), txt, font=f, fill=tuple(int(c * 0.85) for c in col))
+    return x + w + S(5)
 
 
 def _player_card(img, d, dd, r, x, y, cw, ch, g, side_col, scouted):
-    """One player: a tall splash card in the profile's visual language — splash banner with
-    champ + summoner name, a ringed portrait on the seam, rank badge, mastery, the recent-form
-    read (win% · games · KDA + last-10 bars), the profile tag pills, and a damage-lean bar."""
+    """One player as a TALL loading-screen card: Riot's own portrait art filling the whole
+    rectangle, the read laid over a scrim on its lower half — champ + summoner name, rank
+    badge, mastery, the recent-form read (win% · games · KDA + last-10 bars), the profile tag
+    pills, and a damage-lean bar."""
     from PIL import Image, ImageDraw
     S = g["S"]
-    banner_h = g["banner_h"]
-    rad = S(12)
+    rad = S(10)
     is_me = bool(r.get("me"))
     cid = r.get("cid", 0)
+    cxc = x + cw // 2
 
-    d.rounded_rectangle([x, y, x + cw, y + ch], rad, fill=C_SURF)
-
-    # ---- splash banner ----
-    # The art is a BANNER, not a pasted thumbnail: it fills the card's shoulders and then
-    # dissolves into the body on every open edge (a long vertical ramp plus a soft vignette
-    # down each side), so there's no hard rectangle boundary anywhere. The dissolve is
-    # clipped by the card's own rounded silhouette so the corners stay round.
-    from PIL import ImageChops
-    shape = Image.new("L", (cw, banner_h), 0)            # the card's top silhouette
-    sd = ImageDraw.Draw(shape)
-    sd.rounded_rectangle((0, 0, cw - 1, banner_h - 1), radius=rad, fill=255)
-    sd.rectangle((0, banner_h // 2, cw, banner_h), fill=255)
-    art = _cached_splash(cid, (cw, banner_h))
+    # ---- the art IS the card ----
+    # A rounded-rectangle mask keeps the corners soft; a bottom-up scrim (opaque at the
+    # baseline, gone by mid-card) carries the text without dimming the champ's face.
+    shape = Image.new("L", (cw, ch), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=rad, fill=255)
+    art = _cached_art(cid, (cw, ch))
+    img.paste(Image.new("RGB", (cw, ch), C_RAISED if art else C_SURF), (x, y), shape)
     if art:
         img.paste(art, (x, y), shape)
-        fade_h = max(2, int(banner_h * 0.42))            # short strip -> keep most of it visible
-        vg = Image.new("L", (1, banner_h), 0)
-        vg.putdata([0] * (banner_h - fade_h)
-                   + [int((i / max(1, fade_h - 1)) ** 1.45 * 255) for i in range(fade_h)])
-        veil = vg.resize((cw, banner_h))
-        edge = max(3, int(cw * 0.11))                    # soft side vignette
-        hg = Image.new("L", (cw, 1), 0)
-        hg.putdata([int((1 - min(px, cw - 1 - px) / edge) ** 1.7 * 165)
-                    if min(px, cw - 1 - px) < edge else 0 for px in range(cw)])
-        veil = ImageChops.lighter(veil, hg.resize((cw, banner_h)))
-        veil = ImageChops.darker(veil, shape)            # never bleed past the rounded edge
-        img.paste(Image.new("RGB", (cw, banner_h), C_SURF), (x, y), veil)
-    else:
-        img.paste(Image.new("RGB", (cw, banner_h), C_RAISED), (x, y), shape)
+        # The scrim has to WIN: bright art (Teemo's fur, Samira's skin) sat right under the
+        # win% and KDA and ate them. So the bottom third is effectively solid, with a long
+        # ramp above it that reaches zero around mid-card — the champ's face stays untouched,
+        # everything the eye has to read sits on near-flat ground.
+        solid_h, scrim_h = int(ch * 0.34), int(ch * 0.70)
+        ramp = scrim_h - solid_h
+        vg = Image.new("L", (1, ch), 0)
+        vg.putdata([0] * (ch - scrim_h)
+                   + [int((i / max(1, ramp - 1)) ** 1.25 * 236) for i in range(ramp)]
+                   + [236] * solid_h)
+        from PIL import ImageChops
+        veil = ImageChops.darker(vg.resize((cw, ch)), shape)   # never bleed past the rounded edge
+        img.paste(Image.new("RGB", (cw, ch), C_VOID), (x, y), veil)
+        # a whisper of overall shade so a blown-out splash can't out-shout the chrome on it
+        img.paste(Image.new("RGB", (cw, ch), C_VOID), (x, y), shape.point(lambda v: v * 42 // 255))
 
     # side identity: a thin colored cap along the top edge
     d.rounded_rectangle([x + rad, y, x + cw - rad, y + S(4)], S(2), fill=side_col)
 
-    # rank badge, top-right on the banner
+    # rank badge, top-right over the art
     rk = r.get("rank_full")
     if rk and rk.get("tier"):
         rs, rcol = sc.rank_str(rk)
         rf = _dfont(S(13))
         rw = int(d.textlength(rs, font=rf))
-        bx1 = x + cw - S(9)
+        bx1 = x + cw - S(8)
         d.rounded_rectangle([bx1 - rw - S(12), y + S(9), bx1, y + S(9) + S(21)], S(6),
-                            fill=tuple(int(c * 0.30) for c in rcol),
-                            outline=tuple(int(c * 0.55) for c in rcol), width=1)
+                            fill=tuple(int(c * 0.34) for c in rcol),
+                            outline=tuple(int(c * 0.60) for c in rcol), width=1)
         d.text((bx1 - S(6), y + S(11)), rs, font=rf, fill=rcol, anchor="ra")
 
-    # champ name, lifted clear of the portrait with a dark shadow so it reads over the splash
-    cxc = x + cw // 2
-    champ = (r.get("champ") or "?")
-    nf = _dfont(S(19))
-    d.text((cxc + S(1), y + banner_h - S(53) + S(1)), champ.upper(), font=nf, fill=C_VOID, anchor="mm")
-    d.text((cxc, y + banner_h - S(53)), champ.upper(), font=nf,
-           fill=(C_EMBER if is_me else C_TXT), anchor="mm")
-
-    # ---- portrait on the seam ----
-    pr = S(28)
-    ring = C_EMBER if is_me else side_col
-    _circle_icon(img, d, dd, cid, cxc, y + banner_h, pr, ring, S)
-
-    # mastery pip on the portrait corner (a main/OTP earns the ember)
+    # mastery chip, top-left (a main/OTP earns the ember)
     pts = r.get("pts", 0)
     if pts:
         mcol = C_EMBER if pts >= 100_000 else C_MUTED
         mtxt = f"{pts // 1000}k"
-        mf = _wfont(S(9), True)
+        mf = _wfont(S(10), True)
         mw = int(d.textlength(mtxt, font=mf))
-        mbx = cxc + pr - S(2)
-        d.rounded_rectangle([mbx - mw - S(7), y + banner_h + pr - S(14),
-                             mbx + S(1), y + banner_h + pr], S(7),
+        d.rounded_rectangle([x + S(8), y + S(9), x + S(8) + mw + S(12), y + S(9) + S(21)], S(6),
                             fill=C_VOID, outline=tuple(int(c * 0.6) for c in mcol), width=1)
-        d.text((mbx - S(3), y + banner_h + pr - S(13)), mtxt, font=mf, fill=mcol, anchor="ra")
+        d.text((x + S(14), y + S(12)), mtxt, font=mf, fill=mcol)
 
-    cy = y + banner_h + pr + S(10)
+    # ---- the read ----
+    # Laid out TOP-DOWN from one fixed line (48% of the card), so champ names align straight
+    # across the row the way the real loading screen does. Growing it up from the card bottom
+    # instead makes every card's identity float to a different height depending on how many
+    # tags that player earned — five ransom-note columns.
+    iy = y + int(ch * 0.48)
+    dmg_bar_y = y + ch - S(24)
 
-    # ---- summoner name + role ----
-    player = r.get("player") or ""
-    nm = player.split("#")[0] if player else ("scouting…" if not scouted else "account hidden")
-    d.text((cxc, cy), nm[:18], font=_wfont(S(13), True),
-           fill=(C_TXT if player else C_FAINT), anchor="mm")
-    meta = " · ".join(p for p in (r.get("role"), r.get("dmg")) if p)
-    d.text((cxc, cy + S(17)), meta, font=_wfont(S(10)),
-           fill=_DMG_C.get(r.get("dmg"), C_MUTED), anchor="mm")
-    cy += S(34)
-
-    # ---- recent form read: win% · games · KDA ----
-    n, w = r.get("n", 0), r.get("w", 0)
-    ix = x + S(13)
-    if n:
-        wr = round(w / n * 100)
-        wcol = sc._wr_color(wr)
-        d.text((ix, cy), f"{wr}%", font=_dfont(S(22)), fill=wcol)
-        d.text((ix, cy + S(25)), f"{w}W {n - w}L · {n}g", font=_wfont(S(10)), fill=C_MUTED)
-        if r.get("kdar") is not None:
-            d.text((x + cw - S(13), cy + S(2)), f"{r['kdar']}", font=_dfont(S(20)),
-                   fill=C_TXT, anchor="ra")
-            d.text((x + cw - S(13), cy + S(24)), "KDA", font=_wfont(S(9), True),
-                   fill=C_FAINT, anchor="ra")
-            if r.get("kavg"):
-                d.text((x + cw - S(40), cy + S(24)), r["kavg"], font=_wfont(S(9)),
-                       fill=C_MUTED, anchor="ra")
-        # last-10 form bars, centered under the numbers
-        form = r.get("form") or []
-        if form:
-            bw, bg = S(11), S(3)
-            tot = len(form[:10]) * (bw + bg) - bg
-            bx = cxc - tot // 2
-            for wn in reversed(form[:10]):
-                d.rounded_rectangle([bx, cy + S(44), bx + bw, cy + S(50)], S(2),
-                                    fill=(C_GOOD if wn else C_BAD))
-                bx += bw + bg
-        cy += S(58)
-        # this-champ record
-        if r.get("cg"):
-            cwn = r["cw"]
-            col = C_GOOD if cwn * 2 >= r["cg"] else C_BAD
-            d.text((cxc, cy), f"{cwn}-{r['cg'] - cwn} on {champ}", font=_wfont(S(10), True),
-                   fill=col, anchor="mm")
-        elif scouted:
-            d.text((cxc, cy), "champ not in recents", font=_wfont(S(9)), fill=C_FAINT, anchor="mm")
-        cy += S(16)
-    else:
-        d.text((cxc, cy + S(6)), ("reading account…" if not scouted else "no recent ranked"),
-               font=_wfont(S(11)), fill=C_FAINT, anchor="mm")
-        cy += S(30)
-
-    # ---- tag pills (up to 3 wrapping rows) ----
-    tags = list(r.get("tags") or [])
-    if not tags and r.get("phrases"):
-        tags = [(p, "neutral") for p in r["phrases"][:3]]
-    txmax = x + cw - S(10)
-    dmg_bar_y = y + ch - S(26)
-    ti = 0
-    ry = cy
-    while ry + S(20) <= dmg_bar_y - S(6) and ti < len(tags):
-        px = x + S(10)
-        placed = False
-        while ti < len(tags):
-            txt, tone = tags[ti]
-            nx = _pill(d, px, ry, txt, _TONE_C.get(tone, C_MUTED), txmax, S, primary=(ti == 0))
-            if nx is None:
-                break
-            px, placed = nx, True
-            ti += 1
-        if not placed:                                   # a pill too wide for a whole row
-            ti += 1
-        ry += S(25)
-
-    # ---- damage-lean bar, pinned to the card bottom ----
-    adf, apf, label = _dmg_split(dd, cid)
-    bx0, bx1 = x + S(12), x + cw - S(12)
+    # damage-lean bar, pinned to the card bottom
+    adf, apf, _label = _dmg_split(dd, cid)
+    bx0, bx1 = x + S(10), x + cw - S(10)
     bw = bx1 - bx0
     by = dmg_bar_y
     d.rounded_rectangle([bx0, by, bx1, by + S(14)], S(5), fill=C_SUNKEN)
@@ -411,6 +336,77 @@ def _player_card(img, d, dd, r, x, y, cw, ch, g, side_col, scouted):
     d.text((bx0 + S(6), by + S(1)), f"{round(adf * 100)}% AD", font=_wfont(S(9), True), fill=C_VOID)
     d.text((bx1 - S(6), by + S(1)), f"{round(apf * 100)}% AP", font=_wfont(S(9), True),
            fill=C_VOID, anchor="ra")
+
+    # ---- identity: champ name, summoner name, role · damage ----
+    row_scouted = bool(r.get("scouted"))
+    player = r.get("player") or ""
+    nm = player.split("#")[0] if player else ("scouting…" if not row_scouted else "account hidden")
+    champ = (r.get("champ") or "?").upper()
+    nf = _dfont(S(20))
+    d.text((cxc + S(1), iy + S(1)), champ, font=nf, fill=C_VOID, anchor="mm")   # shadow
+    d.text((cxc, iy), champ, font=nf, fill=(C_EMBER if is_me else C_TXT), anchor="mm")
+    nm = nm[:18]
+    d.text((cxc, iy + S(21)), nm, font=_name_font(nm, S(13)),
+           fill=(C_TXT if player else C_FAINT), anchor="mm")
+    meta = " · ".join(p for p in (r.get("role"), r.get("dmg")) if p)
+    if meta:
+        d.text((cxc, iy + S(37)), meta, font=_wfont(S(10)),
+               fill=_DMG_C.get(r.get("dmg"), C_MUTED), anchor="mm")
+
+    # ---- the account read: win% · W-L · KDA, last-10 form, this-champ record ----
+    n, w = r.get("n", 0), r.get("w", 0)
+    sy = iy + S(54)
+    if n:
+        wr = round(w / n * 100)
+        d.text((x + S(10), sy), f"{wr}%", font=_dfont(S(21)), fill=sc._wr_color(wr))
+        d.text((x + S(10), sy + S(24)), f"{w}W {n - w}L", font=_wfont(S(10)), fill=C_MUTED)
+        if r.get("kdar") is not None:
+            d.text((x + cw - S(10), sy + S(2)), f"{r['kdar']}", font=_dfont(S(19)),
+                   fill=C_TXT, anchor="ra")
+            d.text((x + cw - S(10), sy + S(24)), "KDA", font=_wfont(S(9), True),
+                   fill=C_FAINT, anchor="ra")
+        form = r.get("form") or []
+        if form:
+            bw2, bg2 = S(10), S(3)
+            tot = len(form[:10]) * (bw2 + bg2) - bg2
+            bx = cxc - tot // 2
+            for wn in reversed(form[:10]):
+                d.rounded_rectangle([bx, sy + S(41), bx + bw2, sy + S(47)], S(2),
+                                    fill=(C_GOOD if wn else C_BAD))
+                bx += bw2 + bg2
+        if r.get("cg"):
+            cwn = r["cw"]
+            d.text((cxc, sy + S(59)), f"{cwn}-{r['cg'] - cwn} on {r.get('champ') or '?'}",
+                   font=_wfont(S(10), True),
+                   fill=(C_GOOD if cwn * 2 >= r["cg"] else C_BAD), anchor="mm")
+        elif row_scouted:
+            d.text((cxc, sy + S(59)), "champ not in recents", font=_wfont(S(9)),
+                   fill=C_FAINT, anchor="mm")
+    elif row_scouted:
+        d.text((cxc, sy + S(20)), "no recent ranked", font=_wfont(S(11)), fill=C_FAINT, anchor="mm")
+    # a row still being read says so once, in the name slot ("scouting…") — no second placeholder
+
+    # ---- tag pills: as many rows as fit between the read and the damage bar ----
+    tags = list(r.get("tags") or [])
+    if not tags and r.get("phrases"):
+        tags = [(p, "neutral") for p in r["phrases"][:3]]
+    ty, ti = sy + S(72), 0
+    while ty + S(19) <= dmg_bar_y - S(6) and ti < len(tags):
+        px, placed = x + S(8), False
+        while ti < len(tags):
+            txt, tone = tags[ti]
+            nx = _pill(d, px, ty, txt, _TONE_C.get(tone, C_MUTED), x + cw - S(8), S,
+                       primary=(ti == 0))
+            if nx is None:
+                if not placed and _pill_w(d, txt, S) > cw - S(16):
+                    ti += 1                              # too wide for any row -> drop it
+                    continue
+                break
+            px, placed = nx, True
+            ti += 1
+        if not placed:
+            break
+        ty += S(23)
 
     if is_me:                                        # find yourself instantly: an ember frame
         d.rounded_rectangle([x, y, x + cw, y + ch], rad, outline=C_EMBER, width=max(2, S(2)))
@@ -584,36 +580,49 @@ def main():
         except Exception:
             pass
 
-    def _warm_icons(bf):
-        # icons (disk) + face-cropped splash banners at EXACTLY the card size the renderer
-        # asks smitecard's memory cache for — a warmed card is a pure cache hit.
+    def _warm_art(bf):
+        # the ten tall portraits at EXACTLY the card size the renderer asks smitecard's memory
+        # cache for — a warmed card is a pure cache hit. Ten at once: they're ~45KB each.
         gg = _geom(W, H)
-        banner = (gg["card_w"], gg["banner_h"])
-        for r in (bf.get("allies") or []) + (bf.get("enemies") or []):
+        size = (gg["card_w"], gg["card_h"])
+        cids = [r.get("cid", 0) for r in (bf.get("allies") or []) + (bf.get("enemies") or [])]
+        def one(cid):
             try:
-                sc.get_icon(dd, r.get("cid", 0), 96)         # downloads the disk file (any size)
-                sc.get_splash(dd, r.get("cid", 0), banner)
+                sc.get_loadart(dd, cid, size)
             except Exception:
                 pass
+        with _futures.ThreadPoolExecutor(max_workers=max(1, len(cids))) as ex:
+            list(ex.map(one, cids))
 
     def _fetch():
         # ALL network work lives here, OFF the poll/render loop, so the overlay is never blocked.
         # Phase 1: champs + tags + plan (fast, no Riot API) -> the overlay appears immediately.
-        # Phase 2: warm champion portraits, then force a redraw so the art pops in.
-        # Phase 3: per-player rank/OTP scout (slow, rate-limited) -> fills in when ready.
+        # Phase 2: warm the portrait art, then force a redraw so it pops in.
+        # Phase 3: the ONE shared per-lobby account scout — cards fill in as players land
+        #          (on_progress), instead of the whole board waiting on the slowest account.
         try:
             fast = ll.brief(dd, scout=False)
             if fast:
                 state["brief"] = fast
                 _log("fast brief READY (champs/tags/plan) -> showing")
-                _warm_icons(fast)
+                _warm_art(fast)
                 if state["run"]:
                     state["brief"] = dict(fast)              # new object -> tick re-renders w/ art
-                    _log("icons warmed -> redraw")
+                    _log("art warmed -> redraw")
         except Exception as e:
             _log(f"fast brief ERROR {type(e).__name__}: {e}")
+
+        landed = {"n": 0}
+        def _progress(partial):
+            if not state["run"]:
+                return
+            landed["n"] += 1
+            state["brief"] = partial                         # new object each call -> tick redraws
+            _log(f"scout progress {landed['n']}/10")
         try:
-            full = ll.brief_shared(dd)          # ONE scout per lobby, shared with the web board
+            # ONE scout per lobby, shared with the web board + in-game scoreboard (lolload
+            # publishes a snapshot the other surfaces read instead of re-scouting).
+            full = ll.brief_shared(dd, on_progress=_progress)
             if full and state["run"]:
                 state["brief"] = full
                 _log("scout brief READY (ranks/tags) -> enriched")

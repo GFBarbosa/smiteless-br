@@ -11,7 +11,8 @@ So the brief carries both: per-player SCOUT tags (rank, hot/tilted streak, OTP, 
 per-champ good/bad tags + a plain game-plan for the comp. All read-only off the local client
 and the user's own Riot key.
 """
-import os, json, time, hashlib
+import os, json, time, hashlib, threading
+import concurrent.futures as _futures
 
 import lolgame as lg
 import lolbuild as lb
@@ -85,27 +86,33 @@ def _player_scout(dd, puuid, cid, key, riot_id=None):
     out = {"rank_full": None, "pts": 0, "mlevel": 0, "n": 0, "w": 0, "cg": 0, "cw": 0,
            "form": [], "kdar": None, "kavg": "", "dpg": None, "perf": None,
            "main_pos": "", "mids": [], "recent": []}
-    try:
-        out["rank_full"] = ls.rank(puuid, key)
-    except Exception:
-        pass
-    try:
-        n, w, cg, cw, form, mids, kda, perf, recent = ls.scout(dd, puuid, cid, key, 10,
-                                                               riot_id=riot_id)
-        out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf,
-                   recent=recent or [])
-        g = (kda or {}).get("g", 0)
-        if g:
-            out["kdar"] = round((kda["k"] + kda["a"]) / max(1, kda["d"]), 1)
-            out["kavg"] = f"{kda['k'] / g:.1f} / {kda['d'] / g:.1f} / {kda['a'] / g:.1f}"
-            out["dpg"] = round(kda["d"] / g, 1)
-    except Exception:
-        pass
-    try:
-        m = ls.mastery(puuid, cid, key) or {}
-        out["pts"], out["mlevel"] = int(m.get("points", 0)), int(m.get("level", 0))
-    except Exception:
-        pass
+    # rank / match history / mastery hit three different Riot endpoints and don't need each
+    # other — firing them together turns this player's read into ONE round-trip's latency
+    # instead of three stacked ones.
+    with _futures.ThreadPoolExecutor(max_workers=3) as ex:
+        f_rank = ex.submit(ls.rank, puuid, key)
+        f_scout = ex.submit(ls.scout, dd, puuid, cid, key, 10, riot_id=riot_id)
+        f_mast = ex.submit(ls.mastery, puuid, cid, key)
+        try:
+            out["rank_full"] = f_rank.result()
+        except Exception:
+            pass
+        try:
+            n, w, cg, cw, form, mids, kda, perf, recent = f_scout.result()
+            out.update(n=n, w=w, cg=cg, cw=cw, form=form, mids=mids or [], perf=perf,
+                       recent=recent or [])
+            g = (kda or {}).get("g", 0)
+            if g:
+                out["kdar"] = round((kda["k"] + kda["a"]) / max(1, kda["d"]), 1)
+                out["kavg"] = f"{kda['k'] / g:.1f} / {kda['d'] / g:.1f} / {kda['a'] / g:.1f}"
+                out["dpg"] = round(kda["d"] / g, 1)
+        except Exception:
+            pass
+        try:
+            m = f_mast.result() or {}
+            out["pts"], out["mlevel"] = int(m.get("points", 0)), int(m.get("level", 0))
+        except Exception:
+            pass
     out["main_pos"] = _main_pos(out["recent"])
     return out
 
@@ -309,49 +316,69 @@ def _wincons(dd, my, en):
             "lose": "coin-flipping 5v5s without vision or a numbers edge"}
 
 
-def brief(dd, key=None, scout=True):
+def brief(dd, key=None, scout=True, on_progress=None):
     """The loading brief. scout=False returns FAST (champs + tags + damage + plan, no Riot API)
     so the overlay can appear instantly; scout=True additionally pulls each player's rank/form/
-    OTP tags (slow, rate-limited — run it off the render loop). None if no roster is readable."""
+    OTP tags. None if no roster is readable.
+
+    The ten accounts are read CONCURRENTLY. Serially this was ~130 stacked round-trips and it
+    owned the entire loading screen — every card sat on "scouting…" until the last player
+    landed. `on_progress(brief)` (optional) is called with a fresh, fully-shaped brief each
+    time a player resolves, so a surface can paint cards as they fill in instead of waiting
+    for the slowest account."""
     r = _roster()
     if not r:
         return None
     my, en, (port, hdr) = r
     key = (key or ls.read_key()) if scout else None
+    base = {"plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en), "scouted": bool(key)}
 
-    def enrich(rows, ally):
-        out = []
-        for row in rows:
-            cid = row["champ_id"]
-            rec = {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
-                   "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
-                   "me": row["me"], "player": "", "scouted": False, "tags": [],
-                   "rank_full": None, "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0,
-                   "kdar": None, "kavg": "", "dpg": None, "perf": None,
-                   "pts": 0, "mlevel": 0, "main_pos": "", "mids": [], "recent": [],
-                   "level": None, "puuid": None}
-            if key:
+    def blank(row):
+        cid = row["champ_id"]
+        return {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
+                "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
+                "me": row["me"], "player": "", "scouted": False, "tags": [],
+                "rank_full": None, "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0,
+                "kdar": None, "kavg": "", "dpg": None, "perf": None,
+                "pts": 0, "mlevel": 0, "main_pos": "", "mids": [], "recent": [],
+                "level": None, "puuid": None}
+
+    allies = [blank(row) for row in my]
+    enemies = [blank(row) for row in en]
+
+    def fill(rec, row, ally):
+        try:
+            ign, lvl = _ign_for(port, hdr, row["sid"])
+            puuid = ls.resolve_puuid(ign, key) if ign else None
+            if puuid and len(puuid) > 70:
+                rec["player"] = ign
+                rec["level"] = lvl
+                rec["puuid"] = puuid
+                rec.update(_player_scout(dd, puuid, row["champ_id"], key, riot_id=ign))
+                rec["scouted"] = True        # _profile_tags reads this (the first-timer tag)
+                rec["tags"] = _profile_tags(rec, ally)
+        except Exception:
+            pass
+
+    if key:
+        lock = threading.Lock()
+        jobs = ([(rec, row, True) for rec, row in zip(allies, my)]
+                + [(rec, row, False) for rec, row in zip(enemies, en)])
+        with _futures.ThreadPoolExecutor(max_workers=max(1, len(jobs))) as ex:
+            futs = [ex.submit(fill, *j) for j in jobs]
+            for _f in _futures.as_completed(futs):
+                if not on_progress:
+                    continue
+                with lock:                       # one player landed -> hand out a paintable copy
+                    snap = dict(base, allies=[dict(a) for a in allies],
+                                enemies=[dict(e) for e in enemies])
                 try:
-                    ign, lvl = _ign_for(port, hdr, row["sid"])
-                    puuid = ls.resolve_puuid(ign, key) if ign else None
-                    if puuid and len(puuid) > 70:
-                        rec["player"] = ign
-                        rec["level"] = lvl
-                        rec["puuid"] = puuid
-                        rec.update(_player_scout(dd, puuid, cid, key, riot_id=ign))
-                        rec["scouted"] = True
-                        rec["tags"] = _profile_tags(rec, ally)
+                    on_progress(snap)
                 except Exception:
                     pass
-            out.append(rec)
-        return out
-    allies, enemies = enrich(my, True), enrich(en, False)
-    if key:
         _duo_pass(allies, key)
         _duo_pass(enemies, key)
-    return {"allies": allies, "enemies": enemies,
-            "plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en),
-            "scouted": bool(key)}
+    return dict(base, allies=allies, enemies=enemies)
 
 
 # ---------- ONE scout per lobby, shared by every surface ----------
@@ -425,14 +452,18 @@ def _lock_release():
         pass
 
 
-def brief_shared(dd, key=None, wait=40):
+def brief_shared(dd, key=None, wait=40, on_progress=None):
     """The full scouted brief for this lobby, built ONCE and shared by every surface.
 
     Returns the snapshot if someone already built it; otherwise builds it (holding a lock) and
     publishes it. If another process is mid-build we wait for its result rather than duplicating
     ~100 Riot calls — that duplication is what was rate-limiting the scout into partial data.
     Falls back to building locally if the wait times out, so a surface is never left with
-    nothing. None only when there's no readable roster at all."""
+    nothing. None only when there's no readable roster at all.
+
+    `on_progress` is forwarded to brief() when WE are the builder, so the surface that pays for
+    the read gets to paint it as it fills. A caller that lands on an existing snapshot gets the
+    finished thing in one shot and never needs progress."""
     lkey = _lobby_key()
     if not lkey:
         return None
@@ -444,7 +475,7 @@ def brief_shared(dd, key=None, wait=40):
         return snap
     if _lock_acquire():
         try:
-            b = brief(dd, key=key, scout=True)
+            b = brief(dd, key=key, scout=True, on_progress=on_progress)
             if b and b.get("scouted"):
                 _snap_write(lkey, b)
                 _LOCAL.update(key=lkey, brief=b)
@@ -460,7 +491,7 @@ def brief_shared(dd, key=None, wait=40):
             return snap
         if not os.path.exists(SNAP_LOCK):          # builder finished (or died) -> stop waiting
             break
-    b = brief(dd, key=key, scout=True)             # last resort: build it ourselves
+    b = brief(dd, key=key, scout=True, on_progress=on_progress)   # last resort: build it ourselves
     if b and b.get("scouted"):
         _snap_write(lkey, b)
         _LOCAL.update(key=lkey, brief=b)

@@ -130,6 +130,9 @@ _FONTS = {}
 _ICONS = {}   # (cid, size) -> resized RGBA Image; avoids re-reading/resizing every repaint
 _SPLASH = {}      # (cid, (w,h)) -> cropped RGB splash art
 _SPLASH_RAW = {}  # cid -> base RGB splash art (full-size, in-memory only)
+LOADCACHE = os.path.join(ICONCACHE, "loading")   # Riot's 308x560 loading-screen portraits
+_LOADART = {}     # (cid, (w,h)) -> cropped RGB portrait
+_LOADART_RAW = {} # cid -> base 308x560 RGB portrait
 
 
 # Glyphs Segoe UI regular/bold don't carry -> they render as tofu boxes. Segoe UI Symbol
@@ -373,6 +376,64 @@ def get_splash(dd, cid, size):
             y0 = int(max(0, min(rh - th, (rh - th) * 0.22)))   # old fixed upper-bias fallback
         im = im.crop((x0, y0, x0 + tw, y0 + th))
         _SPLASH[ck] = im
+        return im
+    except Exception:
+        return None
+
+
+def get_loadart(dd, cid, size):
+    """Riot's own LOADING-SCREEN portrait (308x560) cropped to `size` — the TALL card the real
+    League loading screen shows, already composed for that shape (the champ centered, headroom
+    above, nothing important at the edges). Use this wherever the art is taller than it is wide;
+    get_splash's landscape 1215x717 art only survives a portrait crop as a narrow slice.
+
+    Disk-cached: ~45KB each against a splash's ~2.6MB, so ten of them warm in a blink instead
+    of costing 26MB of downloads on the loading screen. Falls back to the splash crop for a
+    champ whose loading art won't load."""
+    ck = (cid, size)
+    if ck in _LOADART:
+        return _LOADART[ck]
+    key = dd.get("id2key", {}).get(cid)
+    if not key:
+        return None
+    if cid not in _LOADART_RAW:
+        fp = os.path.join(LOADCACHE, dd.get("ver", "x"), key + ".jpg")
+        base = None
+        try:
+            base = Image.open(fp).convert("RGB")
+        except Exception:
+            base = None
+        if base is None:
+            url = f"https://ddragon.leagueoflegends.com/cdn/img/champion/loading/{key}_0.jpg"
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": lb.UA})
+                data = urllib.request.urlopen(req, timeout=8).read()
+                base = Image.open(io.BytesIO(data)).convert("RGB")
+                os.makedirs(os.path.dirname(fp), exist_ok=True)
+                with open(fp, "wb") as f:
+                    f.write(data)
+            except Exception:
+                base = None
+        if base is None:
+            return get_splash(dd, cid, size)          # no portrait art -> landscape crop
+        if len(_LOADART_RAW) >= 24:                   # ~0.5MB each in memory; a lobby is 10
+            _LOADART_RAW.clear()
+        if len(_LOADART) >= 32:
+            _LOADART.clear()
+        _LOADART_RAW[cid] = base
+    try:
+        tw, th = size
+        base = _LOADART_RAW[cid]
+        sw, sh = base.size
+        scale = max(float(tw) / max(1, sw), float(th) / max(1, sh))
+        rw, rh = max(1, int(sw * scale)), max(1, int(sh * scale))
+        im = base.resize((rw, rh), Image.LANCZOS)
+        # the art is already framed on the champ — center horizontally, bias UP so the face
+        # stays clear of whatever the caller lays over the bottom of the card
+        x0 = (rw - tw) // 2
+        y0 = int(max(0, min(rh - th, (rh - th) * 0.18)))
+        im = im.crop((x0, y0, x0 + tw, y0 + th))
+        _LOADART[ck] = im
         return im
     except Exception:
         return None
@@ -3380,25 +3441,43 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                         try:
                             me_rid = (lg.current_account() or "")
                             key = ls.read_key()
-                            for rid in lg.champselect_allies()[:5]:
-                                if not key or rid.lower() == (me_rid or "").lower():
+
+                            def _one(rid):
+                                """One ally's dodge read. Also WARMS the shared match/rank cache
+                                that the loading board reads minutes later — champ select is dead
+                                time, so paying here is free; paying again at load is not."""
+                                try:
+                                    pu = ls.resolve_puuid(rid, key)
+                                    if not pu:
+                                        return None
+                                    n, w, cg, cw, form, _m, kda, perf, _r = ls.scout(dd, pu, 0, key, 10)
+                                    sc = {"n": n, "w": w, "cg": cg, "cw": cw, "form": form,
+                                          "kda": kda, "perf": perf, "rank": ls.rank(pu, key)}
+                                    g, _c = player_rating(sc)
+                                    streak = 0
+                                    for won in form:
+                                        if won:
+                                            break
+                                        streak += 1
+                                    nm = rid.split("#")[0][:10]
+                                    rk = (sc["rank"] or {})
+                                    ab = TIER_ABBR.get((rk.get("tier") or "").upper(), "")
+                                    ab += _DIVNUM.get(rk.get("div", ""), "") if ab else ""
+                                    return (nm, g, streak, ab)
+                                except Exception:
+                                    return None
+
+                            mates = [rid for rid in lg.champselect_allies()[:5]
+                                     if key and rid.lower() != (me_rid or "").lower()]
+                            reads = []
+                            if mates:               # the four teammates read in parallel, not in a queue
+                                import concurrent.futures as _fx
+                                with _fx.ThreadPoolExecutor(max_workers=len(mates)) as _ex:
+                                    reads = list(_ex.map(_one, mates))
+                            for got in reads:
+                                if not got:
                                     continue
-                                pu = ls.resolve_puuid(rid, key)
-                                if not pu:
-                                    continue
-                                n, w, cg, cw, form, _m, kda, perf, _r = ls.scout(dd, pu, 0, key, 10)
-                                sc = {"n": n, "w": w, "cg": cg, "cw": cw, "form": form,
-                                      "kda": kda, "perf": perf, "rank": ls.rank(pu, key)}
-                                g, _c = player_rating(sc)
-                                streak = 0
-                                for won in form:
-                                    if won:
-                                        break
-                                    streak += 1
-                                nm = rid.split("#")[0][:10]
-                                rk = (sc["rank"] or {})
-                                ab = TIER_ABBR.get((rk.get("tier") or "").upper(), "")
-                                ab += _DIVNUM.get(rk.get("div", ""), "") if ab else ""
+                                nm, g, streak, ab = got
                                 roster.append(f"{nm} {ab or '?'}·{g or '?'}"
                                               + (f"·{streak}L" if streak >= 2 else ""))
                                 if streak >= 3:

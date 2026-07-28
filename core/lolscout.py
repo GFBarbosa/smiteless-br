@@ -524,6 +524,38 @@ def _part(rec):
             "dmg": rec[6], "vision": rec[7], "obj": rec[8], "team": rec[9], "pos": rec[10]}
 
 
+# One SHARED pool for the match reads underneath every scout. Ten players x ten matches used
+# to be 100 strictly serial round-trips — the whole reason the loading board sat on "scouting…"
+# for the length of a loading screen. The callers above this already run the ten players in
+# parallel, so per-scout pools would nest into ~100 threads; one bounded pool keeps the
+# concurrency honest (the rate limiter is the real gate, see _throttle).
+_MPOOL = None
+_MPOOL_LOCK = threading.Lock()
+
+
+def _mpool():
+    global _MPOOL
+    with _MPOOL_LOCK:
+        if _MPOOL is None:
+            _MPOOL = _futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="scout-match")
+        return _MPOOL
+
+
+def _match_batch(ids, key):
+    """match_results for a list of ids, fetched concurrently, returned IN ORDER (form and the
+    recent-champ list are both recent-first, so order is load-bearing)."""
+    if not ids:
+        return []
+    if len(ids) == 1:
+        return [match_results(ids[0], key)]
+    def one(mid):
+        try:
+            return match_results(mid, key)
+        except Exception:
+            return None
+    return list(_mpool().map(one, ids))
+
+
 def _scout_ugg(dd, riot_id, champ_id, count):
     """u.gg FALLBACK for scout(): same (n, w, cg, cw, form, ids, kda, perf, recent) 9-tuple,
     built from u.gg's indexer instead of Riot's Match-V5 (which is what failed to get us here).
@@ -570,8 +602,7 @@ def scout(dd, puuid, champ_id, key, count, riot_id=None):
     recent = []
     tk = td = ta = kg = 0                          # KDA totals + games that carried KDA data
     perfs = []
-    for mid in ids:
-        res = match_results(mid, key)
+    for res in _match_batch(ids, key):             # the ten reads run concurrently, in order
         if not res or puuid not in res:
             continue
         rec = res[puuid]

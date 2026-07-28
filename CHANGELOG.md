@@ -1,5 +1,34 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.50 - the loading board is TALL, and it fills in seconds instead of a whole load screen
+
+- **The cards are tall portraits now, like the real League loading screen.** v0.9.48 pushed the
+  art the other way - a wide 2.4:1 letterbox strip sitting above a block of stats. That was the
+  wrong shape for this screen. Each player is now one tall rectangle carrying **Riot's own
+  loading-screen portrait** (the 308x560 art the client itself uses, not a landscape splash
+  squeezed into a strip), with the whole read - name, rank, win% . W-L . KDA, last-10 form, the
+  tag pills, the damage bar - laid over a scrim on its lower half. Champ names line up straight
+  across the row. Side benefit: that art is ~45KB a champ instead of ~2.6MB, so ten portraits
+  warm in a blink.
+- **The ten accounts now load in about a second, not the whole loading screen.** They were being
+  read strictly one after another - ten players x rank + ten match reads + mastery, about 130
+  Riot round-trips nose to tail, and every card sat on "scouting..." until the last one landed.
+  They're read **concurrently** now (all ten at once, with a shared pool underneath for the match
+  reads), and **cards fill in as each player resolves** instead of the board waiting for the
+  slowest account.
+- **One read, three surfaces - for real this time.** The loading board, the in-game scoreboard and
+  the web DraftBoard all show the same ten-account scout, and it is now built exactly once per
+  lobby: whoever asks first pays for it and publishes it, everyone else reads that. The champ
+  select dodge-read also went parallel, so it warms the same cache instead of queueing behind
+  itself.
+- **The in-game widget stays off the loading screen.** v0.9.47 gated this on the launcher's phase
+  read, which has a hole: one blip from the live-game API and the loading screen reads as
+  in-game, and the widget lands on top of the board. The widget now checks for itself - it stays
+  off screen, silent, until the game clock actually starts, and goes away again on a reconnect
+  load screen.
+- **Names that aren't Latin render properly.** A Riot ID like a CJK name was drawing as three
+  empty boxes on the board - the account you're scouting, unreadable.
+
 ## v0.9.49 - the QUEUE CALL: your own numbers, before you press Find Match
 
 - **New: the QUEUE CALL.** Sit in the lobby and a small card docks beside the client with the

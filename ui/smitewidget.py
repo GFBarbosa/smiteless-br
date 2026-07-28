@@ -785,7 +785,8 @@ def main():
         return                                           # one widget already up
     import tkinter as tk
     dd = lb.ddragon()
-    st = {"alive": True, "muted": False}     # muted = temp-silence the drake chime for this game
+    # loading=None -> "the worker hasn't told us yet"; visible=False -> we start off screen
+    st = {"alive": True, "muted": False, "loading": None, "visible": False}
     st["vol"] = int(cfg.load().get("dragon_volume", 30))   # live audio volume (slider + Settings)
 
     root = tk.Tk()
@@ -1072,6 +1073,28 @@ def main():
                               timeout=2, insecure=True)
             except Exception:
                 raw = None
+            # THE LOADING SCREEN IS NOT THE GAME. :2999 starts serving allgamedata (champ,
+            # objective timers, everything) while you're still watching the ten portraits
+            # load — so the widget painted itself over the loading scout and sat there. The
+            # game CLOCK is the honest signal: it stays at 0 until the match actually begins.
+            # Only a live 0-clock counts as loading; no data at all is "not in a game", which
+            # is the widget's normal idle state and must keep its own behavior.
+            if raw is not None:
+                try:
+                    _gt = float((raw.get("gameData") or {}).get("gameTime") or 0.0)
+                except Exception:
+                    _gt = 99.0
+                st["loading"] = _gt <= 1.0
+            else:
+                st["loading"] = False
+            if st["loading"]:
+                # stay dark AND stay quiet: no build read, no tempo voice, no drake chime, and
+                # `seen` is left alone so the close-guard's clock isn't started by a load screen
+                for _ in range(POLL * 2):
+                    if not st["alive"]:
+                        return
+                    time.sleep(0.5)
+                continue
             try:
                 rec = li.recommend(dd, data=raw)
             except Exception:
@@ -1191,6 +1214,36 @@ def main():
                     pass
         except queue.Empty:
             pass
+        # LOADING SCREEN: off screen entirely, not just idle. The widget belongs to the match,
+        # and the loading scout owns those seconds — two overlays stacked on one screen is the
+        # thing that made the board look broken.
+        # st["loading"] is None until the worker's first poll answers — start hidden rather than
+        # flashing "waiting for a live game…" across the loading screen for a beat.
+        want_vis = st.get("loading") is False
+        if want_vis != st.get("visible"):
+            st["visible"] = want_vis
+            lgw = st.get("legend")
+            try:
+                if want_vis:
+                    root.deiconify()
+                    # re-assert the whole no-activate/topmost contract: a remap must never pull
+                    # focus off the game, and Tk drops -alpha across it (so let it re-apply)
+                    _h = toplevel_hwnd(root.winfo_id())
+                    make_no_activate(_h)
+                    show_no_activate(_h)
+                    st.pop("alpha", None)
+                    root.attributes("-topmost", True)
+                    if lgw and lgw.winfo_exists():        # a legend only exists while it's open
+                        lgw.deiconify()
+                else:
+                    root.withdraw()
+                    if lgw and lgw.winfo_exists():
+                        lgw.withdraw()
+            except Exception:
+                pass
+        if not want_vis:
+            root.after(400, pump)
+            return
         make_no_activate(toplevel_hwnd(root.winfo_id()))
         # Re-assert TOPMOST every ~4s: the game (or another overlay) claiming topmost can
         # push the widget behind it - alive but invisible, the OTHER "it disappeared".
@@ -1263,7 +1316,7 @@ def main():
     root.geometry(f"+{pos[0]}+{pos[1]}")
     hwnd = toplevel_hwnd(root.winfo_id())
     make_no_activate(hwnd)
-    show_no_activate(hwnd)
+    root.withdraw()                 # pump reveals it once the worker confirms we're not loading
     pump()
     guard()
     root.mainloop()
