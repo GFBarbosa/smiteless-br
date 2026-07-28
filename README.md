@@ -4,6 +4,22 @@ WARNING:  I frequently update Smiteless and sometimes the updates just aren't go
 
 **A League of Legends companion that plays the map with you.** It watches champ select and your live game, then tells you the one thing that matters right now — what to ban, when to back, whether that drake fight is winnable, and when to stop queuing.
 
+## Contributing from the Brazilian fork
+
+This repository is the `GFBarbosa/smiteless-br` fork of the [original Smiteless project](https://github.com/bobbyroylee/smiteless). Keep the fork's `main` branch synchronized with the original and use feature branches for changes intended for contribution:
+
+```powershell
+git remote rename origin upstream
+git remote add origin git@github.com:GFBarbosa/smiteless-br.git
+git fetch upstream
+git switch main
+git merge upstream/main
+git push origin main
+git switch -c feat/my-change
+```
+
+After testing, push the feature branch to this fork and open a Pull Request from `GFBarbosa/smiteless-br` to `bobbyroylee/smiteless` on `main`. Include the user-visible outcome, tests run, and screenshots for UI changes. Keep `main` as the synchronized base; isolate each contribution in its own branch.
+
 ![The in-game scoreboard](docs/board.png)
 
 | Champ select (docks by the client) | Your profile |
