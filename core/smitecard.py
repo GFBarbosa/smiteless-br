@@ -466,12 +466,15 @@ def _rune_page(dd, rp):
 # Which of the op.gg rune pages is currently selected in the champ-select panel (a click
 # on a rune-set chip changes this). Process-wide, since the overlay's click handler and its
 # render loop share this module; reset to 0 (most-played) whenever the champ changes.
-_RUNE_SEL = {"idx": 0}
+# `manual` marks a selection the USER made by clicking a rune chip. The adaptive chooser
+# (core/lolrunes) may set the index freely while it's False, but must never overrule a human.
+_RUNE_SEL = {"idx": 0, "manual": False}
 _RUNE_EVENT = threading.Event()          # set on a rune-chip click -> wakes the champ-select loop now
 
 
-def set_rune_idx(n):
+def set_rune_idx(n, manual=True):
     _RUNE_SEL["idx"] = max(0, int(n))
+    _RUNE_SEL["manual"] = bool(manual)
     _RUNE_EVENT.set()                    # re-render immediately instead of waiting out the 2s poll
 
 
@@ -2318,7 +2321,7 @@ def _rune_chip(d, x, y, idx, wr, sel, hits):
 
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
                        enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
-                       note=None, auto_ban=False, fit_notes=None):
+                       note=None, auto_ban=False, fit_notes=None, rune_note=None):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
@@ -2364,7 +2367,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         y += 34
     # runes + build card — quiet rail; the import button is THE primary action (ember pill)
     if build:
-        card_h = 214
+        card_h = 214 + (20 if rune_note else 0)
         _railed_card(d, (10, y, VW - 10, y + card_h), LINE, fill=SURFACE, outline=PEDGE, width=1)
         x = 24
         d.text((x, y + 10), "RUNES", font=display_font(9, True), fill=GOLD)
@@ -2382,22 +2385,31 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         d.text((x, y + 76), f"{build.get('secondary_tree', '')}: {sec}"[:60], font=font(10), fill=INFO)
         shards = " / ".join(s for s in build.get("shards", []) if s)
         d.text((x, y + 92), f"Shards: {shards}", font=font(10), fill=MUTED)
-        d.line([x, y + 110, VW - 24, y + 110], fill=PEDGE, width=1)
-        d.text((x, y + 116), "CORE BUILD", font=display_font(9, True), fill=GOLD)
+        # ADAPTIVE RUNES: say WHY this page and not the most-played one, in op.gg's numbers.
+        # Everything below the divider shifts down by RN when the note is showing.
+        rn = 0
+        if rune_note:
+            rn = 20
+            d.text((x, y + 105), "ADAPTED", font=display_font(8, True), fill=ARC)
+            for i, ln in enumerate(_wrap(rune_note, font(9), VW - 108)[:2]):
+                d.text((x + 54, y + 104 + i * 11), ln, font=font(9), fill=MUTED)
+        d.line([x, y + 110 + rn, VW - 24, y + 110 + rn], fill=PEDGE, width=1)
+        d.text((x, y + 116 + rn), "CORE BUILD", font=display_font(9, True), fill=GOLD)
         ix = x
         for j, iid in enumerate((build.get("core_ids") or [])[:4]):
             iic = get_item_icon(dd, iid, 32)
             if iic:
-                _rrect(d, (ix - 1, y + 131, ix + 33, y + 165), 6, outline=PEDGE, width=1)
-                img.paste(iic, (ix, y + 132), iic)
+                _rrect(d, (ix - 1, y + 131 + rn, ix + 33, y + 165 + rn), 6, outline=PEDGE, width=1)
+                img.paste(iic, (ix, y + 132 + rn), iic)
             if j < min(len(build.get("core_ids") or []), 4) - 1:
-                d.text((ix + 37, y + 141), "›", font=font(12, 1), fill=MUTED)
+                d.text((ix + 37, y + 141 + rn), "›", font=font(12, 1), fill=MUTED)
             ix += 48
-        d.text((x, y + 172), "Summs: " + " / ".join(build.get("summs", [])), font=font(10), fill=MUTED)
+        d.text((x, y + 172 + rn), "Summs: " + " / ".join(build.get("summs", [])),
+               font=font(10), fill=MUTED)
         sk = [s for s in build.get("skills", []) if s]
         if sk:
-            d.text((x + 170, y + 172), "Max: " + " > ".join(sk), font=font(10), fill=MUTED)
-        bx, by, bw, bh = x, y + 186, 160, 22
+            d.text((x + 170, y + 172 + rn), "Max: " + " > ".join(sk), font=font(10), fill=MUTED)
+        bx, by, bw, bh = x, y + 186 + rn, 160, 22
         _rrect(d, (bx, by, bx + bw, by + bh), bh // 2, fill=GOLD)
         d.text((bx + bw // 2, by + bh // 2), "⇩ Import runes + summs", font=font(9, 1, "⇩"), fill=BG, anchor="mm")
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
@@ -3267,7 +3279,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
             build = build_data(dd, my_cid, my_role)
             build_cid = my_cid
-            set_rune_idx(0)                        # new champ -> back to the most-played rune set
+            set_rune_idx(0, manual=False)          # new champ -> back to auto (adaptive) selection
         src = info.get("source", "")
         if not enemy_role:                 # champ select / loading: enemies + scout not live yet
             if src == "champ select":
@@ -3455,6 +3467,17 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     # results say whether YOU should be the one playing it. Drops champions
                     # you're statistically proven bad on, and promotes ones you're good on but
                     # haven't touched in a while — the boredom answer that costs no LP.
+                    # ADAPTIVE RUNES (core/lolrunes): the enemy comp decides which of op.gg's
+                    # pages to run. Recomputed as they lock, and only while the selection is
+                    # still automatic — one click on a rune chip and this stops touching it.
+                    rune_note = None
+                    if build and not _RUNE_SEL["manual"]:
+                        try:
+                            import lolrunes as _lr
+                            _ri, rune_note = _lr.choose(dd, build.get("rune_options"), enemy_ids)
+                            set_rune_idx(_ri, manual=False)
+                        except Exception:
+                            rune_note = None
                     fit_notes = {}
                     try:
                         import lolfit as _fit
@@ -3496,7 +3519,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              auto_import=bool(settings.get("auto_import", False)),
                              note=(auto_note or team_read["text"] or climb_note),
                              auto_ban=bool(settings.get("auto_ban", False)),
-                             fit_notes=fit_notes))
+                             fit_notes=fit_notes, rune_note=rune_note))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",

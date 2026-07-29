@@ -262,6 +262,35 @@ def c_fit():
     return OK, "vetoes only on real samples; cold demoted, fresh promoted, evidence attached"
 
 
+def c_runes():
+    """ADAPTIVE RUNES: the enemy comp decides which op.gg page to import. This must fire ONLY
+    on an unambiguous comp — a wrong call silently imports the wrong keystone for a whole game,
+    which is worse than always taking the most-played page."""
+    import lolrunes as lr
+    want = {"tank": 1,      # 3 tanks -> the Conqueror page
+            "squish": 0,    # all squishy -> Electrocute is already right, don't touch it
+            "mixed": 0,     # one tank -> no call
+            "early": 0,     # under 3 locked -> refuse to read a comp off two picks
+            "thin": 0}      # the fitting page has a 9-game sample -> never import a meme
+    bad = []
+    for k, idx in want.items():
+        dd, opts, en = lr.demo(k)
+        got, why = lr.choose(dd, opts, en)
+        if got != idx:
+            bad.append(f"{k}: page {got}, want {idx}")
+        elif got != 0 and not why:
+            bad.append(f"{k}: switched pages with no evidence line")
+        elif got == 0 and why:
+            bad.append(f"{k}: claimed a reason while keeping the default")
+    if bad:
+        return FAIL, "; ".join(bad)
+    if not (lr.SUSTAINED & {"Conqueror"}) or not (lr.BURST & {"Electrocute"}):
+        return FAIL, "the keystone classes lost their anchors"
+    if lr.SUSTAINED & lr.BURST:
+        return FAIL, f"a keystone is in BOTH classes: {lr.SUSTAINED & lr.BURST}"
+    return OK, "switches only on a clear comp, cites op.gg's own sample, ignores thin pages"
+
+
 def c_maxelo():
     """MAX ELO arms a list of setting keys by name. A typo there is invisible - the switch
     would look armed and quietly leave a feature off - so every key must be a real toggle."""
@@ -394,6 +423,7 @@ def main():
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),
+        ("Adaptive runes (comp-aware)", c_runes),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

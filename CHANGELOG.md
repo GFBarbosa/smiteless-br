@@ -1,5 +1,30 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.65 - runes adapt to the lobby, not just the champion
+
+- **Auto-import now picks the rune page that fits THIS game.** It always took op.gg's
+  most-played page and stopped thinking - but the right keystone depends on what you're
+  fighting. Your Talon example is literally sitting in op.gg's numbers this patch:
+
+      Talon mid   Electrocute  46.4% over 521 games   <- most played, always imported
+                  Conqueror    51.8% over 257 games   <- exists, never chosen
+
+  Into five squishies you want the burst. Into a wall of tanks it bounces off and you want the
+  sustained page. Same champion, different game. It now reads the enemy comp off Riot's own
+  champion tags and imports accordingly.
+- **It only fires on an unambiguous comp.** Two tanks (or three frontline between Tank and
+  Fighter) reads as tanky; zero tanks and four squishies reads as squishy; **anything in
+  between keeps the most-played page**, because a coin-flip read is worse than the default. It
+  also refuses to read a comp off fewer than three locked enemies, and will never switch to a
+  page with a thin sample - no importing somebody's 9-game meme.
+- **It never invents a page.** Every option is one op.gg says real players run on that champion
+  this patch, with its real sample. The only modelling assumption is the mapping from comp to
+  keystone class, and that's stated in the source rather than hidden.
+- **The panel tells you why**: *ADAPTED - 3 frontline locked (Ornn, Sejuani, Malphite) -
+  Conqueror over Electrocute (52% on 257 games vs 46% on 521)*.
+- **Clicking a rune chip still wins.** The moment you pick a page by hand, the adaptive chooser
+  stops touching it for that champion.
+
 ## v0.9.64 - the recommender now knows how YOU do on a champion, and Ghost sits on your Flash key
 
 - **Ghost lands on your Flash key.** Auto-import always put Flash on your chosen key; on a build
