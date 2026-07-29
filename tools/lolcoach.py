@@ -17,13 +17,14 @@ Usage:
 import sys, os
 
 # reuse the verified ddragon/op.gg plumbing from lolbuild.py + multi-source resolver,
-# the op.gg matchup helpers (lb.gather_*), and the shared claude CLI wrapper.
+# the op.gg matchup helpers (lb.gather_*), and the shared LLM provider facade.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
 import lolgame as lg
-import claudecli as cc
+import llmcli
+import smiteconfig as cfg
 from smitei18n import lang, t, tf
 
 try:
@@ -219,6 +220,12 @@ def _takeflag(argv, name):
     return None
 
 
+def _call_ai(prompt):
+    """Dispatch through the persisted provider without changing verified coach data."""
+    provider = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
+    return llmcli.call(prompt, provider)
+
+
 def main():
     # File mode (from Win+B): write a QUICK read immediately, then upgrade to the
     # full AI guide in place. Stdout mode (manual/console): just print the result.
@@ -285,11 +292,11 @@ def main():
     if outp:
         _write(outp, base + t("\n\n(AI tactical notes loading… the verified data above is already complete.)"))
         _touch(qm)
-        text, err = cc.call_claude(prompt)
+        text, err = _call_ai(prompt)
         _write(outp, with_ai(text, err))
         _touch(fm)
     else:
-        text, err = cc.call_claude(prompt)
+        text, err = _call_ai(prompt)
         print(with_ai(text, err))
 
 

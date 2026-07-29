@@ -66,6 +66,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SWAP_ROLES = ("top", "jungle", "mid", "adc", "support")   # valid targets for auto-accept role swap
 # auto_pick_swap: "" off / "any" accept-all / "first" / "last" / a specific pick slot "1".."5".
 PICK_SWAP_VALUES = ("any", "first", "last", "1", "2", "3", "4", "5")
+MATCHUP_TIP_PROVIDERS = ("claude", "codex")
+MATCHUP_TIP_PROVIDER_DEFAULT = "claude"
+
+
+def normalize_matchup_tip_provider(value):
+    provider = str(value or "").strip().lower()
+    return provider if provider in MATCHUP_TIP_PROVIDERS else MATCHUP_TIP_PROVIDER_DEFAULT
 
 # streak_influence: 0..100, 50 = the original/default behavior (a multiplier m = value/50
 #   scales the enemy form weight, the streak compounding, and the extreme override).
@@ -144,6 +151,7 @@ def load():
     s = dict(DEFAULTS)
     s.update(BOOLS)
     s.update(STRINGS)
+    s["matchup_tip_provider"] = MATCHUP_TIP_PROVIDER_DEFAULT
     s["ban_list"] = ["Shyvana"]   # ordered PERMA-BAN priority: highest still-available gets banned
     s["auto_swap_roles"] = []     # champ select: role (position) swaps to auto-accept INTO
     s["auto_pick_swap"] = ""      # champ select pick order: "" off / "any" / "first" / "last"
@@ -160,6 +168,8 @@ def load():
         for k in STRINGS:
             if k in raw:
                 s[k] = str(raw[k]).strip()
+        s["matchup_tip_provider"] = normalize_matchup_tip_provider(
+            raw.get("matchup_tip_provider"))
         if isinstance(raw.get("ban_list"), list):
             s["ban_list"] = [str(x).strip() for x in raw["ban_list"] if str(x).strip()][:10]
         if isinstance(raw.get("auto_swap_roles"), list):
@@ -221,6 +231,9 @@ def save(s):
             clean[k] = str(s[k]).strip()
         elif k not in clean:
             clean[k] = STRINGS[k]
+    clean["matchup_tip_provider"] = normalize_matchup_tip_provider(
+        s.get("matchup_tip_provider",
+              clean.get("matchup_tip_provider", MATCHUP_TIP_PROVIDER_DEFAULT)))
     if "ban_list" in s:
         clean["ban_list"] = [str(x).strip() for x in (s.get("ban_list") or []) if str(x).strip()][:10]
     elif "ban_list" not in clean:

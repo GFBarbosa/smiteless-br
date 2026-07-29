@@ -19,7 +19,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
 import lolbuild as lb
-import claudecli as cc         # logged-in claude CLI (fallback path only)
+import llmcli
+import smiteconfig as cfg
 from smitei18n import tf
 
 CACHE = os.path.expanduser("~/.claude/cache/matchups")
@@ -53,7 +54,9 @@ def _file(my_key, opp_key, role, patch):
 # these appear in a real lane tip, so we can safely reject + never cache/show them.
 _BAD_SIGNS = ("api error", "invalid authentication", "authentication credentials",
               "failed to authenticate", "authentication_error", "usage limit", "session limit",
-              "rate limit", "invalid x-api-key", "credit balance", "claude auth")
+              "rate limit", "rate_limit", "invalid x-api-key", "invalid api key",
+              "credit balance", "quota exceeded", "not logged in", "login required",
+              "claude auth", "codex auth")
 
 
 def _looks_bad(text):
@@ -222,6 +225,7 @@ def generate_tip(my_name, my_key, opp_name, opp_key, role, patch):
 
 def _generate_tip_llm(my_name, my_key, opp_name, opp_key, role, patch):
     """Fallback: generate with the logged-in CLI (web search) + cache. Returns (text, error)."""
+    provider = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
     try:
         from smitei18n import lang
         language = "Brazilian Portuguese" if lang() == "pt_BR" else "English"
@@ -238,7 +242,7 @@ def _generate_tip_llm(my_name, my_key, opp_name, opp_key, role, patch):
         f"purely to lane mechanics and decisions. If you can't find current info, use your own best "
         f"knowledge. Reply in {language}. Plain text only - no preamble, no markdown, no bullet points, no headers."
     )
-    text, err = cc.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=170)
+    text, err = llmcli.call(prompt, provider, allow_web=True, timeout=170)
     if not text or _looks_bad(text):          # never cache/return an error string as a tip
         return None, (err or "tip unavailable")
     text = " ".join(text.split())          # collapse to one block

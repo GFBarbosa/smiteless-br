@@ -108,6 +108,11 @@ def main():
         _st.theme_use("clam")
         _st.configure("Fav.TCombobox", fieldbackground=SUNKEN, background=RAISED, foreground=TXT,
                       arrowcolor=TXT, bordercolor=RAISED, lightcolor=RAISED, darkcolor=RAISED)
+        _st.map("Fav.TCombobox",
+                fieldbackground=[("readonly", SUNKEN)],
+                foreground=[("readonly", TXT)],
+                selectbackground=[("readonly", SUNKEN)],
+                selectforeground=[("readonly", TXT)])
         root.option_add("*TCombobox*Listbox.background", SUNKEN)
         root.option_add("*TCombobox*Listbox.foreground", TXT)
         root.option_add("*TCombobox*Listbox.selectBackground", HOVER)
@@ -299,6 +304,11 @@ def main():
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
+    _tip_provider_labels = {p: t("Claude" if p == "claude" else "Codex")
+                            for p in cfg.MATCHUP_TIP_PROVIDERS}
+    _tip_provider_ids = {label: provider for provider, label in _tip_provider_labels.items()}
+    tip_provider = tk.StringVar(value=_tip_provider_labels[
+        cfg.normalize_matchup_tip_provider(s.get("matchup_tip_provider"))])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
@@ -401,6 +411,23 @@ def main():
         ("Keep live board always on top", boardtop),
         ("Dock champ-select panel by client", dock),
     ])
+    tipfr = skin.card(body, rail=LINE)
+    tipfr.pack(fill="x", padx=14, pady=(0, 4))
+    tiprow = tk.Frame(tipfr.body, bg=SURFACE)
+    tiprow.pack(fill="x", padx=10, pady=(7, 2))
+    tk.Label(tiprow, text=t("Matchup AI fallback:"), bg=SURFACE, fg=TXT,
+             font=skin.body(SMALL, bold=True)).pack(side="left")
+    tipcb = ttk.Combobox(
+        tiprow, textvariable=tip_provider,
+        values=[_tip_provider_labels[p] for p in cfg.MATCHUP_TIP_PROVIDERS],
+        state="readonly", width=10, style="Fav.TCombobox", font=skin.body(SMALL),
+    )
+    tipcb.pack(side="left", padx=(8, 0))
+    tk.Label(tipfr.body,
+             text=t("Used only when no written matchup tip is available. The selected local "
+                    "CLI is authoritative; failures never switch providers automatically."),
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=420).pack(fill="x", padx=10, pady=(0, 8))
     _feat_group("CHAMP-SELECT AUTOMATION", [
         ("Auto-accept queue", autoq),
         ("Auto-import runes + summs on lock", autoimp),
@@ -412,12 +439,12 @@ def main():
     _feat_group("IN-GAME QUIET", [
         ("Auto-mute (chat off, pings silent)", automute),
     ])
-    tk.Label(body, text=t("Hides ally chat and all-chat and silences ping audio, by writing "
-             "League's OWN settings through the client — nothing is typed into the game, and "
-             "Smiteless reads the setting back to confirm it took. Two honest limits: ping "
-             "MARKERS still draw on the minimap (the client has no setting for those), and "
-             "because it's a client setting it PERSISTS until you turn it off — here, or in "
-             "League's own Audio/Interface settings."),
+    tk.Label(body, text=t("Each game, Smiteless safely types Riot's own /fullmute all while "
+             "the League window is focused. That per-game layer hides chat and ping markers. "
+             "Separately, it writes League's own settings to hide ally/all chat and mute ping "
+             "audio, then reads them back; those settings persist until disabled. If the "
+             "League window's keyboard layout cannot produce the command safely, typing stays "
+             "off for that session while the verified settings layer remains active."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 
@@ -824,6 +851,8 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
+                  "matchup_tip_provider": _tip_provider_ids.get(
+                      tip_provider.get(), cfg.MATCHUP_TIP_PROVIDER_DEFAULT),
                   "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
@@ -866,6 +895,7 @@ def main():
             v.set(False)
         flash_side.set(0)
         lang_var.set("pt_BR")
+        tip_provider.set(_tip_provider_labels[cfg.MATCHUP_TIP_PROVIDER_DEFAULT])
         _upd_flash()
         try:
             for var in swapvars.values():
