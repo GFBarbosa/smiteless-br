@@ -295,7 +295,6 @@ def main():
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
-    duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
@@ -306,6 +305,7 @@ def main():
     queuecall = tk.BooleanVar(value=s.get("queue_call", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     reentryv = tk.BooleanVar(value=s.get("re_entry", True))
+    bleedv = tk.BooleanVar(value=s.get("bleed_guard", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -324,9 +324,10 @@ def main():
     _MAXELO_VARS = [(autoq, "auto_accept"), (autoban, "auto_ban"), (autoimp, "auto_import"),
                     (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
                     (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
+                    (bleedv, "bleed_guard"),
                     (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
                     (loadbrief, "loading_scout"), (queuecall, "queue_call"),
-                    (dodge, "dodge_alerts"), (tips, "matchup_tips"), (duo, "duo_detection"),
+                    (dodge, "dodge_alerts"), (tips, "matchup_tips"),
                     (dock, "dock_champ_select"), (draftlink, "draft_link"),
                     (draftopen, "draft_autoopen"), (solocoach, "solo_coaching")]
 
@@ -358,13 +359,20 @@ def main():
         ("Dragon spawn audio", dragon),
         ("Respawn plan (death card)", respawnv),
         ("Re-entry guard (90s after respawn)", reentryv),
+        ("Bleed guard (first 14 minutes)", bleedv),
     ])
+    tk.Label(body, text="BLEED GUARD watches your own health bar before 14:00 — the window "
+             "where three deaths turn into a 39% game (your last 46: 9W-14L with it, 14W-9L "
+             "without). It only speaks when somebody can actually collect: low health AND "
+             "their jungler unaccounted for, or a laner two levels up who kills you on his "
+             "own. Everything else is silence.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [
         ("Death brief (while dead)", deadbrief),
         ("Loading-screen scout (splash cards)", loadbrief),
         ("Queue call (pre-queue stop/go)", queuecall),
         ("Matchup lane tips", tips),
-        ("Duo / premade detection", duo),
         ("Keep live board always on top", boardtop),
         ("Dock champ-select panel by client", dock),
     ])
@@ -610,8 +618,13 @@ def main():
 
     fkey = skin.card(body, rail=LINE)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
-    tk.Label(fkey.body, text="FLASH KEY", bg=SURFACE, fg=TXT,
+    tk.Label(fkey.body, text="ESCAPE KEY", bg=SURFACE, fg=TXT,
              font=skin.body(BODY, bold=True)).pack(anchor="w", padx=12, pady=(8, 0))
+    tk.Label(fkey.body, text="Which key auto-import puts your movement summoner on. GHOST goes "
+             "here too when the build has no Flash — same finger, same panic button, so the "
+             "escape never moves between champs.",
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left", anchor="w",
+             wraplength=430).pack(fill="x", padx=12, pady=(1, 0))
     row = tk.Frame(fkey.body, bg=SURFACE)
     row.pack(fill="x", padx=12, pady=(2, 8))
     tk.Label(row, text="D", bg=SURFACE, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
@@ -624,7 +637,7 @@ def main():
     tk.Label(row, textvariable=fstat, bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left", padx=(10, 0))
 
     def _upd_flash(_=None):
-        fstat.set("Flash on D" if flash_side.get() == 0 else "Flash on F")
+        fstat.set("Flash / Ghost on D" if flash_side.get() == 0 else "Flash / Ghost on F")
     fscale.config(command=_upd_flash)
     _upd_flash()
 
@@ -772,11 +785,12 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
-                  "duo_detection": duo.get(), "item_widget": widget.get(),
+                  "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
+                  "bleed_guard": bleedv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -804,8 +818,8 @@ def main():
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
-        for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
+        for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
+                  respawnv, reentryv, bleedv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off

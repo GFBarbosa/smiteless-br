@@ -239,6 +239,11 @@ def _picklog(msg, dedupe=False):
         pass
 
 
+# Riot summoner-spell ids. The mobility spells, in priority order: whichever of these a build
+# carries goes on your preferred key (Settings -> Flash key). spell1Id is D, spell2Id is F.
+FLASH_ID, GHOST_ID = 4, 6
+MOBILITY_SPELLS = (FLASH_ID, GHOST_ID)
+
 _PICKABLE = {"ids": None, "ts": 0.0}
 _PICK_FAIL = {}            # (action_id, cid) -> consecutive failed lock attempts
 
@@ -644,11 +649,13 @@ def import_build(dd, cid, role, build):
     if len(sums) >= 2:
         s1, s2 = int(sums[0]), int(sums[1])
         flash_on_d = cfg.load().get("flash_on_d", True)
-        if 4 in (s1, s2):
-            if flash_on_d and s2 == 4:
-                s1, s2 = s2, s1
-            if (not flash_on_d) and s1 == 4:
-                s1, s2 = s2, s1
+        # Your ESCAPE key never moves. Flash owns the preferred slot; on a build that has no
+        # Flash, GHOST inherits it — same finger, same panic button. Ghost-only builds used to
+        # land wherever op.gg happened to order them, which is the one spell you cannot afford
+        # to hunt for. If a build somehow runs both, Flash wins and Ghost takes the other slot.
+        key_spell = next((sp for sp in MOBILITY_SPELLS if sp in (s1, s2)), None)
+        if key_spell is not None and (s1 == key_spell) != bool(flash_on_d):
+            s1, s2 = s2, s1
         _lcu_json("PATCH", "/lol-champ-select/v1/session/my-selection",
                   {"spell1Id": s1, "spell2Id": s2})
     return f"imported for {dd['id2name'].get(cid, '?')} ({role})"

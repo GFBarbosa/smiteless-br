@@ -322,14 +322,20 @@ def idle_ms():
     return max(0, _k32.GetTickCount() - li.dwTime)
 
 
-def _single_instance():
+MUTEX_NAME = "Global\\SmitelessMute"
+
+
+def _single_instance(name=MUTEX_NAME):
     """Refuse to run if another copy already is. THIS IS THE ONE THAT BROKE IT: the v0.9.55
     rewrite dropped the mutex the original had, the tray re-spawns on any phase flap, and three
     copies ended up typing into the same chat box in the same second — three `/fullmute all`
     strings interleaved character by character into garbage, which of course muted nobody. The
-    log said TYPED three times and looked like success."""
+    log said TYPED three times and looked like success.
+
+    `name` is a parameter purely so the self-test can prove the semantics on a throwaway mutex
+    instead of grabbing the real one — a health check must never fight the running feature."""
     k = ctypes.WinDLL("kernel32", use_last_error=True)
-    k.CreateMutexW(None, False, "Global\\SmitelessMute")
+    k.CreateMutexW(None, False, name)
     return ctypes.get_last_error() != 183          # ERROR_ALREADY_EXISTS
 
 

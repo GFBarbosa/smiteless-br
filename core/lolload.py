@@ -81,7 +81,7 @@ def _player_scout(dd, puuid, cid, key, riot_id=None):
     """Full per-ACCOUNT read for the loading scoreboard: solo rank (+LP, season W/L),
     last-10 form, recent + this-champ record, pooled KDA, deaths/game, avg performance
     score (how they actually play), mastery on this champ, their MAIN role over the last
-    10 games, and the recent match ids (drives the lobby-wide duo pass). `riot_id` lets the
+    10 games, and the recent match ids. `riot_id` lets the
     scout fall back to u.gg when Riot's match history is down (see lolscout.scout)."""
     out = {"rank_full": None, "pts": 0, "mlevel": 0, "n": 0, "w": 0, "cg": 0, "cw": 0,
            "form": [], "kdar": None, "kavg": "", "dpg": None, "perf": None,
@@ -236,36 +236,6 @@ def _profile_tags(row, ally):
     return this_game + account
 
 
-_DUO_SHARED = 3          # same-team shared recent games = confirmed duo
-_DUO_LOOSE = 2           # same-team shared recent games = probable duo ('duo?')
-
-
-def _duo_pass(team_rows, key=None):
-    """Cross-reference ONE TEAM's recent match ids: players sharing recent ranked games
-    ON THE SAME SIDE of those games are queued together. 2 verified same-side games is
-    already a strong read (10-game windows drift out of sync fast, which is how obvious
-    duos were slipping through at the old 3-id-overlap bar) — it renders as 'duo?'; 3+ is
-    confirmed. The tag cites its evidence per the tag spec (docs/TAGS.md)."""
-    for i, a in enumerate(team_rows):
-        for b in team_rows[i + 1:]:
-            if not (a.get("mids") and b.get("mids")):
-                continue
-            shared = set(a["mids"]) & set(b["mids"])
-            if len(shared) < _DUO_LOOSE:
-                continue
-            if key and a.get("puuid") and b.get("puuid"):
-                same = ls.same_side_games(shared, a["puuid"], b["puuid"], key)
-            else:
-                same = len(shared)
-            if same < _DUO_LOOSE:
-                continue
-            mark = "duo" if same >= _DUO_SHARED else "duo?"
-            an = (a.get("player") or a.get("champ") or "?").split("#")[0]
-            bn = (b.get("player") or b.get("champ") or "?").split("#")[0]
-            a["tags"].insert(0, (f"{mark} · {bn} ({same} shared)", "info"))
-            b["tags"].insert(0, (f"{mark} · {an} ({same} shared)", "info"))
-
-
 def _comp_read(dd, rows):
     ad = ap = divers = tanks = scalers = 0
     for r in rows:
@@ -376,8 +346,6 @@ def brief(dd, key=None, scout=True, on_progress=None):
                     on_progress(snap)
                 except Exception:
                     pass
-        _duo_pass(allies, key)
-        _duo_pass(enemies, key)
     return dict(base, allies=allies, enemies=enemies)
 
 
