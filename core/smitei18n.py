@@ -1,4 +1,6 @@
 """Small runtime i18n layer with English source-string fallbacks."""
+import re
+
 from i18n_pt_BR import MESSAGES as PT_BR_MESSAGES
 
 SUPPORTED = ("pt_BR", "en")
@@ -80,4 +82,6 @@ def coach(text):
                     ("enemies missing", "inimigos desaparecidos"))
     for source, translated in replacements:
         value = value.replace(source, translated)
+    value = value.replace("with it:", "com o padrão:").replace("without:", "sem o padrão:")
+    value = re.sub(r"\b(\d+)W-(\d+)L\b", r"\1V-\2D", value)
     return value

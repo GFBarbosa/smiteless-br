@@ -16,7 +16,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
             pass
 import smiteconfig as cfg
 import lolscout as ls
-from smitei18n import set_lang, t
+from smitei18n import set_lang, t, tf
 
 import smiteskin as skin
 # Duskfall tokens - see docs/UIDESIGN.md. Nothing below this block may spell out a hex or
@@ -209,8 +209,9 @@ def main():
             _v.set(True)
         _me_paint()
         who = (main_nm + (f" / {back_nm}" if back_nm else "")) if main_nm \
-            else "best pick per draft"
-        status.config(text=f"MAX ELO armed - {who}, everything climb-focused on", fg=GOOD)
+            else t("best pick per draft")
+        status.config(text=tf("MAX ELO armed - {choice}, everything climb-focused on",
+                              choice=who), fg=GOOD)
 
     # THE button: this window's one primary (UIDESIGN §: exactly one EMBER-filled button per
     # window), sized up — it's the only control most sessions touch. Save drops to secondary.
@@ -350,9 +351,19 @@ def main():
                                                         sticky="w", pady=(0, 2))
         inner.columnconfigure(0, weight=1, uniform="feat")
         inner.columnconfigure(1, weight=1, uniform="feat")
-        for i, (lbl, var) in enumerate(items):
-            _chk(inner, t(lbl), var, bg=SURFACE).grid(row=1 + i // 2, column=i % 2,
-                                                   sticky="w", padx=(0, 8))
+        row, col = 1, 0
+        for lbl, var in items:
+            text = t(lbl)
+            wide = len(items) == 1 or len(text) > 32
+            if wide and col:
+                row, col = row + 1, 0
+            _chk(inner, text, var, bg=SURFACE).grid(
+                row=row, column=col, columnspan=(2 if wide else 1),
+                sticky="w", padx=(0, 8))
+            if wide or col:
+                row, col = row + 1, 0
+            else:
+                col = 1
 
     _feat_group("IN-GAME WIDGET", [
         ("Item widget", widget),
@@ -366,20 +377,20 @@ def main():
         ("Bleed guard (first 14 minutes)", bleedv),
         ("Closer (win-conversion, from 20:00)", closerv),
     ])
-    tk.Label(body, text="BLEED GUARD watches your own health bar before 14:00 — the window "
+    tk.Label(body, text=t("BLEED GUARD watches your own health bar before 14:00 — the window "
              "where three deaths turn into a 39% game (your last 46: 9W-14L with it, 14W-9L "
              "without). It only speaks when somebody can actually collect: low health AND "
              "their jungler unaccounted for, or a laner two levels up who kills you on his "
-             "own. Everything else is silence.",
+             "own. Everything else is silence."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
-    tk.Label(body, text="CLOSER only exists in games you are ALREADY WINNING. From 20:00, "
+    tk.Label(body, text=t("CLOSER only exists in games you are ALREADY WINNING. From 20:00, "
              "while your team is 2k+ up, it reads their turrets and inhibitors straight off "
              "the event feed and tells you the shortest path to the nexus — END IT when an "
              "inhibitor is open, CLOSE when one turret stands in front of one. It also tracks "
              "what you have GIVEN BACK of your peak lead, and HOLDs you off a fight you would "
              "lose, priced in the seconds your death actually costs. Behind or even, it says "
-             "nothing at all.",
+             "nothing at all."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [

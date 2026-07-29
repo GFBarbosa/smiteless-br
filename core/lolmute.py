@@ -41,6 +41,7 @@ for _s in ("stdout", "stderr"):
 import smiteconfig as cfg
 import lolimport as limp                     # its _lcu_json is the shared, proven LCU caller
 from lolcreds import _ki, _INP               # raw SendInput plumbing
+from smitei18n import t, tf
 
 CMD = "/fullmute all"
 GAME_CLASS = "RiotWindowClass"
@@ -138,20 +139,21 @@ def apply(on=True):
     want = MUTED if on else UNMUTED
     before = read_state()
     if before is None:
-        return False, "client not reachable, or it no longer exposes these settings"
+        return False, t("client not reachable, or it no longer exposes these settings")
     try:
         limp._lcu_json("PATCH", SETTINGS_PATH, want)
     except Exception as e:
-        return False, f"PATCH failed: {type(e).__name__}"
+        return False, tf("PATCH failed: {error}", error=type(e).__name__)
     after = read_state()
     if after is None:
-        return False, "could not read the settings back"
+        return False, t("could not read the settings back")
     flat = {f"{g}.{k}": v for g, ks in want.items() for k, v in ks.items()}
     bad = [k for k, v in flat.items() if after.get(k) != v]
     if bad:
-        return False, "the client did not accept: " + ", ".join(bad)
+        return False, tf("the client did not accept: {settings}", settings=", ".join(bad))
     changed = [k for k in flat if before.get(k) != after.get(k)]
-    return True, ("already set" if not changed else "set " + ", ".join(changed))
+    return True, (t("already set") if not changed else
+                  tf("set {settings}", settings=", ".join(changed)))
 
 
 # ---------- layer 1: type it into the game ----------

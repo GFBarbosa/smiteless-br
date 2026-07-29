@@ -347,6 +347,73 @@ def c_runes():
     return OK, "switches only on a clear comp, cites op.gg's own sample, ignores thin pages"
 
 
+def c_new_i18n():
+    """New v0.9.55-v0.9.66 surfaces must switch copy without changing their internal
+    contracts. Exercise the same deterministic fixtures in both languages."""
+    import loldraft as draft
+    import lolbleed as bleed, lolclose as close, lolfit as fit, lolrunes as runes
+    import smitei18n as i18n
+    previous = i18n.lang()
+    try:
+        i18n.set_lang("en")
+        bleed_en = bleed._verdict(bleed.demo("bleed"))
+        close_en = close._verdict(close.demo("end"))
+        rec = {"baseline": 83, "recent": [],
+               "champs": {"loser": {"g": 10, "w": 1, "avg": 60}}}
+        fit_en = fit.verdict(rec, "loser")
+        dd, opts, enemies = runes.demo("tank")
+        rune_en = runes.choose(dd, opts, enemies)
+        demo_names = ("Sett", "Kha'Zix", "Ahri", "Jinx", "Thresh",
+                      "Darius", "Graves", "Zed", "Caitlyn", "Lux")
+        demo_dd = {
+            "norm": lambda value: "".join(c for c in value.lower() if c.isalnum()),
+            "name2id": {},
+        }
+        demo_dd["name2id"] = {
+            demo_dd["norm"](name): idx + 1 for idx, name in enumerate(demo_names)
+        }
+        draft_en = draft._demo_scout(demo_dd)
+
+        i18n.set_lang("pt_BR")
+        bleed_pt = bleed._verdict(bleed.demo("bleed"))
+        close_pt = close._verdict(close.demo("end"))
+        fit_pt = fit.verdict(rec, "loser")
+        rune_pt = runes.choose(dd, opts, enemies)
+        draft_pt = draft._demo_scout(demo_dd)
+        bad = []
+        if bleed_en["verdict"] != "BLEED" or bleed_pt["verdict"] != "BLEED":
+            bad.append("BLEED internal verdict changed with locale")
+        if not bleed_en["line"].startswith("BACK OFF") or not bleed_pt["line"].startswith("RECUE"):
+            bad.append("BLEED copy did not switch EN/PT")
+        if close_en["verdict"] != "END" or close_pt["verdict"] != "END":
+            bad.append("CLOSER internal verdict changed with locale")
+        if not close_en["line"].startswith("END IT") or not close_pt["line"].startswith("TERMINE"):
+            bad.append("CLOSER copy did not switch EN/PT")
+        if fit_en[0] != "veto" or fit_pt[0] != "veto" \
+                or "W-" not in fit_en[1] or "V-" not in fit_pt[1]:
+            bad.append("personal-fit evidence did not switch EN/PT")
+        if rune_en[0] != 1 or rune_pt[0] != 1 or "frontline locked" not in rune_en[1] \
+                or "linha de frente" not in rune_pt[1]:
+            bad.append("adaptive-rune evidence did not switch EN/PT")
+        if i18n.t("ESCAPE KEY") == "ESCAPE KEY" or i18n.t("Back off.") == "Back off.":
+            bad.append("new Settings/TTS catalog entries are missing")
+        if "main · 140k pts" not in draft_en["allies"][0]["t"][0][0] \
+                or "principal · 140 mil pts" not in draft_pt["allies"][0]["t"][0][0] \
+                or draft_en["allies"][0]["n"] != "You" \
+                or draft_pt["allies"][0]["n"] != "Você" \
+                or "7W in last 10" not in draft_en["allies"][0]["t"][1][0] \
+                or "7V nas últimas 10" not in draft_pt["allies"][0]["t"][1][0] \
+                or not draft_pt["allies"][0]["tip"].startswith("Respeite") \
+                or draft_en["plan"][0].startswith("O inimigo") \
+                or not draft_pt["plan"][0].startswith("O inimigo"):
+            bad.append("DraftBoard demo tags/plan did not switch EN/PT")
+        if bad:
+            return FAIL, "; ".join(bad)
+        return OK, "BLEED, CLOSER, fit, runes, DraftBoard demo and Settings/TTS switch PT/EN"
+    finally:
+        i18n.set_lang(previous)
+
+
 def c_maxelo():
     """MAX ELO arms a list of setting keys by name. A typo there is invisible - the switch
     would look armed and quietly leave a feature off - so every key must be a real toggle."""
@@ -482,6 +549,7 @@ def main():
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),
         ("Adaptive runes (comp-aware)", c_runes),
+        ("New feature i18n (PT/EN)", c_new_i18n),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

@@ -2501,9 +2501,11 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         kind, why = note
         tag = {"fresh": (t("FRESH"), ARC), "cold": (t("COLD"), RED)}.get(kind, ("", MUTED))
         nm = dd["id2name"].get(top, "?")
-        d.text((20, y), tag[0], font=display_font(8, True), fill=tag[1])
-        for i, ln in enumerate(_wrap(f"{nm} — {why}", font(9), VW - 76)[:2]):
-            d.text((56, y + i * 11), ln, font=font(9), fill=MUTED)
+        tag_font = display_font(8, True)
+        d.text((20, y), tag[0], font=tag_font, fill=tag[1])
+        note_x = 20 + int(d.textlength(tag[0], font=tag_font)) + 8
+        for i, ln in enumerate(_wrap(f"{nm} — {why}", font(9), VW - note_x - 14)[:2]):
+            d.text((note_x, y + i * 11), ln, font=font(9), fill=MUTED)
         y += 24
     y += 4
     # bans/draft band — one railed card wrapping GOOD BANS + lobby BANS + ENEMY PICKS,

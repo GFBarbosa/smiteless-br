@@ -603,7 +603,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         avail = W - x - 62 - 8                 # one row, never a wrap: clip, don't spill
         while txt and d.textlength(txt, font=qf) > avail:
             txt = txt[:-2] + "…"
-        d.text((x + 2, y), "CLOSER", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 2, y), t("CLOSER"), font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf, fill=C_WARN if gv else C_GOOD)
         y += 18
 
@@ -862,8 +862,10 @@ def _render_legend(W=330):
         d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
     y += 4
+    reentry_w = max(int(d.textlength(t(vd), font=_dfont(11, bold=True)))
+                    for vd, _col, _txt in _LEGEND_REENTRY) + 10
     for vd, col, txt in _LEGEND_REENTRY:
-        row(t(vd), col, t(txt), 46, dfont=True)
+        row(t(vd), col, t(txt), reentry_w, dfont=True)
 
     section(t("CLOSER — THE GAME YOU'RE ALREADY WINNING"))
     for ln in _wwrap(d, t("from 20:00, and only while you're 2k+ up: the shortest structural "
@@ -873,8 +875,10 @@ def _render_legend(W=330):
         d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
     y += 4
+    closer_w = max(int(d.textlength(t(vd), font=_dfont(11, bold=True)))
+                  for vd, _col, _txt in _LEGEND_CLOSER) + 10
     for vd, col, txt in _LEGEND_CLOSER:
-        row(t(vd), col, t(txt), 46, dfont=True)
+        row(t(vd), col, t(txt), closer_w, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
 
@@ -1192,7 +1196,8 @@ def main():
                                              + [("rotate", "Rotate now."), ("hello", "Tempo online.")]],
                              daemon=True).start()
         if bleed_on and voice_on and dvol > 0:            # pre-render the BLEED line (one-time)
-            threading.Thread(target=lambda: _tts_salli("backoff", "Back off."), daemon=True).start()
+            threading.Thread(target=lambda: _tts_salli("backoff", t("Back off.")),
+                             daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -1306,7 +1311,7 @@ def main():
             if (bleed and voice_on and st["vol"] > 0 and not st.get("muted", False)
                     and bleed["calls"] > bled["said"] and bled["said"] < BLEED_SAY):
                 bled["said"] = bleed["calls"]
-                threading.Thread(target=_say, args=("backoff", "Back off.", st["vol"]),
+                threading.Thread(target=_say, args=("backoff", t("Back off."), st["vol"]),
                                  daemon=True).start()
             # "you're up" chime: one soft two-note cue as the respawn timer crosses ~1.5s,
             # so eyes-off-screen death time ends with a nudge instead of lost seconds.
