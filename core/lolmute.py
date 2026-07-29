@@ -55,6 +55,16 @@ _u32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
 _u32.MapVirtualKeyW.restype = wintypes.UINT
 _u32.SendInput.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
 _u32.SendInput.restype = wintypes.UINT
+# 64-bit safety: these return/accept pointers and pointer-sized ints. Left to ctypes' default
+# c_int they get truncated, and a truncated hook handle means UnhookWindowsHookEx silently
+# fails — i.e. a global keyboard hook left installed after we exit.
+_u32.SetWindowsHookExW.restype = ctypes.c_void_p
+_u32.SetWindowsHookExW.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD]
+_u32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+_u32.CallNextHookEx.restype = ctypes.c_ssize_t
+_u32.CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+_u32.GetLastInputInfo.argtypes = [ctypes.c_void_p]
+_k32.GetTickCount.restype = wintypes.DWORD
 _k32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
                                             wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
 _k32.QueryFullProcessImageNameW.restype = wintypes.BOOL
@@ -220,6 +230,98 @@ def _tap_scan(code, hold=KEY_HOLD_S):
     _key(code, False)
 
 
+IDLE_MS = 350          # hands off the keyboard/mouse this long before we dare start typing
+IDLE_WAIT_S = 3.0      # how long to hunt for that quiet gap before giving up on THIS attempt
+                       # (short on purpose: the caller retries every second, so a busy fountain
+                       # still gets ~15 chances before the window closes, then every death)
+
+
+class _InputGuard:
+    """Watches for YOUR real keyboard/mouse input while we type, and flags it instantly.
+
+    Low-level hooks see every event in the session and, crucially, tag the ones that were
+    INJECTED (LLKHF_INJECTED / LLMHF_INJECTED). Our own synthetic keys carry that flag; your
+    hands do not. So this can tell "the user just touched something" apart from "we are typing",
+    which polling GetAsyncKeyState or GetLastInputInfo cannot do once we've started.
+
+    The moment a real event arrives, `interrupted` goes True and send_fullmute() bails out and
+    closes the chat box — instead of letting your keypress and our command shred each other."""
+
+    _WH_KEYBOARD_LL, _WH_MOUSE_LL = 13, 14
+    _LLKHF_INJECTED, _LLMHF_INJECTED = 0x10, 0x01
+
+    def __init__(self):
+        self.interrupted = False
+        self._hooks = []
+        self._tid = None
+        self._ready = threading.Event()
+        self._thread = None
+
+    # Mouse messages that are NOT a threat to an open chat box. Moving the mouse doesn't
+    # defocus it and neither does the wheel — only a CLICK does. Treating movement as an
+    # interruption made the guard trip constantly, since the cursor is essentially never still.
+    _HARMLESS_MOUSE = (0x0200, 0x020A)                     # WM_MOUSEMOVE, WM_MOUSEWHEEL
+
+    def _make(self, injected_mask, flag_index, skip=()):
+        # flag_index differs by struct: KBDLLHOOKSTRUCT is {vkCode, scanCode, FLAGS, ...} so
+        # flags is DWORD #2; MSLLHOOKSTRUCT is {pt.x, pt.y, mouseData, FLAGS, ...} so it's #3.
+        # Reading the wrong one makes every real click look injected and the guard never fires.
+        def proc(n_code, w_param, l_param):
+            if n_code >= 0 and int(w_param) not in skip:
+                try:
+                    flags = ctypes.cast(l_param, ctypes.POINTER(wintypes.DWORD))[flag_index]
+                    if not (flags & injected_mask):        # a REAL key/click, not ours
+                        self.interrupted = True
+                except Exception:
+                    pass
+            return _u32.CallNextHookEx(None, n_code, w_param, l_param)
+        return ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM,
+                                  wintypes.LPARAM)(proc)
+
+    def _run(self):
+        self._kb = self._make(self._LLKHF_INJECTED, 2)     # keep refs: GC'd callback = crash
+        self._ms = self._make(self._LLMHF_INJECTED, 3, self._HARMLESS_MOUSE)
+        for hid, cb in ((self._WH_KEYBOARD_LL, self._kb), (self._WH_MOUSE_LL, self._ms)):
+            h = _u32.SetWindowsHookExW(hid, cb, None, 0)
+            if h:
+                self._hooks.append(h)
+        self._tid = _k32.GetCurrentThreadId()
+        self._ready.set()
+        msg = wintypes.MSG()                               # hooks need a message pump
+        while _u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            pass
+        for h in self._hooks:
+            _u32.UnhookWindowsHookEx(h)
+        self._hooks = []
+
+    def __enter__(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        self._ready.wait(2.0)
+        self.interrupted = False           # ignore anything seen while starting up
+        return self
+
+    def __exit__(self, *exc):
+        if self._tid:
+            _u32.PostThreadMessageW(self._tid, 0x0012, 0, 0)      # WM_QUIT
+        if self._thread:
+            self._thread.join(timeout=2.0)
+        return False
+
+
+class _LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+
+def idle_ms():
+    """Milliseconds since you last touched the keyboard or mouse (system-wide)."""
+    li = _LASTINPUTINFO()
+    li.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+    if not _u32.GetLastInputInfo(ctypes.byref(li)):
+        return 0
+    return max(0, _k32.GetTickCount() - li.dwTime)
+
+
 def _single_instance():
     """Refuse to run if another copy already is. THIS IS THE ONE THAT BROKE IT: the v0.9.55
     rewrite dropped the mutex the original had, the tray re-spawns on any phase flap, and three
@@ -256,29 +358,51 @@ def send_fullmute():
                 _log(f"ABORT layout cannot produce {ch!r}")
                 return False
             keys.append(s)
-        _tap_scan(ENTER_SCAN())                     # open chat
-        time.sleep(CHAT_OPEN_S)
-        if not game_focused():
-            return False
-        sh = _u32.MapVirtualKeyW(VK_SHIFT, 0)
-        for i, (code, shift) in enumerate(keys):
-            if not game_focused():                  # bail between characters, not after them
-                _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))
-                _log(f"ABORT lost focus after {i} of {len(keys)} characters — "
-                     f"chat closed, nothing further typed")
+        # WAIT FOR YOUR HANDS TO BE STILL. Don't start a two-second command while you're
+        # mid-click — start it in a gap. Fountain time is full of them.
+        waited = 0.0
+        while idle_ms() < IDLE_MS:
+            if waited >= IDLE_WAIT_S or not game_focused():
+                _log(f"no quiet moment in {waited:.0f}s (you were still typing/clicking) — "
+                     f"not starting; will try again")
                 return False
-            if shift:
-                _key(sh, True)
-            _tap_scan(code, KEY_GAP_S)
-            if shift:
-                _key(sh, False)
-            time.sleep(KEY_GAP_S)
-        time.sleep(PRE_SEND_S)
-        if not game_focused():
-            _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))     # close the box we opened
-            return False
-        _tap_scan(ENTER_SCAN())                     # submit
-        return True
+            time.sleep(0.05)
+            waited += 0.05
+
+        with _InputGuard() as guard:
+            def bail(where, i=None):
+                _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))     # close the box we opened
+                at = f" after {i} of {len(keys)} characters" if i is not None else ""
+                _log(f"ABORT {where}{at} — chat closed, nothing further typed")
+                return False
+
+            _tap_scan(ENTER_SCAN())                     # open chat
+            time.sleep(CHAT_OPEN_S)
+            if guard.interrupted:
+                return bail("you pressed something")
+            if not game_focused():
+                return bail("lost focus")
+            sh = _u32.MapVirtualKeyW(VK_SHIFT, 0)
+            for i, (code, shift) in enumerate(keys):
+                # Checked before EVERY character: your keypress and our command can never
+                # shred each other for more than one keystroke.
+                if guard.interrupted:
+                    return bail("you pressed something", i)
+                if not game_focused():
+                    return bail("lost focus", i)
+                if shift:
+                    _key(sh, True)
+                _tap_scan(code, KEY_GAP_S)
+                if shift:
+                    _key(sh, False)
+                time.sleep(KEY_GAP_S)
+            time.sleep(PRE_SEND_S)
+            if guard.interrupted:
+                return bail("you pressed something before submit")
+            if not game_focused():
+                return bail("lost focus before submit")
+            _tap_scan(ENTER_SCAN())                     # submit
+            return True
     finally:
         _SEND_LOCK.release()
 

@@ -1,5 +1,26 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.63 - auto-mute waits for your hands to be still, and backs off the moment they aren't
+
+- **It now watches your real keyboard and mouse while it types, and aborts instantly if you
+  touch anything.** Windows tags injected input, so a low-level hook can tell OUR keystrokes
+  apart from YOURS. If a real keypress or click lands mid-command, it closes the chat box and
+  stops - your input and the command can never shred each other for more than one keystroke.
+  Then it just tries again later.
+- **It won't start typing while you're already busy.** It waits for a genuine ~350ms gap with
+  your hands off the keyboard and mouse before it begins. The fountain is full of those; if it
+  can't find one it simply doesn't start, and retries a second later.
+- **Mouse movement doesn't count.** Moving the cursor doesn't defocus League's chat box - only
+  a click does - and treating movement as interference would mean it never fired at all, since
+  the cursor is essentially never still.
+- I checked whether the game has a bindable "mute all" hotkey that would replace the typing
+  with a single keypress. **It doesn't** - the client exposes ping bindings and nothing else -
+  so typing is the only in-game route, and the answer had to be making it interruption-proof
+  rather than shorter.
+- The self-test now proves the guard on seven cases: real key and real click must trip it; our
+  own injected key and click must not; mouse move and wheel must be ignored; and it must not
+  trip on our own typing during a live run, with the hooks released afterwards.
+
 ## v0.9.62 - auto-mute hardened: the real bug was THREE copies typing at once
 
 - **Found it. Three copies of the mute helper were running and all typed into the same chat box

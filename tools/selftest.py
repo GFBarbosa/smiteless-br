@@ -175,6 +175,52 @@ def c_mute():
     return OK, detail + f"; settings {'MUTED' if on else 'unmuted'}"
 
 
+def c_muteguard():
+    """The input guard that makes auto-mute's typing safe to sit through. It must tell YOUR
+    hands apart from our injected keys (via the LLKHF_INJECTED / LLMHF_INJECTED flags) — if it
+    can't, it either aborts on its own keystrokes and never mutes, or misses yours and lets a
+    keypress shred the command. Mouse MOVEMENT must be ignored: the cursor is never still, and
+    moving it doesn't defocus League's chat box; only a click does."""
+    import lolmute as lm
+    G = lm._InputGuard
+    import ctypes
+    from ctypes import wintypes
+
+    def fire(kind, wparam, flags):
+        g = G()
+        idx, mask, skip = ((2, G._LLKHF_INJECTED, ()) if kind == "kb"
+                           else (3, G._LLMHF_INJECTED, G._HARMLESS_MOUSE))
+        proc = g._make(mask, idx, skip)
+        buf = (wintypes.DWORD * 8)(*([0] * 8))
+        buf[idx] = flags
+        proc(0, wparam, ctypes.cast(ctypes.pointer(buf), ctypes.c_void_p).value)
+        return g.interrupted
+
+    cases = [("real keypress", "kb", 0x0100, 0x00, True),
+             ("our injected key", "kb", 0x0100, 0x10, False),
+             ("mouse move", "ms", 0x0200, 0x00, False),
+             ("mouse wheel", "ms", 0x020A, 0x00, False),
+             ("real left click", "ms", 0x0201, 0x00, True),
+             ("real right click", "ms", 0x0204, 0x00, True),
+             ("our injected click", "ms", 0x0201, 0x01, False)]
+    bad = [n for n, k, w, f, want in cases if fire(k, w, f) != want]
+    if bad:
+        return FAIL, "input guard wrong on: " + ", ".join(bad)
+    with G() as g:                                   # and it must not trip on our own typing
+        time.sleep(0.1)
+        sh = lm._u32.MapVirtualKeyW(0x10, 0)
+        for _ in range(8):
+            lm._tap_scan(sh, 0.02)
+            time.sleep(0.02)
+        time.sleep(0.15)
+        self_trip = g.interrupted
+    if self_trip:
+        return FAIL, "the guard trips on our OWN injected keys - it would abort every time"
+    if g._hooks:
+        return FAIL, "low-level hooks left installed after the guard exited"
+    return OK, "tells your keys/clicks from ours; ignores mouse movement; hooks released"
+
+
 def c_maxelo():
     """MAX ELO arms a list of setting keys by name. A typo there is invisible - the switch
     would look armed and quietly leave a feature off - so every key must be a real toggle."""
@@ -305,6 +351,7 @@ def main():
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
         ("Auto-mute (chat + settings)", c_mute),
+        ("Auto-mute input guard", c_muteguard),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),
