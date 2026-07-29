@@ -20,6 +20,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL history, not the default depth-1. Releasing from a branch other than main
+          # pushes HEAD:main at the end, and a shallow clone cannot prove that fast-forward
+          # — it fails with "remote contains work that you do not have locally" even when
+          # main is a clean ancestor. That is what killed the first v0.9.67 run.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -72,8 +78,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add VERSION
           git commit -m "Release v$env:VER"
-          git tag "v$env:VER"
-          git push origin HEAD:main --tags
+          # main FIRST: a version tag is only meaningful once the commit it names is on main,
+          # and if this push is going to fail we want it to fail before anything is tagged.
+          git push origin HEAD:main
+          # Re-running a release whose later steps failed leaves the tag behind pointing at
+          # the previous attempt's (now orphaned) commit. Move it onto this attempt instead
+          # of dying on "tag already exists" — the release itself was never published, so
+          # there is nothing downstream depending on where the old tag pointed.
+          git tag -f "v$env:VER"
+          git push origin -f "refs/tags/v$env:VER"
 
       - name: Publish GitHub Release
         shell: pwsh
