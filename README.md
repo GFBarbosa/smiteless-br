@@ -6,6 +6,43 @@ WARNING:  I frequently update Smiteless and sometimes the updates just aren't go
 
 ![The in-game scoreboard](docs/board.png)
 
+## What it lives for
+
+**One thing: shortening the climb.** Not covering the game — shortening the climb. Anything
+that would merely be *interesting to know* gets cut; what survives is what changes a decision
+you are about to make, in the seconds before you make it.
+
+That leads to three rules the whole app is built on:
+
+- **It speaks once, or not at all.** Every surface here is allowed to say nothing, and most of
+  them say nothing most of the game. A coach that talks through a losing game, or nags every
+  ninety seconds, is a coach you turn off — and an app you have turned off shortens no climbs.
+- **Every claim carries its receipt.** No line tells you a habit is costing you games without
+  showing the split *from your own match history* — *"with it: 3W-9L · without: 11W-5L"*. Where
+  a number is modelled rather than measured, the source says so out loud.
+- **It reads, it doesn't play.** The live surfaces are 100% read-only off Riot's own local
+  endpoint. Nothing touches your camera, your inputs, or your mouse mid-fight.
+
+## Your leaks, answered while you can still fix them
+
+Between games, your profile reads each match and tags the habits that actually cost you the
+game. **The direction of this project is simple: every one of those tags gets a live in-game
+surface that fires while the mistake is still preventable** — the review is worth far less
+than the intervention.
+
+| Your profile tags it | In game, this answers it | When |
+|---|---|---|
+| `weak first-ten economy` | **THE GOLD CLOCK** | 2:30 → 14:00 |
+| `early bleeding` (3+ deaths pre-14) | **BLEED** | 0:00 → 14:00 |
+| `chained deaths` (2+ inside 90s) | **RE-ENTRY** | the 90s after you respawn |
+| `coin-flip death while ahead` | **THE CLOSER** | 20:00+, only while winning |
+| `no vision setup` | *— not yet* | next up |
+
+Plus the **Tempo engine**, which owns the ~90 seconds before every objective. Here is the whole
+in-game HUD, one panel per guard:
+
+![The in-game widget](docs/widget.png)
+
 | Champ select (docks by the client) | Your profile |
 |:---:|:---:|
 | ![Champ select panel](docs/champselect.png) | ![Profile](docs/profile.png) |
@@ -37,7 +74,7 @@ Hit **ARM** and the app goes on rails for the climb. Name a champion and a backu
 to one pick, or **leave them empty and it locks the best champion for that draft** — counters
 into the enemies who've locked plus comp fit, falling through the list if the top one is gone.
 Then it bans the champ that most threatens your team, auto-accepts, imports your runes and
-summoners, mutes the lobby, and switches on all 21 climb-focused reads at once. Champion-pool
+summoners, mutes the lobby, and switches on all 23 climb-focused reads at once. Champion-pool
 discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
 it. **STAND DOWN** releases the lock and leaves the reads on.
 
@@ -51,6 +88,7 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 
 ### ⚡ In game
 - **The Tempo engine** — a live director for the ~90 seconds before every objective: your farm window, exact recall deadline, when to rotate, and a **TAKE / GIVE / 50-50 verdict** from death timers, levels and gold (fog-of-war aware). With spoken callouts: *"Base now"*, *"Rotate to dragon"*, *"Give it, trade elsewhere"*
+- **BLEED, the first fourteen minutes** — the only thing in the app watching your own health bar, and it exists because low HP on its own is not a warning (you'd get one every wave) — low HP *while somebody can actually collect* is. It fires only when the live game can prove the threat: your health, plus the enemy jungler unaccounted for, or a lane opponent two levels up who kills you on his own. The bar **tightens as the game shape gets worse** — two deaths already banked before 14:00 and it calls at a health total it would have let pass at zero, because the third death is the one that flips the tag. Otherwise: silence
 - **RE-ENTRY, the 90-second guard** — the moment you respawn, a clock starts on the window that actually loses games: dying *again* inside 90 seconds. While it runs the widget answers one thing off live data — can they punish you right now? **HOLD** (the champion who killed you is up and ahead, or you lose any fight this second) takes over the directive card with the productive thing to do instead; **CLEAR** names the enemies who are dead and how long you own the map. It carries its receipt: your own W/L split for the habit, straight out of your match history
 - **THE CLOSER — the game you're already winning.** From 20:00, and only while your team is 2k+ up (the same bar your profile uses to tag a thrown game), it answers the question the minimap answers and you never look at: *what is the shortest path to their nexus from here?* It keeps a live structure map from the turret and inhibitor events — **END IT** when an inhibitor is open, with the seconds left on its five-minute clock; **CLOSE** when one turret is all that stands in front of one. It also tracks what you've **given back** of your peak lead (*+4.5k · gave back 2.1k of 6.6k*) — the one number that shows a game being thrown in slow motion — and **HOLD**s you off a fight you'd lose, priced in the seconds your death actually costs against the live baron timer. Behind or even, it says nothing at all
 - **THE GOLD CLOCK — your lane, counted against the minions that actually spawned.** Every CS overlay ever built shows you CS/min against a flat benchmark; a flat benchmark doesn't know that at 4:32 only nine waves have left the fountain. Minions are a *schedule* — one wave at 1:05 and one every 30s, 3 melee + 3 casters, every third carrying a cannon — so the denominator here isn't a benchmark, it's the minions that have walked into your lane: *`41 of 74 · 55% · on track for 63, bar 55`*. It back-times your own profile's bar (55 CS by 10:00, the `weak first-ten economy` tag) into the only sentence that helps — ***"you need 25 of the next 32 minions"*** — and says so plainly when the answer is no, switching to plates and objectives instead. The **cannon minion** (60g, the biggest object in lane phase) gets its own seconds-out warning, but only while you're behind. Kills count as the CS they were worth, so a roaming game reads `30+44 of 82 · 90%` and stays green. A wave lost while you were dead is never billed to you. One quiet row for ten minutes; it takes the card only at the moment a wave went by, and never outranks BLEED. Top / mid / ADC — silent for jungle and support rather than invent a number
@@ -79,4 +117,11 @@ pip install pillow pystray
 python smiteless_main.py overlay      # or: widget / settings / profile
 ```
 
-`dist\build.ps1` builds the frozen app; `dist\make-release.ps1 -Version X.Y.Z` cuts a release (PyInstaller + AHK-compiled tray/installer, Python 3.11+).
+`python tools\selftest.py` runs the health check and every engine guard — the verdict engines
+(tempo, gold clock, bleed, re-entry, closer, queue call) are pure functions with fixtures, so
+they're testable without a live game. Each also prints its own branches: `python core\lolgold.py`.
+
+`dist\build.ps1` builds the frozen app and `dist\make-release.ps1 -Version X.Y.Z` cuts a release
+locally (PyInstaller + AHK-compiled tray/installer, Python 3.11+). Releases are normally cut in
+the cloud instead — the **Release** workflow in the Actions tab builds the installer on a Windows
+runner and publishes it, no local toolchain needed.
