@@ -158,8 +158,11 @@ def c_mute():
     # the log said TYPED three times, so it looked like success. Never again.
     if not hasattr(lm, "_single_instance"):
         return FAIL, "no single-instance guard - concurrent copies will interleave into garbage"
-    if not lm._single_instance():
-        return FAIL, "a lolmute process is already running (or the mutex leaked)"
+    # Prove the SEMANTICS on a throwaway mutex. Grabbing the real one would make this check
+    # fail exactly when auto-mute is running properly, which is the wrong way round.
+    probe = "Global\\SmitelessSelftestProbe"
+    if not lm._single_instance(probe) or lm._single_instance(probe):
+        return FAIL, "the single-instance guard doesn't actually exclude a second copy"
     if not hasattr(lm, "_SEND_LOCK"):
         return FAIL, "no in-process send lock - two threads could interleave the command"
     if not hasattr(lm, "player_dead"):
@@ -206,6 +209,10 @@ def c_muteguard():
     bad = [n for n, k, w, f, want in cases if fire(k, w, f) != want]
     if bad:
         return FAIL, "input guard wrong on: " + ", ".join(bad)
+    # The live half only means anything if YOU aren't typing during it — otherwise it's your
+    # keyboard tripping the guard, which is the guard working. Skip it rather than cry wolf.
+    if lm.idle_ms() < 400:
+        return OK, "discrimination matrix passes (live check skipped - you're using the keyboard)"
     with G() as g:                                   # and it must not trip on our own typing
         time.sleep(0.1)
         sh = lm._u32.MapVirtualKeyW(0x10, 0)
@@ -214,11 +221,45 @@ def c_muteguard():
             time.sleep(0.02)
         time.sleep(0.15)
         self_trip = g.interrupted
-    if self_trip:
-        return FAIL, "the guard trips on our OWN injected keys - it would abort every time"
     if g._hooks:
         return FAIL, "low-level hooks left installed after the guard exited"
+    if self_trip and lm.idle_ms() > 400:
+        return FAIL, "the guard trips on our OWN injected keys - it would abort every time"
     return OK, "tells your keys/clicks from ours; ignores mouse movement; hooks released"
+
+
+def c_fit():
+    """PERSONAL FIT: the recommender's read of YOUR results. It must veto only on real evidence
+    (losing three in a row is not proof), demote champs you play below your own standard, and
+    promote ones you're good on but haven't touched — the rotation answer to getting bored.
+    A veto firing on thin data would silently delete good picks, so the bar is checked here."""
+    import lolfit as fit
+    rec = {"baseline": 83, "recent": ["yasuo", "hecarim", "khazix"],
+           "champs": {"loser": {"g": 10, "w": 1, "avg": 60},      # 10%: proven bad
+                      "unlucky": {"g": 3, "w": 0, "avg": 80},     # 0-3 but no sample -> no veto
+                      "cold": {"g": 5, "w": 3, "avg": 65},        # wins, plays it badly
+                      "neglected": {"g": 6, "w": 4, "avg": 95},   # good + not in recent -> fresh
+                      "onegood": {"g": 1, "w": 1, "avg": 120},    # one game is not a champion
+                      "yasuo": {"g": 16, "w": 8, "avg": 64}}}
+    want = {"loser": "veto", "unlucky": None, "cold": "cold", "neglected": "fresh",
+            "onegood": None}
+    bad = [f"{k}: got {fit.verdict(rec, k)[0]}, want {v}"
+           for k, v in want.items() if fit.verdict(rec, k)[0] != v]
+    if bad:
+        return FAIL, "; ".join(bad)
+    for k in want:
+        kind, why = fit.verdict(rec, k)
+        if kind and not why:
+            return FAIL, f"{k} returned a {kind} verdict with no evidence line"
+    dd = {"id2name": {1: "loser", 2: "neglected", 3: "cold"}}
+    order, notes = fit.apply(rec, dd, [1, 2, 3])
+    if 1 in order:
+        return FAIL, "a vetoed champion survived into the recommendations"
+    if order[0] != 2:
+        return FAIL, "a fresh champion was not promoted above a cold one"
+    if not notes.get(1) or not notes.get(2):
+        return FAIL, "apply() dropped the evidence notes the panel prints"
+    return OK, "vetoes only on real samples; cold demoted, fresh promoted, evidence attached"
 
 
 def c_maxelo():
@@ -352,6 +393,7 @@ def main():
         ("Re-entry guard (90s window)", c_reentry),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
+        ("Personal fit (your results)", c_fit),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

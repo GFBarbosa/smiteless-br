@@ -464,11 +464,6 @@ def main():
             except Exception:
                 det = None
             det = det or {}
-            try:                                          # duo inference: cached recent-ids overlap
-                if det.get("parts"):
-                    det["duos"] = lp.match_duos(det["parts"], key)
-            except Exception:
-                pass
             st["details"][mid] = det
             root.after(0, _render)
             # each player's CURRENT rank (§9): 10 cached league-v4 reads, filled in after

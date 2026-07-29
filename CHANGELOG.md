@@ -1,5 +1,32 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.64 - the recommender now knows how YOU do on a champion, and Ghost sits on your Flash key
+
+- **Ghost lands on your Flash key.** Auto-import always put Flash on your chosen key; on a build
+  with no Flash, Ghost went wherever op.gg happened to order the two spells. Now the MOBILITY
+  spell owns that key either way - same finger, same panic button, so your escape never moves
+  between champs. If a build runs both, Flash keeps the key and Ghost takes the other slot.
+  (Settings calls it ESCAPE KEY now, since it governs more than Flash.)
+- **It stopped recommending champions you're bad on.** Since the mastery gate came off, the
+  recommender ranked purely on merit - it would happily hand you the strongest pick into a draft
+  on a champion you've lost your last four games with. It now reads your own results and
+  **vetoes champions it's ~80% confident are genuine losers for you** (same statistical bar the
+  profile's "ease off" advice uses). Losing three in a row is NOT proof and vetoes nothing.
+- **Champions you play below your own standard get demoted**, with the receipt. On your account
+  right now that flags something worth knowing: **Yasuo, your MAX ELO main, is 8W-8L averaging
+  64 against your 83 overall, over 16 games.** You win on it; you don't play it well.
+- **New: the boredom fix, and it isn't novelty.** Getting bored is what makes people first-time
+  something in ranked, and a sub-12k-mastery pick wins ~44% - so "play something new" is
+  expensive advice. Instead the recommender now PROMOTES champions you're already good on and
+  haven't touched in a while. Yours: **Aatrox, 3W-0L at avg 110, last played 16 games ago.**
+  Same itch, no LP cost. It needs a real sample - one good game is a coin flip, not a champion.
+- The panel prints the reason under GOOD THIS GAME (`FRESH  Aatrox - 3W-0L (100%), avg 110 -
+  last played 16 games ago`), so a promotion or a drop is never mysterious.
+- MAX ELO's auto-lock uses the same filter - it will not lock you onto a champion your own
+  results say you're bad on.
+- The read is built from your season history (~60 games, 22 champions on your account) and
+  cached; it refreshes once per session on a background thread, never in the draft loop.
+
 ## v0.9.63 - auto-mute waits for your hands to be still, and backs off the moment they aren't
 
 - **It now watches your real keyboard and mouse while it types, and aborts instantly if you
