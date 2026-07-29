@@ -132,11 +132,12 @@ def main():
              font=skin.display(17, bold=True)).pack(side="left")
     me_state = tk.Label(me_head, text="", bg=SURFACE, font=skin.body(SMALL, bold=True))
     me_state.pack(side="left", padx=(10, 0), pady=(6, 0))
-    tk.Label(me_in, text="One champion. Everything that shortens the climb, on. Smiteless "
-             "auto-accepts, bans the champ that threatens your team, LOCKS your champ for you "
-             "(backup if it's gone), imports the runes, mutes the lobby, and runs every "
-             "in-game read. The pool discipline is the point: it takes the 30 seconds before "
-             "a game where the LP goes and removes the decisions from them.",
+    tk.Label(me_in, text="Everything that shortens the climb, on. Smiteless auto-accepts, bans "
+             "the champ that threatens your team, LOCKS your pick for you, imports the runes, "
+             "mutes the lobby, and runs every in-game read. Name a Main (and a Backup) to be "
+             "held to one champion — or leave them EMPTY and it locks the best pick for each "
+             "draft instead. Either way the 30 seconds before a game, where the LP goes, stop "
+             "being a decision.",
              bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", pady=(4, 6))
     me_row = tk.Frame(me_in, bg=SURFACE)
@@ -171,11 +172,17 @@ def main():
         me_state.config(text=("ARMED" if on else "STANDING BY"), fg=(EMBER if on else MUTED))
         me_btn.config(text=("STAND DOWN" if on else "ARM MAX ELO"))
         if on:
-            mn = maxelo_main.get().strip() or "?"
+            mn = maxelo_main.get().strip()
             bk = maxelo_back.get().strip()
-            me_note.config(text=f"Locked to {mn}" + (f", backup {bk}." if bk else ".")
-                           + " Champ select is on rails — change your mind here, not in the lobby.",
-                           fg=EMBER)
+            if mn:
+                me_note.config(text=f"Locked to {mn}" + (f", backup {bk}." if bk else ".")
+                               + " Champ select is on rails — change your mind here, not in "
+                                 "the lobby.", fg=EMBER)
+            else:
+                me_note.config(text="No champion set — so it locks the BEST PICK for each "
+                                    "draft: the same read as GOOD THIS GAME (counters into "
+                                    "their locks + comp fit), best first. Name a main above "
+                                    "if you'd rather it always be one champion.", fg=EMBER)
         else:
             me_note.config(text="Nothing is being locked. Arming also switches on every feature "
                                 "below that shortens the climb.", fg=MUTED)
@@ -187,10 +194,9 @@ def main():
             status.config(text="MAX ELO stood down - champ select is yours again", fg=MUTED)
             _me_paint()
             return
-        main_nm = _canon(maxelo_main.get())
-        if not main_nm:
-            me_note.config(text="Pick a main champion first - that's the whole idea.", fg=BAD)
-            return
+        # An empty main is a VALID way to arm: no champion named means "lock whatever is best
+        # for this draft". Requiring one made the button need setup before it did anything.
+        main_nm = _canon(maxelo_main.get()) or ""
         back_nm = _canon(maxelo_back.get()) or ""
         maxelo_main.set(main_nm)
         maxelo_back.set(back_nm)
@@ -199,9 +205,9 @@ def main():
         for _v, _k in _MAXELO_VARS:              # reflect the forced-on toggles in the UI
             _v.set(True)
         _me_paint()
-        status.config(text=f"MAX ELO armed - {main_nm}"
-                           + (f" / {back_nm}" if back_nm else "") + ", everything climb-focused on",
-                      fg=GOOD)
+        who = (main_nm + (f" / {back_nm}" if back_nm else "")) if main_nm \
+            else "best pick per draft"
+        status.config(text=f"MAX ELO armed - {who}, everything climb-focused on", fg=GOOD)
 
     # THE button: this window's one primary (UIDESIGN §: exactly one EMBER-filled button per
     # window), sized up — it's the only control most sessions touch. Save drops to secondary.
@@ -370,13 +376,15 @@ def main():
         ("Live draft link (URL in chat)", draftlink),
         ("Also open the draft board for me", draftopen),
     ])
-    _feat_group("IN-GAME AUTOMATION", [
-        ("Auto-mute everyone (chat + pings)", automute),
+    _feat_group("IN-GAME QUIET", [
+        ("Auto-mute (chat off, pings silent)", automute),
     ])
-    tk.Label(body, text="Auto-mute sends Riot's own /fullmute all the moment the game clock "
-             "starts — chat and pings from every player, hidden for that game only. Your own "
-             "pings still work and nothing is changed permanently. It waits until the game "
-             "window is focused, so the command is never typed anywhere else.",
+    tk.Label(body, text="Hides ally chat and all-chat and silences ping audio, by writing "
+             "League's OWN settings through the client — nothing is typed into the game, and "
+             "Smiteless reads the setting back to confirm it took. Two honest limits: ping "
+             "MARKERS still draw on the minimap (the client has no setting for those), and "
+             "because it's a client setting it PERSISTS until you turn it off — here, or in "
+             "League's own Audio/Interface settings.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 

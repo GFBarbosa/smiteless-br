@@ -1,5 +1,206 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.63 - auto-mute waits for your hands to be still, and backs off the moment they aren't
+
+- **It now watches your real keyboard and mouse while it types, and aborts instantly if you
+  touch anything.** Windows tags injected input, so a low-level hook can tell OUR keystrokes
+  apart from YOURS. If a real keypress or click lands mid-command, it closes the chat box and
+  stops - your input and the command can never shred each other for more than one keystroke.
+  Then it just tries again later.
+- **It won't start typing while you're already busy.** It waits for a genuine ~350ms gap with
+  your hands off the keyboard and mouse before it begins. The fountain is full of those; if it
+  can't find one it simply doesn't start, and retries a second later.
+- **Mouse movement doesn't count.** Moving the cursor doesn't defocus League's chat box - only
+  a click does - and treating movement as interference would mean it never fired at all, since
+  the cursor is essentially never still.
+- I checked whether the game has a bindable "mute all" hotkey that would replace the typing
+  with a single keypress. **It doesn't** - the client exposes ping bindings and nothing else -
+  so typing is the only in-game route, and the answer had to be making it interruption-proof
+  rather than shorter.
+- The self-test now proves the guard on seven cases: real key and real click must trip it; our
+  own injected key and click must not; mouse move and wheel must be ignored; and it must not
+  trip on our own typing during a live run, with the hooks released afterwards.
+
+## v0.9.62 - auto-mute hardened: the real bug was THREE copies typing at once
+
+- **Found it. Three copies of the mute helper were running and all typed into the same chat box
+  in the same second.** Your log, verbatim - three identical lines, same timestamp, same game
+  clock:
+
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+
+  Three commands interleaved character by character is `///ffuullllmm...` - garbage, not a
+  command, muting nobody. And because each copy reported success, the log looked *great*. The
+  v0.9.55 rewrite had quietly dropped the single-instance mutex the original had, and the tray
+  re-spawns the helper on any phase flap.
+- **The mutex is back**, plus an in-process send lock so two threads can't interleave either.
+  The self-test now FAILS if either guard ever goes missing again.
+- **A missed attempt now recovers - safely.** Before, if the game window wasn't focused during
+  the fountain window, that was the whole game. Now, if the fountain attempt misses, it waits
+  and retries **while you're dead**. A dead champion cannot cast, move or attack, so a stray
+  keystroke there costs exactly nothing - it is the one genuinely free window in a game, and
+  every game hands us several. It still refuses to type while you're alive and on the move,
+  because that is what cast Flash.
+- **A lost focus now costs one character instead of nine.** Focus is re-checked before *every
+  single character*, not once per burst, and the chat box is closed on abort. The `f` in
+  "fullmute" is the Flash key; that exposure is now one keystroke wide.
+- **The settings layer covers more ground**: on top of ally chat and all-chat hidden and ping
+  audio muted, it now also sets the chat channels invisible outright and drops ping volume to
+  zero. All five are written through the client and read back to confirm. This layer needs no
+  focus, no keystrokes and no timing, so it holds even if the typing never lands.
+
+## v0.9.61 - MAX ELO actually locks the champ it hovers
+
+- **It hovered a champion and then never locked it.** Root cause: the recommendation was being
+  computed with your own hovered champion counted as taken. Smiteless hovers Warwick -> Warwick
+  disappears from "what's good this game" -> Hecarim is now top -> it hovers Hecarim -> Warwick
+  comes back -> it hovers Warwick. Once a second, forever. And because the 2.5-second lock timer
+  restarts whenever the target changes, **the lock was never reached.** The flip-flop and the
+  no-lock were the same bug.
+- **"What's good this game" no longer takes your current champion into account.** The answer to
+  "what's strong into this draft" must not move every time you hover something. This applies to
+  the panel's list and to the auto-lock pool.
+- **Once a champion is on your pick slot, that is the one it locks.** It reads the slot from the
+  live client instead of its own memory, so a momentary network blip in the suggestion fetch
+  can't wipe the commitment and restart the timer either. If you move the hover yourself, it
+  locks what you moved it to.
+- Verified against a simulated draft where the pool deliberately flips order every single poll:
+  it hovers Warwick at 0s, holds it through six reversals, and locks at 3s.
+
+## v0.9.60 - MAX ELO only tries champions you actually own, and moves down the list
+
+- **The auto-lock was trying to lock champions you don't own.** Dropping the mastery gate in
+  v0.9.57 made the recommender rank on merit alone - which is what you wanted - but it also
+  meant the auto-lock pool had no idea whether you could *pick* the champion. The client
+  refuses a pick action for a champion you don't own, so it sat there failing once a second
+  until the timer ran out and the draft picked for you. Your log, verbatim: *hovering Nasus -
+  locking in 2.5s*, then **eleven** identical *FAILED to lock Nasus*. You don't own Nasus.
+- **It now reads what you can actually pick** (`pickable-champion-ids` - which also accounts for
+  free rotation and bans) and walks the list: best champion first, and if you don't own it, the
+  second, then the third. Your real chains right now:
+
+  | role | it will try, in order |
+  |---|---|
+  | jungle | Nunu → Hecarim → Warwick → Sejuani → Rammus |
+  | mid | Irelia → Twisted Fate → Ekko |
+  | top | Warwick → Malphite → Volibear → Sett |
+  | adc | Hwei → Xerath → Mel → Syndra |
+  | support | Amumu → Teemo → Poppy → Blitzcrank → Leona |
+
+- **A refused champion is now dropped after 3 attempts instead of retried forever**, and the
+  next one is tried immediately. The pool is also 12 deep rather than 5, because ownership plus
+  bans can empty a short list - mid only yields three champions you own.
+- **GOOD THIS GAME no longer suggests champions you can't pick either.** This is not the old
+  mastery gate coming back: a champion you own with zero games on it still shows. It only drops
+  the ones the client would refuse.
+- The self-test now covers ownership: an unowned top pick must fall through to the next, owning
+  nothing must lock nothing, and owning everything must still take the best one.
+
+## v0.9.59 - MAX ELO with no champion set now locks the best pick for the draft
+
+- **You can arm MAX ELO with the Main and Backup boxes EMPTY.** It used to refuse ("pick a main
+  first"), which meant the one button needed setup before it did anything. Leave them blank and
+  it locks **the best pick for that specific draft** instead - the same read the panel's GOOD
+  THIS GAME strip shows (counters into the enemies who've locked + comp fit, merit only,
+  best-first). The list already excludes anything banned or taken, so it doubles as its own
+  backup chain: if the top pick goes, it takes the next one.
+- Name a Main (and a Backup) if you'd rather be held to one champion - that behaviour is
+  unchanged, and it still wins over the recommender when it's set.
+- What it would lock right now, per role: jungle **Nunu**, mid **Anivia**, top **Warwick**,
+  adc **Hwei**, support **Teemo** - each falling through its own list if those are gone.
+
+## v0.9.58 - auto-mute types ONCE, in the fountain, and never while you're moving
+
+- **It cast Flash. Sorry.** v0.9.56 sent a second "confirming" `/fullmute all` at 25 seconds,
+  on the reasoning that a repeat was free insurance. It isn't. Typing into a live game is only
+  safe while the chat box holds keyboard focus, and **clicking to move takes that focus away** -
+  so the resend fired while you were walking to a camp, the box dropped focus mid-command, and
+  the **`f` in "fullmute" hit Flash**. (Every letter in that command is a keybind: `f a e t l m u`.)
+- **There is now exactly one attempt, at ~4 seconds, while you're parked in the fountain** - the
+  moment the first send already worked. If it misses, it misses; there is no retry, and it stops
+  trying entirely once the clock passes 20s because by then you're out on the map and clicking.
+  The client-settings layer (ally chat off, all-chat off, ping audio off) is the fallback for a
+  missed attempt - that is exactly why it's there.
+- **The self-test now fails the build if a retry is ever re-added**, or if the give-up time
+  drifts past 30s. This was a safety limit dressed up as a tuning constant, and it cost you a
+  Flash; it's enforced now rather than commented.
+
+## v0.9.57 - champ select recommends what's GOOD, not what you already own
+
+- **"GOOD THIS GAME" now uses the web DraftBoard's algorithm - because it was mostly showing
+  you nothing.** The champ-select panel and the web board have always shared one scoring
+  function (counters into the locked enemies + comp fit), but champ select was passing your
+  pooled mastery into it, which applied a HARD 12,000-point gate on top. The result, on your
+  own account, right now:
+
+  | role | before | after |
+  |---|---|---|
+  | jungle | *(nothing at all)* | Nunu, Xin Zhao, Master Yi, Sylas, Lee Sin |
+  | adc | *(nothing at all)* | Hwei, Viktor, Samira, Seraphine, Xerath |
+  | mid | Yasuo | Anivia, Katarina, Veigar, Lissandra, Twisted Fate |
+  | top | Cho'Gath, Yasuo | Warwick, Kayle, Mordekaiser, Locke, Gragas |
+
+  For your main role it was rendering an empty strip and the line "no 12k+ mastery picks for
+  this role". A list of champs you already play is not something you need an overlay to tell
+  you; what's strong into *this* draft is. Same change on the queue card.
+- **The climb guard is untouched.** Hover something you barely play and you still get
+  *"⚠ 4k mastery pick — sub-12k wins ~44% (1M-game study)"*. The warning was always the useful
+  half of that idea; silently deleting the recommendations was not.
+- Click a suggested face to hover it, exactly as before.
+
+## v0.9.56 - auto-mute works. The bug was one missing scan code.
+
+- **`/fullmute all` is back, and this time chat actually opens.** Four releases of "fixing" this
+  were all fixing the wrong thing. Every CHARACTER was going out as a scan code - but the
+  **Enter** that opens the chat box went out as a virtual-key event with `wScan = 0`. The League
+  game reads scan codes. So Enter was ignored, the chat box never opened, and the letters landed
+  on your champion as gameplay binds. From the keyboard that is exactly what it looked like:
+  *"it sounded like you just hit keys."* Enter now goes out as scan code **0x1C** like every
+  other key, and the chat box opens.
+- **That also means v0.9.55's conclusion was wrong.** I claimed a kernel anti-cheat was filtering
+  injected input. It isn't - the letters proved it by casting spells. Injected input reaches the
+  game fine; only the Enter was malformed.
+- **Both layers are kept, deliberately.** The typed `/fullmute all` is the real thing (chat AND
+  ping markers, every player, that game - nothing else can suppress ping markers). Underneath it,
+  the client-settings layer from v0.9.55 still writes ally chat off / all-chat off / ping audio
+  off and verifies them by reading back, so a game where the typing misses is still quieter than
+  nothing. `python core\lolmute.py off` reverts the persistent half.
+- **The self-test now fails loudly if Enter ever loses its scan code**, because a zero there
+  doesn't look like a broken feature - it looks like your champion randomly mashing keys at the
+  start of every game.
+- Timings are the ones proven by hand against a live client: 0.60s for the chat box to take
+  keyboard focus after Enter, then 30ms per key.
+
+## v0.9.55 - auto-mute, done properly: no typing, and it checks its own work
+
+- **Auto-mute never worked, and the reason wasn't the one I kept fixing.** v0.9.51 through
+  v0.9.54 tried to TYPE `/fullmute all` into the game. The diagnosis is now conclusive rather
+  than a guess: with the game window focused, Windows reports every keystroke **accepted**
+  (`SendInput` inserts 2/2 events, no error) and both processes sit at the same integrity level,
+  so nothing in the OS is dropping them - **the OS delivers the keys and the game discards
+  them.** That's what a kernel anti-cheat filtering injected input looks like, and no amount of
+  unicode-vs-scan-code or timing tuning was ever going to change it.
+- It was also the wrong thing to build. Every other surface here says plainly that it never
+  sends an input to the game - that's the line this app draws, and typing into a live match
+  crossed it.
+- **It now writes League's own settings instead**, through the client, with nothing typed
+  anywhere: **ally chat hidden**, **all-chat hidden**, **ping audio silenced**. And - the part
+  the old one structurally could not do - **it reads the setting back and verifies it took**.
+  That's why it lied for four releases: it had no way to tell success from failure, so it
+  reported success. The new one can only report what the client actually confirms.
+- **Two honest limits, stated up front:** ping MARKERS still draw on the minimap (the client
+  exposes no setting for those, only their sound), and because these are client settings they
+  **persist** until you turn them off - here, or in League's own settings. That's arguably what
+  you wanted anyway: decide once, not at 0:15 every game. `python core\lolmute.py off` reverts
+  all three.
+- The self-test now reads the live mute state every run, so a setting Riot renames fails loudly
+  instead of silently doing nothing.
+- **Fixed: the self-test was writing fake entries into `smiteless_pick.log`.** That log exists
+  to answer "why didn't my champ lock" - filling it with fixture LOCKs made it useless for the
+  one job it has.
+
 ## v0.9.54 - MAX ELO locks your champ immediately, not at the buzzer
 
 - **The auto-lock no longer sits there hovering.** v0.9.53 hovered your champion the moment your

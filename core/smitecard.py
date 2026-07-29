@@ -1999,6 +1999,14 @@ MIN_MASTERY = 12000     # only suggest champs with at least this many mastery PO
 PREF_MASTERY = 30000    # ...preferring 30k+ ("real comfort") first
 
 
+def _mates(ally_ids, my_cid):
+    """Your team's champs WITHOUT your own hover. suggest_champs treats every ally champ as
+    unavailable and as comp already covered — and your own hovered champ is an ally champ, so
+    leaving it in makes the whole recommendation move every time you hover something. The
+    answer to "what's good this game" must not depend on what you're currently holding."""
+    return [c for c in (ally_ids or []) if c and c != my_cid]
+
+
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     """A few role-appropriate champ suggestions for champ select, scored by enemy counters
     (op.gg) + ally comp fit. When `fam` (a {championId: masteryPOINTS} map, pooled across all
@@ -2495,7 +2503,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
-        d.text((20, y + 20), "no 12k+ mastery picks for this role", font=font(10), fill=MUTED)
+        d.text((20, y + 20), "suggestions load in a moment…", font=font(10), fill=MUTED)
     y += 66
     # bans/draft band — one railed card wrapping GOOD BANS + lobby BANS + ENEMY PICKS,
     # BAD rail (UIDESIGN §5.1). Numbers move to Bahnschrift; slash icons are unchanged.
@@ -3283,8 +3291,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             sugg = None
             if q.get("roles") and q.get("queue") not in _NO_ROLE_QUEUES:
                 try:
-                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # queue card: same rule as champ select — what's strong, not what you own
+                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6, fam=None)
                 except Exception:
                     sugg = None
             emit(render_queue_card(dd, q, sugg))
@@ -3381,14 +3389,27 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     targets = [c for c in listed if c] + [c for c, _ in ideas]
                     limp.ban_watch_update(dd, targets, ally_ids,
                                           settings.get("auto_ban", False))
-                    # MAX ELO: hold the pool to one champ and lock it. Same dedicated-watcher
-                    # shape as the ban, for the same reason — this render loop is too slow to
-                    # be trusted with a firing window.
+                    # MAX ELO: hold the pool and lock it. Same dedicated-watcher shape as the
+                    # ban, for the same reason — this render loop is too slow to be trusted
+                    # with a firing window.
                     pool = [dd["name2id"].get(dd["norm"](nm2))
                             for nm2 in (settings.get("max_elo_main"),
                                         settings.get("max_elo_backup")) if nm2]
-                    limp.pick_watch_update(dd, [c for c in pool if c],
-                                           settings.get("max_elo", False))
+                    pool = [c for c in pool if c]
+                    if settings.get("max_elo") and not pool and my_role:
+                        # NO CHAMPION SET -> lock the best pick for THIS draft instead of
+                        # standing down. Same recommender the panel's GOOD THIS GAME strip
+                        # shows (counters into the locked enemies + comp fit, merit only),
+                        # best-first, and it already excludes anything banned or taken — so
+                        # the list doubles as its own backup chain.
+                        # topn=12, not 5: auto_pick filters this to champions you can actually
+                        # pick, and a five-deep list can be emptied by ownership + bans alone.
+                        try:
+                            pool = suggest_champs(dd, my_role, _mates(ally_ids, my_cid),
+                                                  enemy_ids, topn=12, fam=None)
+                        except Exception:
+                            pool = []
+                    limp.pick_watch_update(dd, pool, settings.get("max_elo", False))
                 except Exception:
                     pass
                 if settings.get("auto_swap_roles"):      # teammate offered a role you want? -> accept
@@ -3487,10 +3508,27 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
                        auto_note, climb_note, team_read["text"], get_rune_idx())
                 if sig != last_cs_sig:
-                    # champs you actually play, pooled across ALL your accounts (main + smurfs):
-                    # the live current-account mastery merged with the cross-account aggregate.
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # WHAT'S GOOD THIS GAME — the same call the web DraftBoard makes (fam=None):
+                    # counters into the locked enemies + comp fit, ranked on merit alone.
+                    # It used to pass your pooled mastery, which applied a HARD 12k+ gate and
+                    # turned this into "champs you already play" — a list you don't need an
+                    # overlay to tell you. The climb warning above still fires if you hover
+                    # something you don't know, so the guard isn't lost, just moved off the
+                    # recommendation.
+                    sugg = suggest_champs(dd, my_role, _mates(ally_ids, my_cid), enemy_ids,
+                                          topn=12, fam=None)
+                    # ...but only show what you can actually pick. This is NOT the old mastery
+                    # gate (a champ you own with 0 games still qualifies) — it just drops the
+                    # ones the client would refuse. Unavailable list -> show them all rather
+                    # than an empty strip.
+                    try:
+                        import lolimport as _limp
+                        _own = _limp.pickable_ids()
+                        if _own:
+                            sugg = [c for c in sugg if c in _own]
+                    except Exception:
+                        pass
+                    sugg = sugg[:5]
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     if settings.get("dock_champ_select", True):
