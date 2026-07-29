@@ -71,10 +71,284 @@ def c_riot_key():
         return FAIL, f"HTTP {e.code}"
 
 
-def c_claude():
-    import claudecli as cc
-    exe = cc.find_claude()
-    return (OK, os.path.basename(exe)) if exe else (FAIL, "claude CLI not found -> matchup tips disabled")
+def _llm_health_result(selected, found):
+    import llmcli
+    selected = llmcli.normalize_provider(selected)
+    states = "; ".join(
+        f"{llmcli.provider_label(provider)}="
+        f"{os.path.basename(found[provider]) if found.get(provider) else 'missing'}"
+        for provider in llmcli.PROVIDERS
+    )
+    if found.get(selected):
+        return OK, f"selected {llmcli.provider_label(selected)}; {states}"
+    alternatives = [llmcli.provider_label(p) for p in llmcli.PROVIDERS
+                    if p != selected and found.get(p)]
+    action = (f"select installed {'/'.join(alternatives)} in Settings"
+              if alternatives else f"install {llmcli.provider_label(selected)} CLI")
+    return FAIL, (f"selected {llmcli.provider_label(selected)} is missing -> {action}; "
+                  f"{states}")
+
+
+def c_llm_cli():
+    import llmcli
+    import smiteconfig as cfg
+    selected = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
+    return _llm_health_result(selected, llmcli.availability())
+
+
+def c_llm_providers():
+    """Deterministic contracts for Claude/Codex discovery, dispatch and failures."""
+    import subprocess
+    from unittest import mock
+    import claudecli as claude
+    import codexcli as codex
+    import llmcli
+    import llmprocess
+
+    prompt = "Give one short, generic matchup tip."
+    calls = []
+
+    class FakeProcess:
+        def __init__(self, args, fake_stdout="", fake_stderr="", code=0, write_last=None,
+                     timeout_once=False, **kwargs):
+            self.args = args
+            self.stdout_text = fake_stdout
+            self.stderr_text = fake_stderr
+            self.returncode = code
+            self.pid = 4242
+            self.write_last = write_last
+            self.timeout_once = timeout_once
+            self.timed_out = False
+            calls.append((args, kwargs, self))
+
+        def communicate(self, input=None, timeout=None):
+            self.input = input
+            if self.timeout_once and not self.timed_out:
+                self.timed_out = True
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            if self.write_last is not None:
+                path = self.args[self.args.index("--output-last-message") + 1]
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(self.write_last)
+            return self.stdout_text, self.stderr_text
+
+    bad = []
+    with mock.patch.object(claude.os.path, "exists", return_value=False), \
+            mock.patch.object(claude.shutil, "which", return_value=r"C:\bin\claude.exe"):
+        claude_found = claude.find_claude()
+    with mock.patch.object(codex.shutil, "which", return_value=r"C:\bin\codex.exe"):
+        codex_found = codex.find_codex()
+    if claude_found != r"C:\bin\claude.exe" or codex_found != r"C:\bin\codex.exe":
+        bad.append("independent discovery")
+
+    with mock.patch.object(claude, "call_claude", return_value=("claude", None)) as ccall, \
+            mock.patch.object(codex, "call_codex", return_value=("codex", None)) as xcall:
+        if llmcli.call(prompt, "claude", allow_web=True) != ("claude", None):
+            bad.append("Claude dispatch")
+        if xcall.called:
+            bad.append("Claude failure could fail over to Codex")
+        if llmcli.call(prompt, "codex", allow_web=True) != ("codex", None):
+            bad.append("Codex dispatch")
+        if ccall.call_count != 1 or xcall.call_count != 1:
+            bad.append("provider dispatch count")
+
+    calls.clear()
+    with mock.patch.object(claude, "find_claude", return_value="claude.exe"), \
+            mock.patch.object(claude.subprocess, "Popen",
+                              side_effect=lambda args, **kw: FakeProcess(
+                                  args, fake_stdout="Claude answer", **kw)):
+        got = claude.call_claude(prompt, allow_tools="WebSearch,WebFetch", timeout=3)
+    if got != ("Claude answer", None):
+        bad.append("Claude success contract")
+    else:
+        args, kwargs, process = calls[-1]
+        if process.input != prompt or "--allowedTools" not in args \
+                or kwargs.get("shell") is not None:
+            bad.append("Claude args/stdin")
+
+    calls.clear()
+    with mock.patch.object(codex, "find_codex", return_value="codex.exe"), \
+            mock.patch.object(codex.subprocess, "Popen",
+                              side_effect=lambda args, **kw: FakeProcess(
+                                  args, fake_stdout="progress must be ignored",
+                                  write_last="Codex answer", **kw)):
+        got = codex.call_codex(prompt, timeout=3, allow_web=True)
+    if got != ("Codex answer", None):
+        bad.append("Codex last-message contract")
+    else:
+        args, kwargs, process = calls[-1]
+        required = ("exec", "--ephemeral", "read-only", "--cd",
+                    "--output-last-message", "-")
+        if process.input != prompt or any(value not in args for value in required) \
+                or kwargs["cwd"] != args[args.index("--cd") + 1]:
+            bad.append("Codex args/stdin")
+
+    cases = (
+        ("auth", dict(fake_stdout="authentication_error"), "auth/API error"),
+        ("limit", dict(fake_stderr="rate limit exceeded"), "limit"),
+        ("exit", dict(fake_stdout="must not become a tip", code=7), "must not become a tip"),
+        ("empty", dict(), "no text"),
+        ("missing output", dict(fake_stdout="progress only"), "no text"),
+    )
+    for name, behavior, expected in cases:
+        calls.clear()
+        with mock.patch.object(codex, "find_codex", return_value="codex.exe"), \
+                mock.patch.object(codex.subprocess, "Popen",
+                                  side_effect=lambda args, _b=behavior, **kw: FakeProcess(
+                                      args, **_b, **kw)):
+            text, error = codex.call_codex(prompt, timeout=3)
+        if text is not None or expected not in (error or ""):
+            bad.append(f"Codex {name} failure")
+
+    calls.clear()
+    killed = []
+    with mock.patch.object(codex, "find_codex", return_value="codex.exe"), \
+            mock.patch.object(codex.subprocess, "Popen",
+                              side_effect=lambda args, **kw: FakeProcess(
+                                  args, timeout_once=True, **kw)), \
+            mock.patch.object(llmprocess.subprocess, "run",
+                              side_effect=lambda *a, **kw: killed.append((a, kw))):
+        got = codex.call_codex(prompt, timeout=1)
+    if got != (None, "timed out") or not killed:
+        bad.append("Codex timeout/tree termination")
+
+    claude_cases = (
+        ("auth", dict(fake_stdout="authentication_error"), "auth/API error"),
+        ("limit", dict(fake_stderr="usage limit reached"), "limit"),
+        ("exit", dict(fake_stderr="bad invocation", code=7), "bad invocation"),
+        ("empty", dict(), "no text"),
+    )
+    for name, behavior, expected in claude_cases:
+        calls.clear()
+        with mock.patch.object(claude, "find_claude", return_value="claude.exe"), \
+                mock.patch.object(claude.subprocess, "Popen",
+                                  side_effect=lambda args, _b=behavior, **kw: FakeProcess(
+                                      args, **_b, **kw)):
+            text, error = claude.call_claude(prompt, timeout=3)
+        if text is not None or expected not in (error or ""):
+            bad.append(f"Claude {name} failure")
+
+    calls.clear()
+    killed = []
+    with mock.patch.object(claude, "find_claude", return_value="claude.exe"), \
+            mock.patch.object(claude.subprocess, "Popen",
+                              side_effect=lambda args, **kw: FakeProcess(
+                                  args, timeout_once=True, **kw)), \
+            mock.patch.object(llmprocess.subprocess, "run",
+                              side_effect=lambda *a, **kw: killed.append((a, kw))):
+        got = claude.call_claude(prompt, timeout=1)
+    if got != (None, "timed out") or not killed:
+        bad.append("Claude timeout/tree termination")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, "Claude/Codex discovery, dispatch, stdin, output and failures are isolated"
+
+
+def c_llm_integration():
+    """Provider config, matchup/coach dispatch and health behavior without live inference."""
+    import tempfile
+    from unittest import mock
+    import lolcoach
+    import lolmatchup
+    import llmcli
+    import smiteconfig as cfg
+
+    bad = []
+    real_path = cfg.PATH
+    with tempfile.TemporaryDirectory(prefix="smiteless-llm-fixture-") as tmp:
+        cfg.PATH = os.path.join(tmp, "settings.json")
+        try:
+            cases = ((None, "claude"), ("claude", "claude"), ("codex", "codex"),
+                     ("other", "claude"))
+            for raw_value, expected in cases:
+                raw = {} if raw_value is None else {"matchup_tip_provider": raw_value}
+                with open(cfg.PATH, "w", encoding="utf-8") as handle:
+                    json.dump(raw, handle)
+                if cfg.load()["matchup_tip_provider"] != expected:
+                    bad.append(f"config normalization {raw_value!r}")
+
+            with open(cfg.PATH, "w", encoding="utf-8") as handle:
+                json.dump({"matchup_tip_provider": "codex", "matchup_tips": False}, handle)
+            saved = cfg.save({"board_size": 80})
+            if saved.get("matchup_tip_provider") != "codex" \
+                    or saved.get("matchup_tips") is not False:
+                bad.append("partial save did not preserve provider/toggle")
+
+            dd = {
+                "norm": lambda value: "".join(c for c in value.lower() if c.isalnum()),
+                "name2id": {"yasuo": 1, "syndra": 2},
+                "id2name": {1: "Yasuo", 2: "Syndra"},
+            }
+            tip_path = os.path.join(tmp, "tip.txt")
+            with mock.patch.object(lolmatchup.lb, "ddragon", return_value=dd), \
+                    mock.patch.object(lolmatchup, "written_tip",
+                                      return_value="Written guide tip"), \
+                    mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
+                    mock.patch.object(lolmatchup.llmcli, "call") as call_mock:
+                got = lolmatchup.generate_tip(
+                    "Yasuo", "Yasuo", "Syndra", "Syndra", "mid", "16.15")
+            if got != ("Written guide tip", None) or call_mock.called:
+                bad.append("written tip did not precede CLI")
+
+            with open(tip_path, "w", encoding="utf-8") as handle:
+                handle.write("Cached guide tip")
+            with mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
+                    mock.patch.object(lolmatchup.llmcli, "call") as call_mock:
+                cached = lolmatchup.get_tip("Yasuo", "Syndra", "mid", "16.15")
+            if cached != "Cached guide tip" or call_mock.called:
+                bad.append("cache did not precede CLI")
+
+            for provider in llmcli.PROVIDERS:
+                if os.path.exists(tip_path):
+                    os.remove(tip_path)
+                with mock.patch.object(lolmatchup.cfg, "load",
+                                       return_value={"matchup_tip_provider": provider}), \
+                        mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
+                        mock.patch.object(lolmatchup.llmcli, "call",
+                                          return_value=(f"{provider} tip", None)) as call_mock:
+                    text, error = lolmatchup._generate_tip_llm(
+                        "Yasuo", "Yasuo", "Syndra", "Syndra", "mid", "16.15")
+                if (text, error) != (f"{provider} tip", None) \
+                        or call_mock.call_args.args[1] != provider:
+                    bad.append(f"matchup {provider} dispatch")
+
+                if os.path.exists(tip_path):
+                    os.remove(tip_path)
+                with mock.patch.object(lolmatchup.cfg, "load",
+                                       return_value={"matchup_tip_provider": provider}), \
+                        mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
+                        mock.patch.object(lolmatchup.llmcli, "call",
+                                          return_value=(None, f"{provider} unavailable")):
+                    text, error = lolmatchup._generate_tip_llm(
+                        "Yasuo", "Yasuo", "Syndra", "Syndra", "mid", "16.15")
+                if text is not None or not error or os.path.exists(tip_path):
+                    bad.append(f"matchup {provider} error cached")
+
+            with mock.patch.object(lolcoach.cfg, "load",
+                                   return_value={"matchup_tip_provider": "codex"}), \
+                    mock.patch.object(lolcoach.llmcli, "call",
+                                      return_value=("coach", None)) as coach_call:
+                coach_got = lolcoach._call_ai("generic coach prompt")
+            if coach_got != ("coach", None) or coach_call.call_args.args[1] != "codex":
+                bad.append("coach configured provider")
+        finally:
+            cfg.PATH = real_path
+
+    for selected in llmcli.PROVIDERS:
+        for mask in range(4):
+            found = {
+                "claude": ("claude.exe" if mask & 1 else None),
+                "codex": ("codex.exe" if mask & 2 else None),
+            }
+            status, detail = _llm_health_result(selected, found)
+            expected = OK if found[selected] else FAIL
+            if status != expected or "Claude=" not in detail or "Codex=" not in detail:
+                bad.append(f"health {selected}/{mask}")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, "config, written/cache precedence, matchup/coach dispatch and health matrix"
 
 
 def c_glyphs():
@@ -190,14 +464,133 @@ def c_mute():
     the client's own settings, which means the state is READABLE, and this check reads it.
     A key Riot renames must fail here rather than silently do nothing."""
     import lolmute as lm, lolgame as lg
-    # THE bug that cost four releases: Enter went out as a virtual key with wScan=0, the game
-    # reads scan codes, so chat never opened and every character hit a gameplay bind instead.
-    # A zero here means auto-mute is silently mashing keys at your champion. Guard it forever.
-    if not lm.ENTER_SCAN():
-        return FAIL, "Enter has no scan code - chat won't open and the command types into the game"
-    bad = [c for c in lm.CMD if lm.scan_of(c) is None]
+    from unittest import mock
+
+    # Run deterministic layout contracts BEFORE any machine/League checks. A developer's
+    # current HKL must never hide a broken AltGr chord, mutex, timing gate or LCU layer.
+    bad = []
+    hkl = 0x0416
+    layout_calls = []
+    window_hkl = lm._game_keyboard_layout(
+        123,
+        get_window_thread=lambda hwnd, _pid: layout_calls.append(("thread", hwnd)) or 77,
+        get_keyboard_layout=lambda thread_id:
+            layout_calls.append(("layout", thread_id)) or hkl,
+    )
+    if window_hkl != hkl or layout_calls != [("thread", 123), ("layout", 77)]:
+        bad.append("League window thread HKL")
+
+    support_scans = {
+        lm.VK_RETURN: 0x1C, lm.VK_ESCAPE: 0x01, lm.VK_SHIFT: 0x2A,
+        lm.VK_CONTROL: 0x1D, lm.VK_MENU: 0x38,
+    }
+
+    def mapped(vk, _kind, _hkl):
+        return support_scans.get(vk, {0x51: 0x10, 0xBF: 0x35}.get(vk, vk & 0x7F))
+
+    direct, problem = lm.resolve_chord(
+        "/", hkl, vk_key_scan=lambda _ch, _hkl: 0xBF, map_virtual=mapped)
+    if problem or direct.scan != 0x35 or direct.modifiers:
+        bad.append("direct slash layout")
+
+    altgr, problem = lm.resolve_chord(
+        "/", hkl, vk_key_scan=lambda _ch, _hkl: (0x06 << 8) | 0x51,
+        map_virtual=mapped)
+    if problem or altgr.scan != 0x10 \
+            or altgr.modifiers != (lm.MOD_CONTROL | lm.MOD_ALT):
+        bad.append("PT-BR Ctrl+Alt+Q slash")
+
+    shifted, problem = lm.resolve_chord(
+        "A", hkl, vk_key_scan=lambda _ch, _hkl: (0x01 << 8) | 0x41,
+        map_virtual=mapped)
+    if problem or shifted.modifiers != lm.MOD_SHIFT:
+        bad.append("Shift character")
+
+    failure_cases = (
+        ("VkKeyScanExW -1", lambda _ch, _hkl: -1, mapped),
+        ("zero scan", lambda _ch, _hkl: 0x41, lambda *_args: 0),
+        ("unknown modifiers", lambda _ch, _hkl: (0x08 << 8) | 0x41, mapped),
+    )
+    for name, vk_scan, map_scan in failure_cases:
+        chord, problem = lm.resolve_chord("x", hkl, vk_key_scan=vk_scan,
+                                          map_virtual=map_scan)
+        if chord is not None or problem is None:
+            bad.append(name)
+
+    events = []
+    lm._emit_chord(
+        lm.KeyChord("/", 0x51, 0x10, lm.MOD_CONTROL | lm.MOD_ALT),
+        ((lm.MOD_SHIFT, 0x2A), (lm.MOD_CONTROL, 0x1D), (lm.MOD_ALT, 0x38)),
+        key_fn=lambda scan, down: events.append((scan, down)), hold=0)
+    expected = [(0x1D, True), (0x38, True), (0x10, True), (0x10, False),
+                (0x38, False), (0x1D, False)]
+    if events != expected:
+        bad.append(f"AltGr chord order {events!r}")
+
+    cleanup = []
+
+    def failing_key(scan, down):
+        cleanup.append((scan, down))
+        if scan == 0x10 and down:
+            raise RuntimeError("fixture")
+
+    try:
+        lm._emit_chord(
+            lm.KeyChord("/", 0x51, 0x10, lm.MOD_CONTROL | lm.MOD_ALT),
+            ((lm.MOD_SHIFT, 0x2A), (lm.MOD_CONTROL, 0x1D), (lm.MOD_ALT, 0x38)),
+            key_fn=failing_key, hold=0)
+    except RuntimeError:
+        pass
+    if cleanup[-2:] != [(0x38, False), (0x1D, False)]:
+        bad.append("modifier cleanup after exception")
+
+    problem = lm.LayoutProblem(hkl, "/", 0x51, 0x06, 0, "fixture incompatible")
+    with mock.patch.object(lm, "_validated_game_window", return_value=123), \
+            mock.patch.object(lm, "_game_keyboard_layout", return_value=hkl), \
+            mock.patch.object(lm, "_resolve_command", return_value=(None, problem)), \
+            mock.patch.object(lm, "_key") as key_mock:
+        result = lm.send_fullmute()
+    if result.status != lm.SEND_LAYOUT_INCOMPATIBLE or key_mock.called:
+        bad.append("pre-resolution emitted input on failure")
+
+    if lm._typed_layer_remains_armed(lm.SendResult(lm.SEND_LAYOUT_INCOMPATIBLE)) \
+            or not lm._typed_layer_remains_armed(lm.SendResult(lm.SEND_TRANSIENT)) \
+            or lm._typed_layer_remains_armed(lm.SendResult(lm.SEND_OK)):
+        bad.append("typed-layer disarm classification")
+
+    # Exercise main's session state: structural incompatibility applies LCU first and sends
+    # once; a transient focus/idle/input failure remains armed and retries in the safe window.
+    with mock.patch.object(lm.cfg, "load", return_value={"auto_mute": True}), \
+            mock.patch.object(lm, "_single_instance", return_value=True), \
+            mock.patch.object(lm, "apply", return_value=(True, "fixture")) as apply_mock, \
+            mock.patch.object(lm.cfg, "tray_gone", side_effect=[False, True]), \
+            mock.patch.object(lm, "game_time", return_value=4.0), \
+            mock.patch.object(lm, "send_fullmute",
+                              return_value=lm.SendResult(
+                                  lm.SEND_LAYOUT_INCOMPATIBLE, "fixture")) as send_mock, \
+            mock.patch.object(lm.time, "monotonic", return_value=0.0), \
+            mock.patch.object(lm.time, "sleep"):
+        lm.main()
+    if apply_mock.call_count != 1 or send_mock.call_count != 1:
+        bad.append("incompatible session did not preserve LCU/disarm typing")
+
+    with mock.patch.object(lm.cfg, "load", return_value={"auto_mute": True}), \
+            mock.patch.object(lm, "_single_instance", return_value=True), \
+            mock.patch.object(lm, "apply", return_value=(True, "fixture")), \
+            mock.patch.object(lm.cfg, "tray_gone", side_effect=[False, False, True]), \
+            mock.patch.object(lm, "game_time", side_effect=[4.0, 5.0]), \
+            mock.patch.object(lm, "send_fullmute",
+                              return_value=lm.SendResult(lm.SEND_TRANSIENT, "focus")) \
+                    as send_mock, \
+            mock.patch.object(lm.time, "monotonic", return_value=0.0), \
+            mock.patch.object(lm.time, "sleep"):
+        lm.main()
+    if send_mock.call_count != 2:
+        bad.append("transient failure disarmed typed layer")
+
     if bad:
-        return FAIL, f"this keyboard layout can't type {bad!r}"
+        return FAIL, "; ".join(bad)
+
     if lm.FIRE_AT < 3.0:
         return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
     # SAFETY, not tuning. Typing is only safe while you're parked in the fountain: clicking to
@@ -223,7 +616,18 @@ def c_mute():
         return FAIL, "no in-process send lock - two threads could interleave the command"
     if not hasattr(lm, "player_dead"):
         return FAIL, "no death-window retry - a missed fountain attempt would never recover"
-    detail = f"Enter=0x{lm.ENTER_SCAN():02x}, {lm.CMD!r} all mappable"
+    # The real machine is diagnostic only: incompatible layouts are a supported, safely
+    # disarmed state, while the deterministic matrix above proves all behavior.
+    real_hkl = int(lm._u32.GetKeyboardLayout(0) or 0)
+    real_command, real_problem = lm._resolve_command(real_hkl)
+    if real_problem:
+        layout_detail = "typed layer safely unavailable: " + lm._problem_detail(real_problem)
+    else:
+        slash = next(chord for chord in real_command.chords if chord.char == "/")
+        layout_detail = (f"{lm._layout_label(real_hkl)}, '/' scan=0x{slash.scan:02x}, "
+                         f"modifiers=0x{slash.modifiers:02x}")
+    detail = (f"direct/Shift/PT-BR AltGr/incompatible fixtures pass; {layout_detail}; "
+              f"{lm.CMD!r} pre-resolved")
     if not lg._lcu():
         return OK, detail + "; client down, settings layer unverified"
     st = lm.read_state()
@@ -271,7 +675,8 @@ def c_muteguard():
         return OK, "discrimination matrix passes (live check skipped - you're using the keyboard)"
     with G() as g:                                   # and it must not trip on our own typing
         time.sleep(0.1)
-        sh = lm._u32.MapVirtualKeyW(0x10, 0)
+        hkl = int(lm._u32.GetKeyboardLayout(0) or 0)
+        sh = lm._u32.MapVirtualKeyExW(lm.VK_SHIFT, 0, hkl)
         for _ in range(8):
             lm._tap_scan(sh, 0.02)
             time.sleep(0.02)
@@ -345,6 +750,87 @@ def c_runes():
     if lr.SUSTAINED & lr.BURST:
         return FAIL, f"a keystone is in BOTH classes: {lr.SUSTAINED & lr.BURST}"
     return OK, "switches only on a clear comp, cites op.gg's own sample, ignores thin pages"
+
+
+def c_new_i18n():
+    """New v0.9.55-v0.9.66 surfaces must switch copy without changing their internal
+    contracts. Exercise the same deterministic fixtures in both languages."""
+    import loldraft as draft
+    import lolbleed as bleed, lolclose as close, lolfit as fit, lolrunes as runes
+    import smitei18n as i18n
+    previous = i18n.lang()
+    try:
+        i18n.set_lang("en")
+        bleed_en = bleed._verdict(bleed.demo("bleed"))
+        close_en = close._verdict(close.demo("end"))
+        rec = {"baseline": 83, "recent": [],
+               "champs": {"loser": {"g": 10, "w": 1, "avg": 60}}}
+        fit_en = fit.verdict(rec, "loser")
+        dd, opts, enemies = runes.demo("tank")
+        rune_en = runes.choose(dd, opts, enemies)
+        demo_names = ("Sett", "Kha'Zix", "Ahri", "Jinx", "Thresh",
+                      "Darius", "Graves", "Zed", "Caitlyn", "Lux")
+        demo_dd = {
+            "norm": lambda value: "".join(c for c in value.lower() if c.isalnum()),
+            "name2id": {},
+        }
+        demo_dd["name2id"] = {
+            demo_dd["norm"](name): idx + 1 for idx, name in enumerate(demo_names)
+        }
+        draft_en = draft._demo_scout(demo_dd)
+
+        i18n.set_lang("pt_BR")
+        bleed_pt = bleed._verdict(bleed.demo("bleed"))
+        close_pt = close._verdict(close.demo("end"))
+        fit_pt = fit.verdict(rec, "loser")
+        rune_pt = runes.choose(dd, opts, enemies)
+        draft_pt = draft._demo_scout(demo_dd)
+        bad = []
+        if bleed_en["verdict"] != "BLEED" or bleed_pt["verdict"] != "BLEED":
+            bad.append("BLEED internal verdict changed with locale")
+        if not bleed_en["line"].startswith("BACK OFF") or not bleed_pt["line"].startswith("RECUE"):
+            bad.append("BLEED copy did not switch EN/PT")
+        if close_en["verdict"] != "END" or close_pt["verdict"] != "END":
+            bad.append("CLOSER internal verdict changed with locale")
+        if not close_en["line"].startswith("END IT") or not close_pt["line"].startswith("TERMINE"):
+            bad.append("CLOSER copy did not switch EN/PT")
+        if fit_en[0] != "veto" or fit_pt[0] != "veto" \
+                or "W-" not in fit_en[1] or "V-" not in fit_pt[1]:
+            bad.append("personal-fit evidence did not switch EN/PT")
+        if rune_en[0] != 1 or rune_pt[0] != 1 or "frontline locked" not in rune_en[1] \
+                or "linha de frente" not in rune_pt[1]:
+            bad.append("adaptive-rune evidence did not switch EN/PT")
+        if i18n.t("ESCAPE KEY") == "ESCAPE KEY" or i18n.t("Back off.") == "Back off.":
+            bad.append("new Settings/TTS catalog entries are missing")
+        if i18n.t("Matchup AI fallback:") == "Matchup AI fallback:" \
+                or "dica escrita" not in i18n.t(
+                    "Used only when no written matchup tip is available. The selected local "
+                    "CLI is authoritative; failures never switch providers automatically."):
+            bad.append("matchup provider Settings copy did not switch PT/EN")
+        mute_copy = i18n.t(
+            "Each game, Smiteless safely types Riot's own /fullmute all while the League "
+            "window is focused. That per-game layer hides chat and ping markers. Separately, "
+            "it writes League's own settings to hide ally/all chat and mute ping audio, then "
+            "reads them back; those settings persist until disabled. If the League window's "
+            "keyboard layout cannot produce the command safely, typing stays off for that "
+            "session while the verified settings layer remains active.")
+        if "Em cada partida" not in mute_copy or "camada verificada" not in mute_copy:
+            bad.append("auto-mute two-layer Settings copy did not switch PT/EN")
+        if "main · 140k pts" not in draft_en["allies"][0]["t"][0][0] \
+                or "principal · 140 mil pts" not in draft_pt["allies"][0]["t"][0][0] \
+                or draft_en["allies"][0]["n"] != "You" \
+                or draft_pt["allies"][0]["n"] != "Você" \
+                or "7W in last 10" not in draft_en["allies"][0]["t"][1][0] \
+                or "7V nas últimas 10" not in draft_pt["allies"][0]["t"][1][0] \
+                or not draft_pt["allies"][0]["tip"].startswith("Respeite") \
+                or draft_en["plan"][0].startswith("O inimigo") \
+                or not draft_pt["plan"][0].startswith("O inimigo"):
+            bad.append("DraftBoard demo tags/plan did not switch EN/PT")
+        if bad:
+            return FAIL, "; ".join(bad)
+        return OK, "BLEED, CLOSER, fit, runes, DraftBoard demo and Settings/TTS switch PT/EN"
+    finally:
+        i18n.set_lang(previous)
 
 
 def c_maxelo():
@@ -471,7 +957,9 @@ def main():
         ("Data Dragon (champ data)", c_ddragon),
         ("op.gg (builds + matchups)", c_opgg),
         ("Riot API key (player scout)", c_riot_key),
-        ("claude CLI (matchup tips)", c_claude),
+        ("LLM CLI (matchup tips)", c_llm_cli),
+        ("LLM provider contracts", c_llm_providers),
+        ("LLM provider integration", c_llm_integration),
         ("Tag spec (docs/TAGS.md)", c_tagspec),
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
@@ -482,6 +970,7 @@ def main():
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),
         ("Adaptive runes (comp-aware)", c_runes),
+        ("New feature i18n (PT/EN)", c_new_i18n),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

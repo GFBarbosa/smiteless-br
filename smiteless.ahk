@@ -27,6 +27,19 @@ SCRIPTS := A_ScriptDir          ; the .py files live in core/ ui/ tools/ under t
 DllCall("CreateMutexW", "Ptr", 0, "Int", 0, "WStr", "Global\SmitelessTray")
 
 NOAUTO := EnvGet("USERPROFILE") "\.claude\smiteless_noautoopen"   ; present = auto-open OFF
+SETTINGS := EnvGet("USERPROFILE") "\.claude\smiteless_settings.json"
+
+UiLang() {
+    global SETTINGS
+    try {
+        if RegExMatch(FileRead(SETTINGS, "UTF-8"), '"ui_lang"\s*:\s*"en"')
+            return "en"
+    }
+    return "pt_BR"
+}
+Tr(en, pt) {
+    return UiLang() = "en" ? en : pt
+}
 
 if FileExist(SCRIPTS "\assets\smiteless.ico")
     TraySetIcon(SCRIPTS "\assets\smiteless.ico")
@@ -34,19 +47,27 @@ A_IconTip := "Smiteless"
 
 tray := A_TrayMenu
 tray.Delete()                                   ; replace the default AHK menu
-tray.Add("Open overlay", (*) => OpenSmiteless(false))
-tray.Add("Profile / home", (*) => OpenProfile())
-tray.Add("Item widget", (*) => OpenWidget())
+MENU_OVERLAY := Tr("Open overlay", "Abrir overlay")
+MENU_PROFILE := Tr("Profile / home", "Perfil / início")
+MENU_WIDGET := Tr("Item widget", "Widget de itens")
+MENU_SETTINGS := Tr("Settings", "Configurações")
+MENU_NOTES := Tr("Patch notes", "Notas da atualização")
+MENU_AUTO := Tr("Auto-open at champ select", "Abrir automaticamente na seleção de campeão")
+MENU_RELOAD := Tr("Reload", "Recarregar")
+MENU_EXIT := Tr("Exit", "Sair")
+tray.Add(MENU_OVERLAY, (*) => OpenSmiteless(false))
+tray.Add(MENU_PROFILE, (*) => OpenProfile())
+tray.Add(MENU_WIDGET, (*) => OpenWidget())
 loginMenu := Menu()
-tray.Add("Riot login", loginMenu)
-tray.Add("Settings", (*) => OpenSettings())
-tray.Add("Patch notes", (*) => OpenNotes())
+tray.Add(Tr("Riot login", "Login Riot"), loginMenu)
+tray.Add(MENU_SETTINGS, (*) => OpenSettings())
+tray.Add(MENU_NOTES, (*) => OpenNotes())
 tray.Add()
-tray.Add("Auto-open at champ select", ToggleAuto)
+tray.Add(MENU_AUTO, ToggleAuto)
 tray.Add()
-tray.Add("Reload", (*) => Reload())
-tray.Add("Exit", (*) => ExitApp())
-tray.Default := "Open overlay"                  ; double-click the tray icon
+tray.Add(MENU_RELOAD, (*) => Reload())
+tray.Add(MENU_EXIT, (*) => ExitApp())
+tray.Default := MENU_OVERLAY                      ; double-click the tray icon
 RefreshAutoCheck()
 
 ; Ctrl+Alt+X opens the overlay; Ctrl+Alt+B opens the floating item widget - both global.
@@ -124,11 +145,11 @@ ToggleAuto(ItemName, *) {
 }
 
 RefreshAutoCheck() {
-    global NOAUTO
+    global NOAUTO, MENU_AUTO
     if FileExist(NOAUTO)
-        A_TrayMenu.Uncheck("Auto-open at champ select")
+        A_TrayMenu.Uncheck(MENU_AUTO)
     else
-        A_TrayMenu.Check("Auto-open at champ select")
+        A_TrayMenu.Check(MENU_AUTO)
 }
 
 ; Auto-open watcher: only while auto-open is on AND the client/game is up. Polls the LCU

@@ -18,6 +18,7 @@ import lolgame as lg
 import lolbuild as lb
 import loltags as ltag
 import lolscout as ls
+from smitei18n import t, tf
 
 _ROLE = {"TOP": "TOP", "JUNGLE": "JG", "MIDDLE": "MID", "MID": "MID", "BOTTOM": "BOT",
          "BOT": "BOT", "UTILITY": "SUP", "SUPPORT": "SUP"}
@@ -163,19 +164,27 @@ def _profile_tags(row, ally):
 
     # ---- THIS-GAME reads: the champ they locked today ----
     if row.get("scouted") and pts < 6000 and cg == 0:
-        this_game.append((f"first {champ}? · {pts // 1000}k pts, 0 of last {n}" if n
-                          else f"first {champ}? · {pts // 1000}k pts", tone(False)))
+        text = (tf("first {champ}? · {points}k pts, 0 of last {games}",
+                   champ=champ, points=pts // 1000, games=n) if n
+                else tf("first {champ}? · {points}k pts",
+                        champ=champ, points=pts // 1000))
+        this_game.append((text, tone(False)))
     if (n >= 8 and cg <= 1 and top_champ and top_n * 2 >= n
             and top_champ != champ):
-        this_game.append((f"off-champ · {top_n} of last {n} on {top_champ}", tone(False)))
+        this_game.append((tf("off-champ · {count} of last {games} on {champ}",
+                             count=top_n, games=n, champ=top_champ), tone(False)))
     if cg >= 4 and cw / cg <= 0.35:
-        this_game.append((f"cold on {champ} · {cw}-{cg - cw} recent", tone(False)))
+        this_game.append((tf("cold on {champ} · {wins}-{losses} recent",
+                             champ=champ, wins=cw, losses=cg - cw), tone(False)))
     elif cg >= 5:
-        this_game.append((f"comfort · {cw}-{cg - cw} on {champ}", tone(cw * 2 >= cg)))
+        this_game.append((tf("comfort · {wins}-{losses} on {champ}",
+                             wins=cw, losses=cg - cw, champ=champ), tone(cw * 2 >= cg)))
     if pts >= 250_000:
-        this_game.append((f"{champ} OTP · {pts // 1000}k pts", tone(True)))
+        this_game.append((tf("{champ} OTP · {points}k pts",
+                             champ=champ, points=pts // 1000), tone(True)))
     elif pts >= 100_000:
-        this_game.append((f"{champ} main · {pts // 1000}k pts", tone(True)))
+        this_game.append((tf("{champ} main · {points}k pts",
+                             champ=champ, points=pts // 1000), tone(True)))
 
     # ---- ACCOUNT reads: who this account is ----
     # smurf?: experienced player on a NEW account. Level is the load-bearing evidence
@@ -183,14 +192,14 @@ def _profile_tags(row, ally):
     smurfish = (level is not None and level <= 60 and n >= 8 and w / n >= 0.70
                 and ((perf is not None and perf >= 75) or (cg >= 3 and cw / cg >= 0.7)))
     if smurfish:
-        ev = f"lvl {level} · {w}-{n - w}"
+        ev = tf("lvl {level} · {wins}-{losses}", level=level, wins=w, losses=n - w)
         if perf is not None and perf >= 75:
-            ev += f" · {int(perf)} perf"
-        account.append((f"smurf? · {ev}", tone(True)))
+            ev += tf(" · {performance} perf", performance=int(perf))
+        account.append((tf("smurf? · {evidence}", evidence=ev), tone(True)))
     elif level is not None and level <= 60:
-        account.append((f"new account · lvl {level}", "neutral"))
+        account.append((tf("new account · lvl {level}", level=level), "neutral"))
     elif 0 < sg <= 25:
-        account.append((f"fresh ranked · {sg} games this season", "neutral"))
+        account.append((tf("fresh ranked · {games} games this season", games=sg), "neutral"))
     # live streak, with champ attribution: a heater earned on a different champ than
     # today's is context, not a threat read on this pick
     if form:
@@ -204,35 +213,38 @@ def _profile_tags(row, ally):
                     set(streak_champs), key=streak_champs.count)) * 10 >= 7 * len(streak_champs))
                 hot = max(set(streak_champs), key=streak_champs.count) if on_one else ""
                 if hot and hot != champ:
-                    account.append((f"{lead}W heater · on {hot}", "neutral"))
+                    account.append((tf("{count}W heater · on {champ}",
+                                       count=lead, champ=hot), "neutral"))
                 else:
-                    account.append((f"{lead}W heater", tone(True)))
+                    account.append((tf("{count}W heater", count=lead), tone(True)))
             else:
-                account.append((f"{lead}L skid · tilt risk", tone(False)))
+                account.append((tf("{count}L skid · tilt risk", count=lead), tone(False)))
     # autofill / off-role
     mp = row.get("main_pos")
     if mp and row.get("role") and mp != row["role"]:
-        account.append((f"off-role · {mp} main", tone(False)))
+        account.append((tf("off-role · {role} main", role=mp), tone(False)))
     # how they die (or don't)
     if dpg is not None and n >= 5:
         if dpg >= 6.5:
-            account.append((f"bleeds · {dpg} deaths/game", tone(False)))
+            account.append((tf("bleeds · {deaths} deaths/game", deaths=dpg), tone(False)))
         elif dpg <= 2.6:
-            account.append((f"hard to kill · {dpg} deaths/game", tone(True)))
+            account.append((tf("hard to kill · {deaths} deaths/game", deaths=dpg), tone(True)))
     # how they actually play, independent of W/L (the sanctioned quality read)
     if perf is not None and not smurfish:
         if perf >= 85:
-            account.append((f"carries · {int(perf)} avg perf", tone(True)))
+            account.append((tf("carries · {performance} avg perf",
+                               performance=int(perf)), tone(True)))
         elif perf <= 45:
-            account.append((f"passenger · {int(perf)} perf", tone(False)))
+            account.append((tf("passenger · {performance} perf",
+                               performance=int(perf)), tone(False)))
     # season shape
     if sg >= 400:
-        account.append((f"grinder · {sg} ranked this season", "neutral"))
+        account.append((tf("grinder · {games} ranked this season", games=sg), "neutral"))
     if swr is not None and sg >= 100:
         if swr >= 55:
-            account.append((f"climbing · {swr}% season", tone(True)))
+            account.append((tf("climbing · {winrate}% season", winrate=swr), tone(True)))
         elif swr <= 45:
-            account.append((f"hardstuck · {swr}% season", tone(False)))
+            account.append((tf("hardstuck · {winrate}% season", winrate=swr), tone(False)))
     return this_game + account
 
 
@@ -255,18 +267,19 @@ def _plan(dd, my, en):
     ec, mc = _comp_read(dd, en), _comp_read(dd, my)
     out = []
     if ec["ad"] >= 3 and ec["ap"] <= 1:
-        out.append("Enemy is AD-heavy — rush armor / Seeker's, Randuin's on tanks.")
+        out.append(t("Enemy is AD-heavy — rush armor / Seeker's, Randuin's on tanks."))
     elif ec["ap"] >= 3 and ec["ad"] <= 1:
-        out.append("Enemy is AP-heavy — build MR / Maw / Hexdrinker early.")
+        out.append(t("Enemy is AP-heavy — build MR / Maw / Hexdrinker early."))
     if ec["divers"] >= 2:
-        out.append(f"{ec['divers']} assassins — respect level 6, group, buy Zhonya's/GA, ward flanks.")
+        out.append(tf("{count} assassins — respect level 6, group, buy Zhonya's/GA, ward flanks.",
+                      count=ec["divers"]))
     if mc["scalers"] >= 2 and ec["divers"] + ec["tanks"] <= mc["scalers"]:
-        out.append("You out-scale — survive the early game, don't coinflip, win the late.")
+        out.append(t("You out-scale — survive the early game, don't coinflip, win the late."))
     elif ec["scalers"] >= 2:
-        out.append("They out-scale — force early tempo and objectives, end before 3 items.")
+        out.append(t("They out-scale — force early tempo and objectives, end before 3 items."))
     if ec["tanks"] >= 2:
-        out.append("Two+ tanks — buy % HP / armor-pen; don't waste burst on the frontline.")
-    return out[:4] or ["Even comps — play your matchup, track the enemy jungler, trade objectives."]
+        out.append(t("Two+ tanks — buy % HP / armor-pen; don't waste burst on the frontline."))
+    return out[:4] or [t("Even comps — play your matchup, track the enemy jungler, trade objectives.")]
 
 
 def _wincons(dd, my, en):
@@ -274,16 +287,16 @@ def _wincons(dd, my, en):
     that the live board doesn't — how this specific comp matchup is won and thrown."""
     mc, ec = _comp_read(dd, my), _comp_read(dd, en)
     if mc["scalers"] > ec["scalers"]:
-        return {"win": "drag it late — farm, stall, don't coinflip; you out-scale at 3 items",
-                "lose": "bleeding early kills before your spikes come online"}
+        return {"win": t("drag it late — farm, stall, don't coinflip; you out-scale at 3 items"),
+                "lose": t("bleeding early kills before your spikes come online")}
     if ec["scalers"] > mc["scalers"]:
-        return {"win": "end before 25 — turn every kill into towers and objectives",
-                "lose": "letting it go late — their comp outgrows yours"}
+        return {"win": t("end before 25 — turn every kill into towers and objectives"),
+                "lose": t("letting it go late — their comp outgrows yours")}
     if mc["divers"] > ec["divers"]:
-        return {"win": "force fights and picks — your comp hits harder in chaos",
-                "lose": "letting them poke and siege on their own terms"}
-    return {"win": "take the next neutral objective off a pick — trade cross-map",
-            "lose": "coin-flipping 5v5s without vision or a numbers edge"}
+        return {"win": t("force fights and picks — your comp hits harder in chaos"),
+                "lose": t("letting them poke and siege on their own terms")}
+    return {"win": t("take the next neutral objective off a pick — trade cross-map"),
+            "lose": t("coin-flipping 5v5s without vision or a numbers edge")}
 
 
 def brief(dd, key=None, scout=True, on_progress=None):

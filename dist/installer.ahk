@@ -16,6 +16,19 @@
 APPNAME := "Smiteless"
 TARGET := EnvGet("LOCALAPPDATA") "\" APPNAME
 REGKEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\" APPNAME
+SETTINGS := EnvGet("USERPROFILE") "\.claude\smiteless_settings.json"
+
+UiLang() {
+    global SETTINGS
+    try {
+        if RegExMatch(FileRead(SETTINGS, "UTF-8"), '"ui_lang"\s*:\s*"en"')
+            return "en"
+    }
+    return "pt_BR"
+}
+Tr(en, pt) {
+    return UiLang() = "en" ? en : pt
+}
 
 mode := "gui"
 for a in A_Args {
@@ -34,22 +47,23 @@ if (mode = "uninstall") {
 }
 
 ; ---------- normal GUI install ----------
-g := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", APPNAME " Setup")
+g := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox", APPNAME " " Tr("Setup", "Instalação"))
 g.BackColor := "0x11131A"
 g.SetFont("s10 cWhite", "Segoe UI")
 g.MarginX := 22, g.MarginY := 18
 g.SetFont("s15 bold c0xC8AA6E")
 g.Add("Text", , "Smiteless")
 g.SetFont("s10 cWhite")
-g.Add("Text", "y+8 w430", "A League of Legends champ-select and in-game overlay.")
+g.Add("Text", "y+8 w430", Tr("A League of Legends champ-select and in-game overlay.",
+    "Um overlay para a seleção de campeões e durante as partidas de League of Legends."))
 g.Add("Text", "y+12 w430 c0x9B988E",
-    "This installs everything it needs (nothing else to download) into your account folder, "
-    . "adds a desktop shortcut, and starts it with Windows. Run League in Borderless mode.")
+    Tr("This installs everything it needs (nothing else to download) into your account folder, adds a desktop shortcut, and starts it with Windows. Run League in Borderless mode.",
+       "Isto instala tudo o que é necessário na pasta da sua conta, adiciona um atalho à área de trabalho e inicia com o Windows. Execute o League no modo Sem Bordas."))
 g.SetFont("s9 c0x9B988E")
-g.Add("Text", "y+12 w430", "Installs to:  " TARGET)
-btn := g.Add("Button", "y+18 w120 h34 Default", "Install")
+g.Add("Text", "y+12 w430", Tr("Installs to:  ", "Instala em:  ") TARGET)
+btn := g.Add("Button", "y+18 w120 h34 Default", Tr("Install", "Instalar"))
 btn.SetFont("s10 bold")
-cancel := g.Add("Button", "x+10 yp w90 h34", "Cancel")
+cancel := g.Add("Button", "x+10 yp w90 h34", Tr("Cancel", "Cancelar"))
 status := g.Add("Text", "xm y+14 w430 c0x9B988E", "")
 btn.OnEvent("Click", GuiInstall)
 cancel.OnEvent("Click", (*) => ExitApp())
@@ -59,13 +73,14 @@ g.Show()
 GuiInstall(*) {
     global g, btn, cancel, status, TARGET
     btn.Enabled := false, cancel.Enabled := false
-    status.Value := "Installing..."
+    status.Value := Tr("Installing...", "Instalando...")
     DoInstall(true, false)
-    status.Value := "Done!  Smiteless is starting and will run with Windows from now on."
-    btn.Text := "Finish", btn.Enabled := true
+    status.Value := Tr("Done!  Smiteless is starting and will run with Windows from now on.",
+        "Pronto! O Smiteless está iniciando e será executado com o Windows de agora em diante.")
+    btn.Text := Tr("Finish", "Concluir"), btn.Enabled := true
     btn.OnEvent("Click", (*) => ExitApp())
-    MsgBox("Smiteless is installed and running.`n`nLook for the gold 'S' icon near your clock "
-        . "(click the ^ arrow if you don't see it). Press Ctrl+Alt+X any time to open it.",
+    MsgBox(Tr("Smiteless is installed and running.`n`nLook for the gold 'S' icon near your clock (click the ^ arrow if you don't see it). Press Ctrl+Alt+X any time to open it.",
+        "O Smiteless está instalado e em execução.`n`nProcure o ícone dourado 'S' perto do relógio (clique na seta ^ se não o encontrar). Pressione Ctrl+Alt+X para abri-lo."),
         APPNAME, "Iconi")
     ExitApp()
 }
@@ -118,7 +133,8 @@ DoInstall(launch, upgraded := false) {
             if (FileExist(alt)) {
                 exe := alt
             } else {
-                MsgBox("Installation finished but the launcher exe wasn't found.\n\nThis can happen if antivirus quarantined files or extraction failed.\nPlease check " TARGET " and re-run Smiteless.exe if present.", APPNAME, "Iconi")
+                MsgBox(Tr("Installation finished but the launcher exe wasn't found.`n`nThis can happen if antivirus quarantined files or extraction failed.`nPlease check ",
+                    "A instalação terminou, mas o executável do inicializador não foi encontrado.`n`nIsso pode ocorrer se o antivírus colocou arquivos em quarentena ou se a extração falhou.`nVerifique ") TARGET, APPNAME, "Iconi")
                 return
             }
         }
@@ -144,5 +160,5 @@ Uninstall() {
         . 'if exist "' TARGET '" ( ping 127.0.0.1 -n 2 >nul & goto retry )`r`n'
         . 'del "%~f0"`r`n', bat)
     Run(A_ComSpec ' /c "' bat '"', , "Hide")
-    MsgBox(APPNAME " has been removed.", APPNAME, "Iconi")
+    MsgBox(APPNAME Tr(" has been removed.", " foi removido."), APPNAME, "Iconi")
 }

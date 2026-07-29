@@ -27,6 +27,7 @@ import os
 import time
 
 import lolprofile as lp
+from smitei18n import t, tf
 
 CACHE = os.path.expanduser("~/.claude/cache/lol_fit.json")
 TTL = 6 * 3600             # rebuild the season read at most this often (it's ~60 match fetches)
@@ -146,15 +147,20 @@ def verdict(rec, name):
     g, w, avg = c["g"], c["w"], c.get("avg")
     wr = round(w / g * 100)
     if g >= VETO_MIN and lp._wilson(w, g, z=1.28, upper=True) <= VETO_WR_UPPER:
-        return "veto", f"{w}W-{g - w}L ({wr}%) over {g} — your worst results"
+        return "veto", tf("{wins}W-{losses}L ({winrate}%) over {games} — your worst results",
+                          wins=w, losses=g - w, winrate=wr, games=g)
     base = rec.get("baseline")
     if avg is not None and base and g >= PERF_MIN and avg <= base - PERF_GAP:
-        return "cold", f"you average {avg} on it vs {base} overall, over {g} games"
+        return "cold", tf("you average {average} on it vs {baseline} overall, over {games} games",
+                          average=avg, baseline=base, games=g)
     since = games_since(rec, name)
     rating = lp._champ_rating(g, w, avg)
     if g >= FRESH_MIN and rating >= FRESH_RATING and (since is None or since >= FRESH_AFTER):
-        ago = "not in your recent games" if since is None else f"{since} games ago"
-        return "fresh", f"{w}W-{g - w}L ({wr}%){'' if avg is None else f', avg {avg}'} — last played {ago}"
+        ago = (t("not in your recent games") if since is None else
+               tf("{games} games ago", games=since))
+        average = "" if avg is None else tf(", avg {average}", average=avg)
+        return "fresh", tf("{wins}W-{losses}L ({winrate}%){average} — last played {ago}",
+                           wins=w, losses=g - w, winrate=wr, average=average, ago=ago)
     return None, None
 
 

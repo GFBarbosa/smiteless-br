@@ -15,6 +15,7 @@ import urllib.request
 import lolscout as ls
 import lollocal as llc          # YOUR match history straight off the client (Riot-API-free)
 import phasecheck
+from smitei18n import coach
 
 _ctx = ssl._create_unverified_context()
 
@@ -96,8 +97,6 @@ def _session(hist, games):
         if cur.get("rv") is not None and start.get("rv") is not None:
             out["lp_delta"] = cur["rv"] - start["rv"]
     return out
-
-
 def _wilson(w, n, z=1.96, upper=False):
     """Wilson score-interval bound for a win proportion — the sample-aware way to rank rates.
     A 3-0 champ has a WIDE interval (its floor sits low, ~0.44); a 40-25 main a tight one (floor
@@ -683,7 +682,7 @@ def _behavior_track(mid, ts, hits, ev, win=None):
     out = []
     for tag in sorted(hits):
         n = streak(tag)
-        label = _BEHAVIOR_TAGS.get(tag, tag)
+        label = coach(_BEHAVIOR_TAGS.get(tag, tag))
         line = f"PATTERN — {label}" + (f" · {n} games running" if n >= 2
                                        else " · watch the next rep")
         evd = pattern_evidence(tag, gs)
@@ -691,7 +690,7 @@ def _behavior_track(mid, ts, hits, ev, win=None):
             line += f" · {evd}"                    # the LP cost, in your own games
         out.append(line)
     for tag in sorted((set((prev or {}).get("hits") or []) & ev) - hits):
-        out.append(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game")
+        out.append(coach(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game"))
     return out[:3]
 
 
@@ -1082,5 +1081,3 @@ def season_champs(dd, puuid, key, cap=60):
                    "avg": (round(v["score"] / v["sg"]) if v["sg"] else None)} for c, v in agg.items()),
                  key=lambda x: (-x["g"], -x["wr"]))
     return out
-
-
