@@ -25,7 +25,7 @@ The focus gate is load-bearing: keystrokes only go out when the foreground windo
 the League game (class AND owning process), re-checked before every burst. If you're alt-tabbed
 we wait. The command is never typed into whatever else you're looking at.
 """
-import os, sys, time, json, ssl, ctypes, urllib.request
+import os, sys, time, json, ssl, ctypes, threading, urllib.request
 from ctypes import wintypes
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,10 +85,15 @@ FIRE_AT = 4.0
 LATE_LIMIT = 20.0      # past this you've left the fountain — stop trying, don't type on the move
 
 SETTINGS_PATH = "/lol-game-settings/v1/game-settings"
-MUTED = {"HUD": {"ShowAlliedChat": False, "ShowAllChannelChat": False},
-         "Volume": {"PingsMute": True}}
-UNMUTED = {"HUD": {"ShowAlliedChat": True, "ShowAllChannelChat": True},
-           "Volume": {"PingsMute": False}}
+# Every client setting that makes the game quieter, all verified writable on this client.
+# ChatChannelVisibility 0 hides the chat channels outright; PingsVolume 0 belts-and-braces
+# PingsMute in case a patch ever makes the mute flag advisory.
+MUTED = {"HUD": {"ShowAlliedChat": False, "ShowAllChannelChat": False,
+                 "ChatChannelVisibility": 0},
+         "Volume": {"PingsMute": True, "PingsVolume": 0.0}}
+UNMUTED = {"HUD": {"ShowAlliedChat": True, "ShowAllChannelChat": True,
+                   "ChatChannelVisibility": 2},
+           "Volume": {"PingsMute": False, "PingsVolume": 0.31}}
 
 
 def _log(msg):
@@ -215,40 +220,98 @@ def _tap_scan(code, hold=KEY_HOLD_S):
     _key(code, False)
 
 
+def _single_instance():
+    """Refuse to run if another copy already is. THIS IS THE ONE THAT BROKE IT: the v0.9.55
+    rewrite dropped the mutex the original had, the tray re-spawns on any phase flap, and three
+    copies ended up typing into the same chat box in the same second — three `/fullmute all`
+    strings interleaved character by character into garbage, which of course muted nobody. The
+    log said TYPED three times and looked like success."""
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateMutexW(None, False, "Global\\SmitelessMute")
+    return ctypes.get_last_error() != 183          # ERROR_ALREADY_EXISTS
+
+
+_SEND_LOCK = threading.Lock()
+
+
 def send_fullmute():
-    """Open chat, type the command, submit. Every key is a SCAN CODE. Focus is re-checked
-    before each burst so a half-typed command can never land in another window."""
-    if not game_focused():
+    """Open chat, type the command, submit. Every key is a SCAN CODE. Returns True only if the
+    whole command went out uninterrupted.
+
+    Focus is re-checked before EVERY SINGLE CHARACTER, not just per burst. If you alt-tab or
+    click (which takes focus off League's chat box) mid-command, the worst case is now ONE
+    stray character instead of the remaining nine — and one of those nine is the `f` that cast
+    Flash. The _SEND_LOCK makes a second caller inside this process impossible; the mutex in
+    _single_instance() makes a second PROCESS impossible."""
+    if not _SEND_LOCK.acquire(blocking=False):
+        _log("another send is already in flight — refusing to interleave")
         return False
-    keys = []
-    for ch in CMD:
-        s = scan_of(ch)
-        if s is None:
-            _log(f"ABORT layout cannot produce {ch!r}")
+    try:
+        if not game_focused():
             return False
-        keys.append(s)
-    _tap_scan(ENTER_SCAN())                     # open chat
-    time.sleep(CHAT_OPEN_S)
-    if not game_focused():
+        keys = []
+        for ch in CMD:
+            s = scan_of(ch)
+            if s is None:
+                _log(f"ABORT layout cannot produce {ch!r}")
+                return False
+            keys.append(s)
+        _tap_scan(ENTER_SCAN())                     # open chat
+        time.sleep(CHAT_OPEN_S)
+        if not game_focused():
+            return False
+        sh = _u32.MapVirtualKeyW(VK_SHIFT, 0)
+        for i, (code, shift) in enumerate(keys):
+            if not game_focused():                  # bail between characters, not after them
+                _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))
+                _log(f"ABORT lost focus after {i} of {len(keys)} characters — "
+                     f"chat closed, nothing further typed")
+                return False
+            if shift:
+                _key(sh, True)
+            _tap_scan(code, KEY_GAP_S)
+            if shift:
+                _key(sh, False)
+            time.sleep(KEY_GAP_S)
+        time.sleep(PRE_SEND_S)
+        if not game_focused():
+            _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))     # close the box we opened
+            return False
+        _tap_scan(ENTER_SCAN())                     # submit
+        return True
+    finally:
+        _SEND_LOCK.release()
+
+
+def player_dead():
+    """True when YOUR champion is dead right now. This is the one window where a stray
+    keystroke costs nothing — a corpse can't cast Flash, walk into a bush or attack-move into
+    a tower — so it's where a failed first attempt is safe to retry, as many times as it takes."""
+    try:
+        ctx = ssl._create_unverified_context()
+        with urllib.request.urlopen("https://127.0.0.1:2999/liveclientdata/allgamedata",
+                                    timeout=1.5, context=ctx) as r:
+            data = json.load(r)
+        import lollive as ll
+        split = ll.team_split(data)
+        if not split:
+            return False
+        me = split[0]
+        return bool(me.get("isDead")) or float(me.get("respawnTimer") or 0) > 1.0
+    except Exception:
         return False
-    sh = _u32.MapVirtualKeyW(VK_SHIFT, 0)
-    for code, shift in keys:
-        if shift:
-            _key(sh, True)
-        _tap_scan(code, KEY_GAP_S)
-        if shift:
-            _key(sh, False)
-        time.sleep(KEY_GAP_S)
-    time.sleep(PRE_SEND_S)
-    if not game_focused():
-        _tap_scan(_u32.MapVirtualKeyW(VK_ESCAPE, 0))     # close the box we opened
-        return False
-    _tap_scan(ENTER_SCAN())                     # submit
-    return True
 
 
 def main():
     if not cfg.load().get("auto_mute", True):
+        return
+    # ONE PROCESS. The tray re-spawns this on any phase flap, and three copies typing into one
+    # chat box in the same second is what silently broke auto-mute: the commands interleave
+    # character by character into garbage that muted nobody, while the log cheerfully said
+    # TYPED three times.
+    if not _single_instance():
+        _log("another instance is already running — exiting (this is the fix for the "
+             "three-copies-typing-at-once bug)")
         return
     ok, detail = apply(True)                    # layer 2 first — it needs no game, no focus
     _log(f"settings {'OK' if ok else 'FAILED'} - {detail}")
@@ -274,21 +337,31 @@ def main():
         gone = 0
         if gt > 1.0:
             seen = True
-        if armed and gt >= FIRE_AT:
+        if armed and FIRE_AT <= gt <= LATE_LIMIT:
+            # Window 1: the fountain. You're stationary, chat takes focus cleanly, and this is
+            # the attempt that works when the game window is in front.
             if send_fullmute():
                 armed, waits = False, 0
-                _log(f"TYPED {CMD!r} at gameTime={gt:.1f} (one attempt only, by design)")
+                _log(f"TYPED {CMD!r} at gameTime={gt:.1f} (fountain)")
             else:
                 waits += 1
-                # Only keep waiting while you're still parked in base. Past LATE_LIMIT you are
-                # out on the map and clicking, so typing stops being safe — give up quietly and
-                # let the settings layer carry it.
-                if gt > LATE_LIMIT:
-                    armed = False
-                    _log(f"gave up at gameTime={gt:.1f} — too late to type safely "
-                         f"(you're on the map); the client settings still apply")
-                elif waits in (1, 5, 10) or waits % 30 == 0:
+                if waits in (1, 5, 10):
                     _log(f"waiting for the game window to be focused ({waits}s, gt={gt:.1f})")
+        elif armed and gt > LATE_LIMIT and player_dead():
+            # Window 2: while you're DEAD. Past the fountain, typing on the move is what cast
+            # Flash — but a dead champion cannot cast, move or attack, so a stray character
+            # costs nothing. Every game gives us these, and we take as many as we need.
+            if send_fullmute():
+                armed = False
+                _log(f"TYPED {CMD!r} at gameTime={gt:.1f} (safe window: you were dead)")
+            else:
+                _log(f"death-window attempt at gameTime={gt:.1f} didn't land "
+                     f"(alt-tabbed?) — will try the next death", )
+        elif armed and gt > LATE_LIMIT and waits >= 0:
+            waits = -1                          # log the handover to the death window once
+            _log(f"fountain window missed at gameTime={gt:.1f} — NOT typing on the move "
+                 f"(that's what cast Flash); waiting for a death instead. "
+                 f"Client settings are already applied regardless.")
         time.sleep(1.0)
     _log("EXIT deadline")
 

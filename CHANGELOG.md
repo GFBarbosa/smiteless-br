@@ -1,5 +1,35 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.62 - auto-mute hardened: the real bug was THREE copies typing at once
+
+- **Found it. Three copies of the mute helper were running and all typed into the same chat box
+  in the same second.** Your log, verbatim - three identical lines, same timestamp, same game
+  clock:
+
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+      16:14:38 TYPED '/fullmute all' at gameTime=4.3
+
+  Three commands interleaved character by character is `///ffuullllmm...` - garbage, not a
+  command, muting nobody. And because each copy reported success, the log looked *great*. The
+  v0.9.55 rewrite had quietly dropped the single-instance mutex the original had, and the tray
+  re-spawns the helper on any phase flap.
+- **The mutex is back**, plus an in-process send lock so two threads can't interleave either.
+  The self-test now FAILS if either guard ever goes missing again.
+- **A missed attempt now recovers - safely.** Before, if the game window wasn't focused during
+  the fountain window, that was the whole game. Now, if the fountain attempt misses, it waits
+  and retries **while you're dead**. A dead champion cannot cast, move or attack, so a stray
+  keystroke there costs exactly nothing - it is the one genuinely free window in a game, and
+  every game hands us several. It still refuses to type while you're alive and on the move,
+  because that is what cast Flash.
+- **A lost focus now costs one character instead of nine.** Focus is re-checked before *every
+  single character*, not once per burst, and the chat box is closed on abort. The `f` in
+  "fullmute" is the Flash key; that exposure is now one keystroke wide.
+- **The settings layer covers more ground**: on top of ally chat and all-chat hidden and ping
+  audio muted, it now also sets the chat channels invisible outright and drops ping volume to
+  zero. All five are written through the client and read back to confirm. This layer needs no
+  focus, no keystrokes and no timing, so it holds even if the typing never lands.
+
 ## v0.9.61 - MAX ELO actually locks the champ it hovers
 
 - **It hovered a champion and then never locked it.** Root cause: the recommendation was being

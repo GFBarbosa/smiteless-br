@@ -152,6 +152,18 @@ def c_mute():
         return FAIL, "a second mute attempt is back - it types while you're moving and casts Flash"
     if getattr(lm, "LATE_LIMIT", 999) > 30.0:
         return FAIL, f"still typing at gameTime {lm.LATE_LIMIT}s - you're on the map by then"
+    # THE bug that broke it in a real game: the v0.9.55 rewrite dropped the single-instance
+    # mutex, the tray re-spawns on any phase flap, and THREE copies typed into one chat box in
+    # the same second. Interleaved character by character that is garbage, not a command - and
+    # the log said TYPED three times, so it looked like success. Never again.
+    if not hasattr(lm, "_single_instance"):
+        return FAIL, "no single-instance guard - concurrent copies will interleave into garbage"
+    if not lm._single_instance():
+        return FAIL, "a lolmute process is already running (or the mutex leaked)"
+    if not hasattr(lm, "_SEND_LOCK"):
+        return FAIL, "no in-process send lock - two threads could interleave the command"
+    if not hasattr(lm, "player_dead"):
+        return FAIL, "no death-window retry - a missed fountain attempt would never recover"
     detail = f"Enter=0x{lm.ENTER_SCAN():02x}, {lm.CMD!r} all mappable"
     if not lg._lcu():
         return OK, detail + "; client down, settings layer unverified"
