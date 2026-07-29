@@ -64,7 +64,7 @@ def static_fixtures():
     if _old_smurf_fired(morg_brand):
         print("v0.9.29 would have said: SMURF READ · new acct, stomping   <- the lie")
     _run("STATIC Morgana OTP locks Brand (enemy)", morg_brand, ally=False,
-         must=("off-champ", "on Morgana", "first Brand"),
+         must=("fora do campeão", "com Morgana", "primeira vez com Brand"),
          must_not=("smurf",))
 
     # 2) A genuinely smurf-shaped account: fresh level, stomping, high perf.
@@ -78,7 +78,7 @@ def static_fixtures():
         "dpg": 2.2, "perf": 88, "kdar": 5.1,
     }
     _run("STATIC real smurf shape (enemy)", smurf, ally=False,
-         must=("smurf? ·", "lvl 38"))
+         must=("smurf? ·", "nível 38"))
 
     # 3) Same stomping account but NO level data -> smurf may not fire (no evidence, no tag).
     no_level = dict(smurf, level=None)
@@ -88,7 +88,7 @@ def static_fixtures():
     # 4) Old account (lvl 400) on a streak -> heater, never smurf/new-account.
     vet = dict(smurf, level=412, pts=310_000)
     _run("STATIC veteran on a heater (enemy)", vet, ally=False,
-         must=("heater", "OTP"), must_not=("smurf", "new account"))
+         must=("em sequência", "OTP"), must_not=("smurf", "conta nova"))
 
     # 5) Loss skid -> tilt read, tone good-for-you on an enemy.
     tilted = {
@@ -100,7 +100,7 @@ def static_fixtures():
         "dpg": 7.2, "perf": 44, "kdar": 1.6,
     }
     _run("STATIC 4L skid (enemy)", tilted, ally=False,
-         must=("4L skid", "cold on Jinx", "bleeds"))
+         must=("4D seguidas", "frio com Jinx", "morre muito"))
 
 
 def live_fixture():
@@ -143,7 +143,7 @@ def live_fixture():
     print(f"\nLIVE reconstruction: {n} cached recents, {w}W, dist="
           f"{ {c: [x[0] for x in recent].count(c) for c in set(x[0] for x in recent)} }")
     _run("LIVE NA1_5604429522 Brand row (enemy)", row, ally=False,
-         must=("off-champ",), must_not=("smurf",))
+         must=("fora do campeão",), must_not=("smurf",))
 
 
 def main():

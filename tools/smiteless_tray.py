@@ -16,6 +16,7 @@ for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
 import smiteconfig as cfg
 import phasecheck
+from smitei18n import t
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
@@ -132,22 +133,22 @@ def main():
         except Exception:
             names = []
         if not names:
-            return [pystray.MenuItem("Set up in Settings…", lambda icon, item: open_settings())]
+            return [pystray.MenuItem(t("Set up in Settings…"), lambda icon, item: open_settings())]
         main_py = os.path.join(_ROOT, "smiteless_main.py")
         return [pystray.MenuItem(n, (lambda nm: lambda icon, item: _launch(main_py, "login", nm))(n))
                 for n in names]
 
     menu = pystray.Menu(
-        pystray.MenuItem("Open overlay", lambda icon, item: open_overlay(False), default=True),
-        pystray.MenuItem("Riot login", pystray.Menu(_login_items)),
-        pystray.MenuItem("Settings…", lambda icon, item: open_settings()),
+        pystray.MenuItem(t("Open overlay"), lambda icon, item: open_overlay(False), default=True),
+        pystray.MenuItem(t("Riot login"), pystray.Menu(_login_items)),
+        pystray.MenuItem(t("Settings…"), lambda icon, item: open_settings()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Auto-open (queue → game)", toggle_autoopen,
+        pystray.MenuItem(t("Auto-open (queue → game)"), toggle_autoopen,
                          checked=lambda item: cfg.auto_open_enabled()),
-        pystray.MenuItem("Start with Windows", toggle_autostart,
+        pystray.MenuItem(t("Start with Windows"), toggle_autostart,
                          checked=lambda item: cfg.autostart_enabled()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit", quit_app),
+        pystray.MenuItem(t("Quit"), quit_app),
     )
     icon = pystray.Icon("smiteless", img, "Smiteless", menu)
     icon.run()

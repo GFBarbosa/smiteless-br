@@ -16,6 +16,7 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
             pass
 import smiteconfig as cfg
 import lolscout as ls
+from smitei18n import set_lang, t
 
 import smiteskin as skin
 # Duskfall tokens - see docs/UIDESIGN.md. Nothing below this block may spell out a hex or
@@ -44,7 +45,7 @@ def main():
     s = cfg.load()
     root = tk.Tk()
     cfg.watch_tray(root)                        # close with the tray (no orphan settings window)
-    root.title("Smiteless Settings")
+    root.title(f"Smiteless {t('Settings')}")
     root.configure(bg=VOID)
     skin.dark_titlebar(root)
     root.resizable(True, True)
@@ -84,11 +85,11 @@ def main():
         _ver = ""
     _hdr = tk.Frame(body, bg=VOID)
     _hdr.pack(fill="x", padx=skin.PAD_WIN, pady=(16, 1))
-    skin.brand_row(_hdr, "settings", bg=VOID).pack(side="left")
+    skin.brand_row(_hdr, t("Settings"), bg=VOID).pack(side="left")
     if _ver:
         tk.Label(_hdr, text=f"v{_ver}", bg=RAISED, fg=MUTED, font=skin.body(SMALL)).pack(
             side="left", padx=(10, 0), pady=(4, 4), ipadx=6, ipady=1)
-    tk.Label(body, text="Changes apply live - the overlay's gank tags update within a few seconds.",
+    tk.Label(body, text=t("Changes apply live - the overlay's gank tags update within a few seconds."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL)).pack(anchor="w", padx=skin.PAD_WIN, pady=(0, 8))
 
     from tkinter import ttk
@@ -128,25 +129,21 @@ def main():
     me_in.pack(fill="x", padx=12, pady=(9, 10))
     me_head = tk.Frame(me_in, bg=SURFACE)
     me_head.pack(fill="x")
-    tk.Label(me_head, text="MAX ELO", bg=SURFACE, fg=EMBER,
+    tk.Label(me_head, text=t("MAX ELO"), bg=SURFACE, fg=EMBER,
              font=skin.display(17, bold=True)).pack(side="left")
     me_state = tk.Label(me_head, text="", bg=SURFACE, font=skin.body(SMALL, bold=True))
     me_state.pack(side="left", padx=(10, 0), pady=(6, 0))
-    tk.Label(me_in, text="One champion. Everything that shortens the climb, on. Smiteless "
-             "auto-accepts, bans the champ that threatens your team, LOCKS your champ for you "
-             "(backup if it's gone), imports the runes, mutes the lobby, and runs every "
-             "in-game read. The pool discipline is the point: it takes the 30 seconds before "
-             "a game where the LP goes and removes the decisions from them.",
+    tk.Label(me_in, text=t("One champion. Everything that shortens the climb, on. Smiteless auto-accepts, bans the champ that threatens your team, LOCKS your champ for you (backup if it's gone), imports the runes, mutes the lobby, and runs every in-game read. The pool discipline is the point: it takes the 30 seconds before a game where the LP goes and removes the decisions from them."),
              bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", pady=(4, 6))
     me_row = tk.Frame(me_in, bg=SURFACE)
     me_row.pack(fill="x", pady=(0, 8))
-    tk.Label(me_row, text="Main", bg=SURFACE, fg=TXT,
+    tk.Label(me_row, text=t("Main"), bg=SURFACE, fg=TXT,
              font=skin.body(SMALL, bold=True)).pack(side="left", padx=(0, 5))
     me_cb1 = ttk.Combobox(me_row, textvariable=maxelo_main, values=_champ_names, width=15,
                           style="Fav.TCombobox", font=skin.body(SMALL))
     me_cb1.pack(side="left")
-    tk.Label(me_row, text="Backup", bg=SURFACE, fg=TXT,
+    tk.Label(me_row, text=t("Backup"), bg=SURFACE, fg=TXT,
              font=skin.body(SMALL, bold=True)).pack(side="left", padx=(12, 5))
     me_cb2 = ttk.Combobox(me_row, textvariable=maxelo_back, values=_champ_names, width=15,
                           style="Fav.TCombobox", font=skin.body(SMALL))
@@ -168,28 +165,27 @@ def main():
 
     def _me_paint():
         on = maxelo_on["v"]
-        me_state.config(text=("ARMED" if on else "STANDING BY"), fg=(EMBER if on else MUTED))
-        me_btn.config(text=("STAND DOWN" if on else "ARM MAX ELO"))
+        me_state.config(text=t("ARMED" if on else "STANDING BY"), fg=(EMBER if on else MUTED))
+        me_btn.config(text=t("STAND DOWN" if on else "ARM MAX ELO"))
         if on:
             mn = maxelo_main.get().strip() or "?"
             bk = maxelo_back.get().strip()
-            me_note.config(text=f"Locked to {mn}" + (f", backup {bk}." if bk else ".")
-                           + " Champ select is on rails — change your mind here, not in the lobby.",
+            me_note.config(text=t("Locked to {main}{backup}. Champ select is on rails — change your mind here, not in the lobby.").format(
+                main=mn, backup=(t(", backup {champ}").format(champ=bk) if bk else "")),
                            fg=EMBER)
         else:
-            me_note.config(text="Nothing is being locked. Arming also switches on every feature "
-                                "below that shortens the climb.", fg=MUTED)
+            me_note.config(text=t("Nothing is being locked. Arming also switches on every feature below that shortens the climb."), fg=MUTED)
 
     def _me_toggle():
         if maxelo_on["v"]:
             cfg.stand_down_max_elo()
             maxelo_on["v"] = False
-            status.config(text="MAX ELO stood down - champ select is yours again", fg=MUTED)
+            status.config(text=t("MAX ELO stood down - champ select is yours again"), fg=MUTED)
             _me_paint()
             return
         main_nm = _canon(maxelo_main.get())
         if not main_nm:
-            me_note.config(text="Pick a main champion first - that's the whole idea.", fg=BAD)
+            me_note.config(text=t("Pick a main champion first - that's the whole idea."), fg=BAD)
             return
         back_nm = _canon(maxelo_back.get()) or ""
         maxelo_main.set(main_nm)
@@ -205,7 +201,7 @@ def main():
 
     # THE button: this window's one primary (UIDESIGN §: exactly one EMBER-filled button per
     # window), sized up — it's the only control most sessions touch. Save drops to secondary.
-    me_btn = tk.Button(me_btnrow, text="ARM MAX ELO", command=lambda: _me_toggle(),
+    me_btn = tk.Button(me_btnrow, text=t("ARM MAX ELO"), command=lambda: _me_toggle(),
                        bg=EMBER, fg=VOID, activebackground=EMBER_DEEP, activeforeground=VOID,
                        relief="flat", bd=0, padx=26, pady=8, cursor="hand2",
                        font=skin.display(13, bold=True))
@@ -218,7 +214,7 @@ def main():
         fr = outer.body
         top = tk.Frame(fr, bg=SURFACE)
         top.pack(fill="x", padx=12, pady=(8, 0))
-        tk.Label(top, text=title, bg=SURFACE, fg=TXT, font=skin.body(BODY, bold=True)).pack(side="left")
+        tk.Label(top, text=t(title), bg=SURFACE, fg=TXT, font=skin.body(BODY, bold=True)).pack(side="left")
         valv = tk.StringVar()
         tk.Label(top, textvariable=valv, bg=SURFACE, fg=ARC,
                  font=skin.display(BODY, bold=True)).pack(side="right")
@@ -234,7 +230,7 @@ def main():
         def upd(_=None):
             v = sc.get()
             valv.set(fmt(v))
-            descv.set(desc(v) if callable(desc) else desc)
+            descv.set(desc(v) if callable(desc) else t(desc))
         sc.config(command=upd)
         upd()
         return sc
@@ -257,7 +253,7 @@ def main():
     _chk2 = lambda parent, text, var: tk.Checkbutton(parent, text=text, variable=var, bg=VOID,
         fg=TXT, selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
         font=skin.body(BODY), bd=0, highlightthickness=0)
-    _chk2(_solo_wrap, "Coach from Ranked Solo games only (pool, session, climb)", solocoach).pack(side="left")
+    _chk2(_solo_wrap, t("Coach from Ranked Solo games only (pool, session, climb)"), solocoach).pack(side="left")
     dvol = scale_row("Audio volume (chime + voice)",
                      "drake chime and the voice callouts (0 = silent). Applies next game.",
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
@@ -277,7 +273,7 @@ def main():
             except Exception:
                 pass
         threading.Thread(target=work, daemon=True).start()
-    skin.button(body, "♪ Test audio", _test_audio, size=SMALL).pack(anchor="w", padx=18, pady=(0, 4))
+    skin.button(body, t("♪ Test audio"), _test_audio, size=SMALL).pack(anchor="w", padx=18, pady=(0, 4))
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
     homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
@@ -327,20 +323,20 @@ def main():
     # FEATURES, grouped (§15): one card per surface family instead of a flat two-column
     # dump of 19 checkboxes — you find a toggle by asking "where does it live", and each
     # card's rail marks the group.
-    skin.section_rule(body, "FEATURES").pack(fill="x", padx=18, pady=(10, 2))
+    skin.section_rule(body, t("FEATURES")).pack(fill="x", padx=18, pady=(10, 2))
 
     def _feat_group(title, items):
         card = skin.card(body, rail=LINE)
         card.pack(fill="x", padx=14, pady=4)
         inner = tk.Frame(card.body, bg=SURFACE)
         inner.pack(fill="x", padx=10, pady=(6, 8))
-        tk.Label(inner, text=title, bg=SURFACE, fg=EMBER,
+        tk.Label(inner, text=t(title), bg=SURFACE, fg=EMBER,
                  font=skin.body(SMALL, bold=True)).grid(row=0, column=0, columnspan=2,
                                                         sticky="w", pady=(0, 2))
         inner.columnconfigure(0, weight=1, uniform="feat")
         inner.columnconfigure(1, weight=1, uniform="feat")
         for i, (lbl, var) in enumerate(items):
-            _chk(inner, lbl, var, bg=SURFACE).grid(row=1 + i // 2, column=i % 2,
+            _chk(inner, t(lbl), var, bg=SURFACE).grid(row=1 + i // 2, column=i % 2,
                                                    sticky="w", padx=(0, 8))
 
     _feat_group("IN-GAME WIDGET", [
@@ -373,10 +369,10 @@ def main():
     _feat_group("IN-GAME AUTOMATION", [
         ("Auto-mute everyone (chat + pings)", automute),
     ])
-    tk.Label(body, text="Auto-mute sends Riot's own /fullmute all the moment the game clock "
+    tk.Label(body, text=t("Auto-mute sends Riot's own /fullmute all the moment the game clock "
              "starts — chat and pings from every player, hidden for that game only. Your own "
              "pings still work and nothing is changed permanently. It waits until the game "
-             "window is focused, so the command is never typed anywhere else.",
+             "window is focused, so the command is never typed anywhere else."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 
@@ -384,35 +380,35 @@ def main():
     _SWAP_LBL = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
     _swap_cur = set(s.get("auto_swap_roles") or [])
     swapvars = {r: tk.BooleanVar(value=(r in _swap_cur)) for r in cfg.SWAP_ROLES}
-    skin.section_rule(body, "AUTO ROLE SWAP (autofill escape)").pack(fill="x", padx=18, pady=(10, 2))
-    tk.Label(body, text="Check the roles you actually play. If you get autofilled off them, Smiteless "
+    skin.section_rule(body, t("AUTO ROLE SWAP (autofill escape)")).pack(fill="x", padx=18, pady=(10, 2))
+    tk.Label(body, text=t("Check the roles you actually play. If you get autofilled off them, Smiteless "
              "automatically REQUESTS a swap from a teammate who has one — and accepts any offer that "
              "lands you on one. It only ever moves you ONTO a checked role, never off one. None "
-             "checked = off.",
+             "checked = off."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     swaprow = tk.Frame(body, bg=VOID)
     swaprow.pack(anchor="w", padx=16, pady=(0, 2))
     for r in cfg.SWAP_ROLES:
-        _chk(swaprow, _SWAP_LBL[r], swapvars[r]).pack(side="left", padx=(0, 8))
+        _chk(swaprow, t(_SWAP_LBL[r]), swapvars[r]).pack(side="left", padx=(0, 8))
 
     # Auto PICK-ORDER swap — trade your spot toward a specific pick slot (1st..5th).
     _pk = str(s.get("auto_pick_swap") or "")
     _pk = {"first": "1", "last": "5"}.get(_pk, _pk)     # legacy first/last -> a slot number
     pickswap = tk.StringVar(value=(_pk if _pk in ("any", "1", "2", "3", "4", "5") else "off"))
-    skin.section_rule(body, "AUTO PICK-ORDER SWAP").pack(fill="x", padx=18, pady=(10, 2))
-    tk.Label(body, text="Auto-handle pick-order swaps toward the slot you pick. 1st = first pick "
+    skin.section_rule(body, t("AUTO PICK-ORDER SWAP")).pack(fill="x", padx=18, pady=(10, 2))
+    tk.Label(body, text=t("Auto-handle pick-order swaps toward the slot you pick. 1st = first pick "
              "(lock a contested champ early); 5th = last pick (counter-pick). Pick 4th/5th to sit "
              "near the end without insisting on dead-last. It accepts any offer that moves you "
              "CLOSER to your slot and asks for one otherwise. \"Any\" just accepts every incoming "
-             "request. A slot past the lobby size just means last.",
+             "request. A slot past the lobby size just means last."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     pkrow = tk.Frame(body, bg=VOID)
     pkrow.pack(anchor="w", padx=16, pady=(0, 2))
     for _lbl, _val in (("Off", "off"), ("Any", "any"), ("1st", "1"), ("2nd", "2"),
                        ("3rd", "3"), ("4th", "4"), ("5th", "5")):
-        tk.Radiobutton(pkrow, text=_lbl, variable=pickswap, value=_val, bg=VOID, fg=TXT,
+        tk.Radiobutton(pkrow, text=t(_lbl), variable=pickswap, value=_val, bg=VOID, fg=TXT,
                        selectcolor=SUNKEN, activebackground=VOID, activeforeground=TXT,
                        font=skin.body(BODY), bd=0, highlightthickness=0).pack(side="left", padx=(0, 8))
 
@@ -425,10 +421,10 @@ def main():
         cid = _name2id.get(_norm(nm))
         return _id2name.get(cid) if cid else None
 
-    skin.section_rule(body, "PERMA-BAN LIST").pack(fill="x", padx=18, pady=(12, 2))
-    tk.Label(body, text="With auto-ban on, your ban locks the highest champ on this list that's "
+    skin.section_rule(body, t("PERMA-BAN LIST")).pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text=t("With auto-ban on, your ban locks the highest champ on this list that's "
              "still available (skipping anything a teammate is hovering), falling back to the "
-             "live recommended bans if the whole list is gone. Order is priority (use ↑/↓).",
+             "live recommended bans if the whole list is gone. Order is priority (use ↑/↓)."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
     banfr = skin.card(body, rail=LINE)
@@ -478,19 +474,19 @@ def main():
             ban_list.insert(j, v)
             ban_list.selection_set(j)
 
-    skin.button(ban_addrow, "+ Add", _add_ban).pack(side="left", padx=(6, 0))
+    skin.button(ban_addrow, t("+ Add"), _add_ban).pack(side="left", padx=(6, 0))
     ban_cb.bind("<KeyRelease>", _filter_bans)
     ban_cb.bind("<Return>", _add_ban)
     banbtns = tk.Frame(ban_listfr, bg=SURFACE)
     banbtns.pack(side="left", fill="y", padx=(6, 0))
-    skin.button(banbtns, "Remove", _rm_ban).pack(fill="x", pady=1)
+    skin.button(banbtns, t("Remove"), _rm_ban).pack(fill="x", pady=1)
     skin.button(banbtns, "↑", lambda: _move_ban(-1)).pack(fill="x", pady=1)
     skin.button(banbtns, "↓", lambda: _move_ban(1)).pack(fill="x", pady=1)
 
-    skin.section_rule(body, "YOUR ACCOUNTS").pack(fill="x", padx=18, pady=(12, 2))
-    tk.Label(body, text="One Riot ID per line (Name#TAG). Accounts you log into are remembered "
+    skin.section_rule(body, t("YOUR ACCOUNTS")).pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text=t("One Riot ID per line (Name#TAG). Accounts you log into are remembered "
              "automatically; add smurfs here too. 'Good this game' pools your champion mastery "
-             "across all of them, so it recommends champs you know on ANY account.",
+             "across all of them, so it recommends champs you know on ANY account."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
     accfr = skin.card(body, rail=LINE)
@@ -506,11 +502,11 @@ def main():
     # ---------- one-click Riot login (saved "Stay signed in" sessions, no passwords) ----------
     import threading
     import lolaccounts as la
-    skin.section_rule(body, "ONE-CLICK RIOT LOGIN").pack(fill="x", padx=18, pady=(12, 2))
-    tk.Label(body, text="Setup, once per account: in the Riot Client log in with \"Stay signed in\" "
+    skin.section_rule(body, t("ONE-CLICK RIOT LOGIN")).pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text=t("Setup, once per account: in the Riot Client log in with \"Stay signed in\" "
              "TICKED, then Save current login. After that, pick a name here (or tray → Riot login) "
              "and it closes the client, swaps the saved session in and relaunches League — no "
-             "password typed, nothing stored but Riot's own encrypted session file.",
+             "password typed, nothing stored but Riot's own encrypted session file."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 4))
     lgfr = skin.card(body, rail=LINE)
@@ -575,14 +571,14 @@ def main():
 
     lg_btns = tk.Frame(lg_list_fr, bg=SURFACE)
     lg_btns.pack(side="left", fill="y", padx=(6, 0))
-    skin.button(lg_btns, "Log in", _lg_login).pack(fill="x", pady=1)
-    skin.button(lg_btns, "Remove", _lg_remove).pack(fill="x", pady=1)
+    skin.button(lg_btns, t("Log in"), _lg_login).pack(fill="x", pady=1)
+    skin.button(lg_btns, t("Remove"), _lg_remove).pack(fill="x", pady=1)
     lg_addrow = tk.Frame(lgfr.body, bg=SURFACE)
     lg_addrow.pack(fill="x", padx=8, pady=(0, 4))
     lg_name_entry = tk.Entry(lg_addrow, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
                              font=skin.mono(SMALL), width=22)
     lg_name_entry.pack(side="left", ipady=3)
-    skin.button(lg_addrow, "Save current login", _lg_save).pack(side="left", padx=(6, 0))
+    skin.button(lg_addrow, t("Save current login"), _lg_save).pack(side="left", padx=(6, 0))
     lg_name_entry.bind("<Return>", lambda e: _lg_save())
     lg_stat_lbl = tk.Label(lgfr.body, textvariable=lg_status, bg=SURFACE, fg=MUTED,
                            font=skin.body(SMALL), anchor="w", justify="left", wraplength=410)
@@ -602,7 +598,7 @@ def main():
 
     fkey = skin.card(body, rail=LINE)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
-    tk.Label(fkey.body, text="FLASH KEY", bg=SURFACE, fg=TXT,
+    tk.Label(fkey.body, text=t("FLASH KEY"), bg=SURFACE, fg=TXT,
              font=skin.body(BODY, bold=True)).pack(anchor="w", padx=12, pady=(8, 0))
     row = tk.Frame(fkey.body, bg=SURFACE)
     row.pack(fill="x", padx=12, pady=(2, 8))
@@ -616,29 +612,42 @@ def main():
     tk.Label(row, textvariable=fstat, bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left", padx=(10, 0))
 
     def _upd_flash(_=None):
-        fstat.set("Flash on D" if flash_side.get() == 0 else "Flash on F")
+        fstat.set(t("Flash on D") if flash_side.get() == 0 else t("Flash on F"))
     fscale.config(command=_upd_flash)
     _upd_flash()
 
-    skin.section_rule(body, "STARTUP").pack(fill="x", padx=18, pady=(10, 2))
+    skin.section_rule(body, t("STARTUP")).pack(fill="x", padx=18, pady=(10, 2))
+    lang_var = tk.StringVar(value=s.get("ui_lang", "pt_BR") if s.get("ui_lang") in ("pt_BR", "en") else "pt_BR")
+    langfr = tk.Frame(body, bg=VOID)
+    langfr.pack(fill="x", padx=16, pady=(0, 2))
+    tk.Label(langfr, text=t("LANGUAGE"), bg=VOID, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
+    tk.Radiobutton(langfr, text=t("Português (Brasil)"), variable=lang_var, value="pt_BR", bg=VOID,
+                   fg=TXT, selectcolor=SURFACE, activebackground=VOID, activeforeground=TXT,
+                   font=skin.body(SMALL)).pack(side="left", padx=(14, 6))
+    tk.Radiobutton(langfr, text=t("English"), variable=lang_var, value="en", bg=VOID,
+                   fg=TXT, selectcolor=SURFACE, activebackground=VOID, activeforeground=TXT,
+                   font=skin.body(SMALL)).pack(side="left", padx=6)
+    tk.Label(body, text=t("Language applies after Save. Reopen overlays and the tray menu to refresh all surfaces."),
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), anchor="w", justify="left", wraplength=430).pack(
+                 fill="x", padx=18, pady=(0, 4))
     afr = tk.Frame(body, bg=VOID)
     afr.pack(fill="x", padx=16, pady=(0, 0))
-    _chk(afr, "Auto-open at champ select", auto).pack(side="left")
-    _chk(afr, "Open profile/home on startup", homeonstart).pack(side="left", padx=(18, 0))
-    _chk(afr, "Start with Windows", startwin).pack(side="left", padx=(18, 0))
+    _chk(afr, t("Auto-open at champ select"), auto).pack(side="left")
+    _chk(afr, t("Open profile/home on startup"), homeonstart).pack(side="left", padx=(18, 0))
+    _chk(afr, t("Start with Windows"), startwin).pack(side="left", padx=(18, 0))
 
     # ---- Live draft link: the shareable champ-select board (docs/DRAFTLINK.md) ----
-    skin.section_rule(body, "LIVE DRAFT LINK").pack(fill="x", padx=18, pady=(12, 2))
-    tk.Label(body, text="Posts ONE link into champ-select chat; anyone who clicks it sees the live "
+    skin.section_rule(body, t("LIVE DRAFT LINK")).pack(fill="x", padx=18, pady=(12, 2))
+    tk.Label(body, text=t("Posts ONE link into champ-select chat; anyone who clicks it sees the live "
              "draft with pick suggestions + runes per seat. Needs your own free Firebase Realtime "
-             "Database URL (5-minute setup, $0 — see docs/DRAFTLINK.md). Empty = off.",
+             "Database URL (5-minute setup, $0 — see docs/DRAFTLINK.md). Empty = off."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     dbfr = skin.card(body, rail=LINE)
     dbfr.pack(fill="x", padx=14, pady=(0, 5))
     dbrow = tk.Frame(dbfr.body, bg=SURFACE)
     dbrow.pack(fill="x", padx=10, pady=(8, 2))
-    tk.Label(dbrow, text="Database URL:", bg=SURFACE, fg=MUTED,
+    tk.Label(dbrow, text=t("Database URL:"), bg=SURFACE, fg=MUTED,
              font=skin.body(SMALL)).pack(side="left")
     db_entry = tk.Entry(dbrow, bg=SUNKEN, fg=TXT, insertbackground=TXT, relief="flat",
                         font=skin.mono(SMALL))
@@ -676,17 +685,17 @@ def main():
 
     dbbtns = tk.Frame(dbfr.body, bg=SURFACE)
     dbbtns.pack(fill="x", padx=10, pady=(0, 8))
-    skin.button(dbbtns, "Setup guide ↗", lambda: webbrowser.open(
+    skin.button(dbbtns, t("Setup guide ↗"), lambda: webbrowser.open(
         "https://github.com/bobbyroylee/smiteless/blob/main/docs/DRAFTLINK.md")).pack(
         side="left", padx=(0, 4))
-    skin.button(dbbtns, "Save + test", _test_draft, primary=True).pack(side="left", padx=4)
+    skin.button(dbbtns, t("Save + test"), _test_draft, primary=True).pack(side="left", padx=4)
 
-    skin.section_rule(body, "RIOT API KEY").pack(fill="x", padx=18, pady=(12, 2))
+    skin.section_rule(body, t("RIOT API KEY")).pack(fill="x", padx=18, pady=(12, 2))
     keyfr = skin.card(body, rail=WARN)
     keyfr.pack(fill="x", padx=14, pady=(0, 5))
     top = tk.Frame(keyfr.body, bg=SURFACE)
     top.pack(fill="x", padx=12, pady=(8, 0))
-    tk.Label(top, text="Current key:", bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left")
+    tk.Label(top, text=t("Current key:"), bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left")
     keylbl = tk.Label(top, text="", bg=SURFACE, fg=MUTED, font=skin.mono(SMALL, bold=True))
     keylbl.pack(side="left", padx=(6, 0))
 
@@ -742,9 +751,9 @@ def main():
     bfr = tk.Frame(keyfr.body, bg=SURFACE)
     bfr.pack(fill="x", padx=10, pady=(0, 8))
 
-    skin.button(bfr, "Get key ↗", open_dev_site).pack(side="left", padx=(0, 4))
-    skin.button(bfr, "Paste", paste_key).pack(side="left", padx=4)
-    skin.button(bfr, "Save key", save_key, primary=True).pack(side="left", padx=4)
+    skin.button(bfr, t("Get key ↗"), open_dev_site).pack(side="left", padx=(0, 4))
+    skin.button(bfr, t("Paste"), paste_key).pack(side="left", padx=4)
+    skin.button(bfr, t("Save key"), save_key, primary=True).pack(side="left", padx=4)
     key_entry.bind("<Return>", lambda e: save_key())
     refresh_key_label()
 
@@ -781,13 +790,14 @@ def main():
                   "flash_on_d": (flash_side.get() == 0),
                   "solo_coaching": solocoach.get(),
                   "draft_link": draftlink.get(), "draft_autoopen": draftopen.get(),
-                  "draft_db": db_entry.get().strip(),
+                  "draft_db": db_entry.get().strip(), "ui_lang": lang_var.get(),
                   "auto_swap_roles": [r for r in cfg.SWAP_ROLES if swapvars[r].get()],
                   "auto_pick_swap": ("" if pickswap.get() == "off" else pickswap.get())})
         cfg.set_auto_open(auto.get())
+        set_lang(lang_var.get())
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
-        status.config(text="saved ✓  (overlay updates live; widget toggle applies next game)", fg=GOOD)
+        status.config(text=t("saved ✓  (overlay updates live; widget toggle applies next game)"), fg=GOOD)
 
     def reset():
         # EVERY control returns to its default — the old body listed a subset, so "Reset"
@@ -803,6 +813,7 @@ def main():
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)
         flash_side.set(0)
+        lang_var.set("pt_BR")
         _upd_flash()
         try:
             for var in swapvars.values():
@@ -812,13 +823,13 @@ def main():
             pass
         # startwin (Start with Windows) is deliberately untouched — Reset must never
         # silently re-arm a registry autostart
-        status.config(text="reset to defaults - click Save to apply", fg=MUTED)
+        status.config(text=t("reset to defaults - click Save to apply"), fg=MUTED)
 
     btns = tk.Frame(body, bg=VOID)
     btns.pack(fill="x", padx=14, pady=(10, 16))
-    skin.button(btns, "Save", save).pack(side="left", padx=4)
-    skin.button(btns, "Reset", reset).pack(side="left", padx=4)
-    skin.button(btns, "Close", root.destroy).pack(side="right", padx=4)
+    skin.button(btns, t("Save"), save).pack(side="left", padx=4)
+    skin.button(btns, t("Reset"), reset).pack(side="left", padx=4)
+    skin.button(btns, t("Close"), root.destroy).pack(side="right", padx=4)
 
     root.update_idletasks()
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()

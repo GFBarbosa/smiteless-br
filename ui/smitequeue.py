@@ -33,6 +33,7 @@ import smiteconfig as cfg
 import lolqueue as lq
 import smiteoverlay as ov                        # win32 window helpers (the canonical copy)
 import phasecheck
+from smitei18n import coach, t, tf
 
 VOID, SURFACE, LINE, LINE_SOFT = skin.VOID, skin.SURFACE, skin.LINE, skin.LINE_SOFT
 TXT, MUTED, FAINT, EMBER = skin.TXT, skin.MUTED, skin.FAINT, skin.EMBER
@@ -111,7 +112,7 @@ def main():
              font=skin.display(skin.SMALL, bold=True)).pack(side="left")
     tk.Label(hdr, text=" SMITELESS", bg=SURFACE, fg=TXT,
              font=skin.display(skin.SMALL, bold=True)).pack(side="left")
-    tk.Label(hdr, text=" QUEUE CALL", bg=SURFACE, fg=MUTED,
+    tk.Label(hdr, text=" " + t("QUEUE CALL"), bg=SURFACE, fg=MUTED,
              font=skin.display(skin.SMALL)).pack(side="left")
     close = tk.Label(hdr, text="✕", bg=SURFACE, fg=FAINT, cursor="hand2",
                      font=skin.body(9, bold=True))
@@ -122,7 +123,8 @@ def main():
     tk.Frame(body, bg=LINE_SOFT, height=1).pack(fill="x", padx=12, pady=(4, 6))
     content = tk.Frame(body, bg=SURFACE)
     content.pack(fill="both", expand=True, pady=(0, 10))
-    _row(content, "reading your ranked games…", skin.body(skin.BODY), MUTED, pad=(2, 8))
+    _row(content, t("reading your ranked games…"),
+         skin.body(skin.BODY), MUTED, pad=(2, 8))
 
     st = {"alive": True, "born": time.time(), "misses": 0}
 
@@ -143,10 +145,10 @@ def main():
             ch.destroy()
         col = VERDICT_COLOR.get(r["verdict"], MUTED)
         rail.config(bg=col)
-        _row(content, r["verdict"], skin.display(21, bold=True), col, pad=(0, 0))
+        _row(content, t(r["verdict"]), skin.display(21, bold=True), col, pad=(0, 0))
         _row(content, r["headline"], skin.display(13), TXT, pad=(0, 3))
         if r["sub"]:
-            _row(content, r["sub"], skin.body(skin.SMALL), MUTED, pad=(0, 6), wrap=W - 40)
+            _row(content, coach(r["sub"]), skin.body(skin.SMALL), MUTED, pad=(0, 6), wrap=W - 40)
         tk.Frame(content, bg=LINE_SOFT, height=1).pack(fill="x", padx=14, pady=(2, 6))
         _row(content, lq.session_line(r["session"]), skin.body(skin.SMALL, bold=True),
              TXT, pad=(0, 2))
@@ -154,7 +156,8 @@ def main():
             _row(content, "· " + ln["text"], skin.body(skin.SMALL),
                  TONE.get(ln["tone"], MUTED), pad=(0, 1), wrap=W - 44)
         if r["n"]:
-            _row(content, f"from your last {r['n']} ranked games", skin.body(8), FAINT,
+            _row(content, tf("from your last {games} ranked games", games=r["n"]),
+                 skin.body(8), FAINT,
                  pad=(4, 0))
         root.update_idletasks()                  # labels must settle before they can be measured
         root.geometry(f"{W}x{body.winfo_reqheight() + 2}")
@@ -169,8 +172,8 @@ def main():
             r = lq.call(lq.demo(demo_kind) if demo_kind else lq.history())
         except Exception as e:
             lq.log(f"call failed: {type(e).__name__}: {e}")
-            r = {"verdict": "GO", "headline": "QUEUE IT", "n": 0, "lines": [],
-                 "sub": "couldn't read your match history — no call this time.",
+            r = {"verdict": "GO", "headline": t("QUEUE IT"), "n": 0, "lines": [],
+                 "sub": t("couldn't read your match history — no call this time."),
                  "session": {}, "base": 0}
         if st["alive"]:
             root.after(0, lambda: render(r))

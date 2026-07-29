@@ -15,6 +15,7 @@ import urllib.request
 import lolscout as ls
 import lollocal as llc          # YOUR match history straight off the client (Riot-API-free)
 import phasecheck
+from smitei18n import coach
 
 _ctx = ssl._create_unverified_context()
 
@@ -683,7 +684,7 @@ def _behavior_track(mid, ts, hits, ev, win=None):
     out = []
     for tag in sorted(hits):
         n = streak(tag)
-        label = _BEHAVIOR_TAGS.get(tag, tag)
+        label = coach(_BEHAVIOR_TAGS.get(tag, tag))
         line = f"PATTERN — {label}" + (f" · {n} games running" if n >= 2
                                        else " · watch the next rep")
         evd = pattern_evidence(tag, gs)
@@ -691,7 +692,7 @@ def _behavior_track(mid, ts, hits, ev, win=None):
             line += f" · {evd}"                    # the LP cost, in your own games
         out.append(line)
     for tag in sorted((set((prev or {}).get("hits") or []) & ev) - hits):
-        out.append(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game")
+        out.append(coach(f"FIXED ✓ — {_BEHAVIOR_TAGS.get(tag, tag)} improved this game"))
     return out[:3]
 
 

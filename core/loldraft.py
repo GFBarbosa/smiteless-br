@@ -252,7 +252,8 @@ def build_payload(dd, info, with_suggestions=True):
                 if sugg:
                     seat["sugg"] = sugg
         seats.append(seat)
-    return {"v": 1, "ts": int(time.time()), "patch": dd.get("ver", ""),
+    from smitei18n import lang
+    return {"v": 1, "ts": int(time.time()), "patch": dd.get("ver", ""), "lang": lang(),
             "seats": seats, "enemy": enemy_ids,
             "bans": {"a": bans_my, "e": bans_their}}
 
@@ -374,7 +375,8 @@ def _scout_payload(dd, brief):
                 row["tip"] = tip[:420]
         arows.append(row)
     _ensure_tips(dd, wants)                                # fill missing tips off-thread
-    pay = {"allies": arows, "enemies": [_scout_row(r) for r in enemies],
+    from smitei18n import lang
+    pay = {"lang": lang(), "allies": arows, "enemies": [_scout_row(r) for r in enemies],
            "plan": (brief.get("plan") or [])[:4],
            "wincons": brief.get("wincons") or {}, "me": me}
     th = _threat(enemies)

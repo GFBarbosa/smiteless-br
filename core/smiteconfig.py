@@ -135,7 +135,8 @@ STRINGS = {"max_elo_main": "",      # MAX ELO: the one champion you play ('' = n
            "max_elo_backup": "",    # ... and the one you take when the main is banned/taken
            "draft_db": "",
            "draft_page": "https://bobbyroylee.github.io/smiteless/draft/",
-           "draft_msg": ""}
+           "draft_msg": "",
+           "ui_lang": "pt_BR"}      # UI language: pt_BR (fork default) or en
 
 
 def load():
