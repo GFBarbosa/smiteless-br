@@ -128,6 +128,62 @@ def c_reentry():
     return OK, "hold / clear / reset fixtures each land on their verdict"
 
 
+def c_bleed():
+    """The BLEED verdict engine (the first-14-minutes health guard). Same shape of risk as
+    RE-ENTRY: a broken branch either screams every wave or never fires once, and neither is
+    visible without playing a game."""
+    import lolbleed as lbl
+    want = {"bleed": "BLEED", "dive": "BLEED", "banked": "BLEED",
+            "healthy": None, "accounted": None, "alone": None, "noread": None}
+    got = {k: (lbl._verdict(lbl.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    if lbl.WINDOW != 14 * 60.0:
+        return FAIL, f"window is {lbl.WINDOW}s — it must match the early_bleeding tag's 14:00"
+    return OK, "3 warning + 4 silent fixtures each land where they should"
+
+
+def c_closer():
+    """The CLOSER (the post-20:00 win-conversion director). Two things must hold forever:
+    every verdict branch is reachable, and it is SILENT in any game you are not winning —
+    a closeout coach talking during a losing game is worse than no coach."""
+    import lolclose as lc
+    want = {"end": "END", "siege": "SIEGE", "close": "CLOSE", "closeinhib": "CLOSE",
+            "quietclose": "CLOSE", "hold": "HOLD", "giveback": "HOLD", "bank": "BANK",
+            "behind": None, "early": None, "thin": None, "winning_fight": "BANK"}
+    got = {k: (lc._verdict(lc.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    if lc.LEAD_MIN != 2000.0:
+        return FAIL, f"lead bar is {lc.LEAD_MIN} — it must match the threw_ahead tag's 2000g"
+    # never contradict a positive fight read: tempo saying TAKE and the closer saying HOLD
+    # on the same frame is the app arguing with itself.
+    for e in (900.0, 3000.0, 12000.0):
+        d = lc.demo("hold")
+        d["e"] = e
+        if (lc._verdict(d) or {}).get("verdict") == "HOLD":
+            return FAIL, f"HOLDs while fight_edge says +{e:.0f} — contradicts the tempo card"
+    # the structure map is COUNT-based on purpose (turrets can only fall front-to-back), so
+    # a Riot rename of the turret indices must not change the depth read.
+    ev = [{"EventName": "TurretKilled", "EventTime": 600 + i,
+           "TurretKilled": f"Turret_T2_C_{5 - i:02d}_A"} for i in range(3)]
+    ev.append({"EventName": "InhibKilled", "EventTime": 900, "InhibKilled": "Barracks_T2_C1"})
+    st = lc.structures(ev, "ORDER")
+    if st["them"]["turrets"].get("C") != 3 or lc.steps_to_inhib(st["them"])["C"] != 0:
+        return FAIL, f"structure map misread their mid: {st['them']['turrets']}"
+    oi = lc.open_inhibs(st["them"], 1000.0)
+    if not oi or oi[0][0] != "C" or abs(oi[0][1] - 200.0) > 0.5:
+        return FAIL, f"inhibitor clock wrong: {oi}"
+    if lc.open_inhibs(st["them"], 1201.0):
+        return FAIL, "inhibitor never closes — it respawns 5:00 after the kill"
+    g = lc.Guard()                               # no data must not arm anything
+    if g.observe(None, None) is not None or g.peak != 0.0:
+        return FAIL, "guard armed itself with no game data"
+    return OK, "12 verdict fixtures + structure map + inhib clock all correct"
+
+
 def c_mute():
     """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
     that landed - so it claimed success for four releases while muting nobody. It now writes
@@ -420,6 +476,8 @@ def main():
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
+        ("Bleed guard (first 14 min)", c_bleed),
+        ("Closer (win conversion)", c_closer),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),

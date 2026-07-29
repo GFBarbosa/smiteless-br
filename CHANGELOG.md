@@ -1,5 +1,61 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.66 - THE CLOSER: the games you were winning, and lost
+
+**New feature, and it only ever shows up in games you are already winning.**
+
+Smiteless has had a guard for every phase of a game that goes badly. It has never had one
+for the phase that costs the most LP: **ahead, past 20 minutes, not ended yet.** That's the
+game you already paid for. Every one of those you lose is LP you earned and handed back.
+
+Your own ledger has been saying so the whole time. The profile tags a game `threw_ahead`
+when one of your deaths lands after 25:00 with your team 2k+ up. It was the last tag in the
+file with **nothing in the game to answer it** - RE-ENTRY owns the 90 seconds after a death,
+BLEED owns the first fourteen minutes, the tempo engine owns the objective windows, and the
+closeout was empty. Not any more.
+
+- **It reads the actual map.** Every turret and inhibitor kill is in the live event feed and
+  Smiteless was throwing all of it away. The CLOSER now keeps a live structure map of both
+  bases and tells you the shortest path to their nexus:
+
+      END IT - mid inhib open 3:34 - 2 of them dead
+      nexus turrets as five - baron is a detour, the inhib clock isn't
+
+  **An open inhibitor is a five-minute clock and most games spend it taking baron instead.**
+  When one is down it says so, with the seconds left on it. When one turret stands in front
+  of one, it tells you that turret is the game - not the next skirmish, not the drake.
+- **It tells you what you've GIVEN BACK.** Nothing else in the app - and nothing else you
+  can see in a game - tracks the *trajectory* of a lead. The CLOSER remembers your peak and
+  shows the erosion: *+4.5k - gave back 2.1k of 6.6k*. A lead that has been quietly bleeding
+  for four minutes is a game being thrown in slow motion, and you almost never notice from
+  inside it. Once you've given back 1.5k it also **tightens its own bar**: an even fight is
+  no longer good enough, because you don't need a fight, you need the nexus.
+- **It prices your death in seconds, live.** Not "don't die" - the number:
+
+      HOLD - you're +4.5k and down 2 bodies
+      dying here costs 51s - baron is up inside that
+
+  That's your real death timer at your level and this clock, checked against the live baron
+  timer. Fifty-one seconds is what they buy with your one bad step, and now you can see it
+  before you take it.
+- **It stays out of your way.** Behind or even, it says **nothing at all** - a closeout coach
+  talking during a losing game is worse than no coach. Ahead with nothing burning, it's one
+  quiet line with your lead and your give-back. It never argues with the tempo card either:
+  if the fight math says you win the fight, it will not tell you to hold.
+- **Late-game advice, finally.** The "do this instead" lines are written for minute 28, not
+  minute 8 - *"stay behind your frontline - you never walk in first from ahead"*, *"ward
+  their jungle entrances - no solo roams"* - instead of the lane-phase wave advice the other
+  guards give.
+- On by default: **Settings -> Closer (win-conversion, from 20:00)**. The widget legend has a
+  new CLOSER section explaining every verdict.
+
+**Tested:** 60 assertions covering the structure parser (including a turret name Riot renames,
+a replayed event, the fountain shrine, and the mid lane running past three turrets into the
+nexus pair), the inhibitor clock from both the five-minute rule and the respawn event, all
+twelve verdict branches, a full simulated game timeline, and a malformed-payload sweep that
+must never crash the widget. The self-test now guards the CLOSER **and** the BLEED guard,
+which had never had a check of its own.
+
 ## v0.9.65 - runes adapt to the lobby, not just the champion
 
 - **Auto-import now picks the rune page that fits THIS game.** It always took op.gg's
