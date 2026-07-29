@@ -1,5 +1,71 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.67 - THE GOLD CLOCK: your lane, counted against the minions that actually spawned
+
+**New feature, and it covers the biggest leak in your ledger that had nothing in the game
+to answer it - the one almost every game you play can earn.**
+
+Your profile has tagged games `weak first-ten economy` since the behaviour ledger existed:
+finish minute 10 under 55 CS and under 3100 gold and it goes in the file. Four of the five
+roles can earn it. Nothing in the app has ever said a word about it *while you could still
+fix it* - BLEED watches your health bar, RE-ENTRY the 90s after a death, THE CLOSER the
+closeout. The thing you spend the entire lane phase actually doing was the blind spot.
+
+- **It does the arithmetic instead of guessing.** Every CS overlay ever built shows you
+  CS/min against a flat benchmark, and a flat benchmark is a bad coach - it doesn't know
+  that at 4:32 only nine waves have spawned. Minions are a **schedule**: one wave leaves at
+  1:05 and one every 30s after, 3 melee + 3 casters, every third wave carrying a cannon.
+  So the denominator isn't a benchmark, it's *the minions that have walked into your lane*:
+
+      GOLD   41 of 74 · 55% · on track for 63, bar 55
+
+  Melee are 21g, casters 14g, cannons 60g, and **every one of those is flat until 15:00** -
+  which is why this whole window can be priced exactly rather than modelled.
+- **It back-times the deadline.** 55 by 10:00 is your own tag's bar. Subtract what you have,
+  divide by what's still coming, and you get the only sentence that actually helps:
+
+      MISS - that wave went by · on track for 42 at 10:00, bar 55
+      you need 25 of the next 32 minions (78%) · shove, then cross to a camp -
+      a wave you walk away from is 105g on the floor
+
+  And when the answer is *no* it says so - "49 short of 55 with 32 minions left" - and
+  switches the advice to plates and objectives instead. A lane you cannot farm your way out
+  of needs a different plan, and four more minutes of "farm harder" is four minutes wasted.
+- **The cannon minion has a clock and now you get it.** 60 gold, the biggest single object
+  in lane phase, and the one you most often give away because you were walking back from a
+  roam. It warns you seconds before it lands - **and only while you're behind**, because a
+  reminder that fires every 90 seconds regardless is a reminder you stop reading.
+- **Roaming never reads as farming badly.** 30 CS and three kills is not a weak first ten,
+  and your own tag agrees (it needs the gold bar missed too). Kills and assists are priced
+  back into CS at the app's own per-CS rate - so the row shows **`30+44 of 82 · 90%`** and
+  stays green. The number it converts at is *derived from* the live gold model rather than
+  typed twice, so the two can never drift apart.
+- **It bills you once.** A wave you lost on the grey screen is never counted against you -
+  that's RE-ENTRY's and BLEED's subject, and charging you twice for one death is how a coach
+  gets switched off.
+- **It is a row, not a nag.** For the whole ten minutes it's ONE quiet line you can glance
+  at. It only takes the card at the moment a wave actually went by, or just before a cannon,
+  and it hands the slot straight back. It never outranks BLEED (something that can kill you
+  beats 105 gold) and never talks over a live objective call - the grub fight *is* the
+  reason you left the wave.
+- Top / mid / ADC. It stays **silent for jungle and support** rather than invent a number:
+  camps aren't on the lane schedule and a support's CS was never the story.
+- On by default: **Settings -> Gold clock (farm pace, first 10 min)**. The widget legend has
+  a new GOLD CLOCK section. Included in MAX ELO.
+
+**Tested:** 10,721 assertions before this shipped. The wave schedule is verified spawn-by-
+spawn and arrival-by-arrival for all three lanes across 30 waves (mid meets at 1:30, the
+side lanes at 1:38, and a wave is never counted a tick before it lands); the cannon clock is
+checked at every second of a 15-minute game for going negative, naming a non-cannon wave, or
+pointing at a wave that already arrived; the gold composition is re-derived independently at
+every sampled second; the per-CS conversion is asserted equal to the live gold model's own;
+every verdict branch has a fixture; and the guard is driven through four full simulated games
+- a clean farmer (never accused once), a player who quits farming at 5:00 (caught on the
+first wave boundary after he crosses the bar, not before), a player dead across three waves
+(billed for none of them), and an ADC - plus an eleven-payload malformed-data sweep that must
+never crash the widget. Every frame the guard produced was rendered through the real widget
+path and inspected.
+
 ## v0.9.66 - THE CLOSER: the games you were winning, and lost
 
 **New feature, and it only ever shows up in games you are already winning.**

@@ -184,6 +184,77 @@ def c_closer():
     return OK, "12 verdict fixtures + structure map + inhib clock all correct"
 
 
+def c_gold():
+    """The GOLD CLOCK (core/lolgold) — the first-ten farm read. Three things must hold
+    forever, and none of them are visible without playing a game: the minion SCHEDULE is
+    exact (it is the denominator for every number the surface prints), the bar is still the
+    weak_first_ten tag's own, and it is SILENT for the roles whose CS is not the story."""
+    import lolgold as lg, lollive as ll
+    # --- the schedule. Wave k spawns at 1:05 + 30(k-1) and is only counted once it has
+    #     ARRIVED (mid meets at 1:30, side lanes at 1:38). Off by one wave = every number
+    #     the card prints is wrong, quietly.
+    for role, trav in lg.LANE_ARRIVE.items():
+        for k in (1, 3, 7, 18, 26):
+            at = lg.WAVE_FIRST + lg.WAVE_EVERY * (k - 1) + trav
+            if lg.waves_by(at - 0.01, role) != k - 1 or lg.waves_by(at, role) != k:
+                return FAIL, f"{role}: wave {k} is not counted at its {at:.0f}s arrival"
+    if lg.waves_by(90.0, "mid") != 1 or lg.waves_by(89.9, "mid") != 0:
+        return FAIL, "mid lane does not meet at 1:30"
+    if lg.waves_by(98.0, "adc") != 1 or lg.waves_by(97.9, "adc") != 0:
+        return FAIL, "the side lanes do not meet at 1:38"
+    if lg.offered(600.0, "mid") != (114, 2250.0):
+        return FAIL, f"mid is offered {lg.offered(600.0, 'mid')} by 10:00, not (114, 2250)"
+    # every minion value is flat until 15:00 — that is the whole reason this can be exact
+    # rather than modelled, so the last wave inside the window must still spawn before it.
+    last = lg.waves_by(lg.WINDOW, "mid")
+    if lg.WAVE_FIRST + lg.WAVE_EVERY * (last - 1) >= 15 * 60:
+        return FAIL, f"wave {last} spawns at/after 15:00 — minion gold is no longer flat"
+    for t in range(0, 900, 13):                  # the cannon clock can never look backwards
+        nc = lg.next_cannon(float(t), "mid")
+        if nc[0] < 0 or nc[1] % 3 or nc[1] <= lg.waves_by(float(t), "mid"):
+            return FAIL, f"cannon clock wrong at {t}s: {nc}"
+    # --- the bars are the tag's, and gold-per-CS is DERIVED from lollive, never re-typed
+    if lg.BAR_CS10 != 55 or lg.FIRST_TEN != 600.0:
+        return FAIL, f"bar is {lg.BAR_CS10} CS at {lg.FIRST_TEN}s — must match weak_first_ten"
+    probe = ll.est_gold({"scores": {"creepScore": 100}}, 300.0) - ll.est_gold({"scores": {}}, 300.0)
+    if abs(lg.cs_gold() * 100 - probe) > 1e-6:
+        return FAIL, f"gold-per-CS ({lg.cs_gold()}) has drifted from lollive.est_gold"
+    # --- every verdict branch is reachable and lands where it should
+    want = {"pace": "PACE", "behind": "PACE", "miss": "MISS", "cannon": "CANNON",
+            "roaming": "PACE", "unrecoverable": "MISS", "onpace_miss": "PACE",
+            "jungle": None, "support": None, "early": None, "late": None}
+    got = {k: (lg._verdict(lg.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    # a kill-fed lane is NOT a weak first ten — the tag needs the gold bar missed too, and
+    # scolding a roaming mid for his CS is how you teach somebody to stop roaming.
+    if (lg._verdict(lg.demo("roaming")) or {}).get("under"):
+        return FAIL, "a 30-CS mid with three kills read as under the farm bar"
+    # a live objective verdict always outranks a dropped wave
+    if (lg._verdict(dict(lg.demo("miss"), tempo_urgent=True)) or {}).get("quiet") is not True:
+        return FAIL, "MISS talks over a live tempo verdict"
+    # --- the guard: never bill a wave lost on the grey screen, never speak while dead
+    g, billed = lg.Guard(), 0
+    for t in range(0, 700):
+        dead = 240 <= t <= 330
+        cs = int(lg.offered(float(min(t, 240)), "mid")[0] * 0.90)
+        me = {"riotId": "M#1", "team": "ORDER", "position": "MIDDLE", "isDead": dead,
+              "level": 6, "championName": "Ahri",
+              "scores": {"creepScore": cs, "kills": 0, "assists": 0, "deaths": 0}}
+        c = g.observe({}, {"activePlayer": {"riotId": "M#1"}, "allPlayers": [me],
+                           "gameData": {"gameTime": float(t)}, "events": {"Events": []}})
+        if dead and c:
+            return FAIL, f"the gold clock spoke at {t}s while the player was dead"
+        if c and c["verdict"] == "MISS" and 240 <= t <= 400:
+            billed += 1
+    if billed:
+        return FAIL, f"billed {billed} MISS cards for waves lost while dead"
+    if g.observe({}, None) is not None or lg.Guard().observe({}, {}) is not None:
+        return FAIL, "guard produced a card with no game data"
+    return OK, "wave schedule exact, bar matches the tag, 11 fixtures + dead-wave rule hold"
+
+
 def c_mute():
     """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
     that landed - so it claimed success for four releases while muting nobody. It now writes
@@ -478,6 +549,7 @@ def main():
         ("Re-entry guard (90s window)", c_reentry),
         ("Bleed guard (first 14 min)", c_bleed),
         ("Closer (win conversion)", c_closer),
+        ("Gold clock (farm pace)", c_gold),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),
