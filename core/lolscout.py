@@ -588,7 +588,7 @@ def scout(dd, puuid, champ_id, key, count, riot_id=None):
     per-game PERFORMANCE score (how well they actually played vs their role's benchmarks — CS,
     kill participation, damage share, deaths, vision), or None if no detailed matches were
     cached yet. perf is the skill read that survives a bad-luck losing streak on off-champs —
-    it grades how you play, not whether you won. match_ids drives duo detection. `recent` is
+    it grades how you play, not whether you won. `recent` is
     [(champ_name, win, pos)] recent-first — the evidence behind the off-champ / heater-
     attribution / off-role tags (see docs/TAGS.md), from the same match reads (no extra cost).
 
@@ -627,28 +627,6 @@ def scout(dd, puuid, champ_id, key, count, riot_id=None):
         return _scout_ugg(dd, riot_id, champ_id, count)
     perf = round(sum(perfs) / len(perfs), 1) if perfs else None
     return n, w, cg, cw, form, ids, {"g": kg, "k": tk, "d": td, "a": ta}, perf, recent
-
-
-def same_side_games(mids, puuid_a, puuid_b, key):
-    """Of the given shared match ids, how many had BOTH players on the SAME TEAM — the
-    signal that separates a real duo from two players who merely met in their games.
-    Reads the match cache the scout already filled (a shared id between two scouted
-    players is always cached); rows older than the team-field cache format count as
-    same-side to preserve the old behavior rather than silently un-flagging."""
-    same = 0
-    for mid in mids or []:
-        try:
-            res = match_results(mid, key)
-        except Exception:
-            continue
-        ra, rb = (res or {}).get(puuid_a), (res or {}).get(puuid_b)
-        if not (isinstance(ra, list) and isinstance(rb, list)):
-            continue
-        if len(ra) >= 10 and len(rb) >= 10:
-            same += 1 if (ra[9] and ra[9] == rb[9]) else 0
-        else:
-            same += 1                       # pre-team-field cache row -> old assumption
-    return same
 
 
 def _safe(s):

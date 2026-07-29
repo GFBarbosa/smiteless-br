@@ -49,7 +49,7 @@ GREEN = skin.rgb(skin.GOOD)           # wins / TAKE / saved-ok
 RED = skin.rgb(skin.BAD)              # losses / danger / GIVE / dodge flags
 WARN = skin.rgb(skin.WARN)            # caution / 50-50 / expiring
 INFO = skin.rgb(skin.INFO)            # links, neutral highlights, bullet dots
-MYSTIC = skin.rgb(skin.MYSTIC)        # antiheal/utility tags, duo markers
+MYSTIC = skin.rgb(skin.MYSTIC)        # antiheal/utility tags
 # legacy aliases: the file used BLUE/RED for the ally/enemy rail accent and REDWR/TAN as a
 # second win-rate ramp — re-anchored onto the new tokens instead of re-typed everywhere.
 BLUE = ARC                            # ally identity used to be a flat blue; now ARC (live cyan)
@@ -467,12 +467,15 @@ def _rune_page(dd, rp):
 # Which of the op.gg rune pages is currently selected in the champ-select panel (a click
 # on a rune-set chip changes this). Process-wide, since the overlay's click handler and its
 # render loop share this module; reset to 0 (most-played) whenever the champ changes.
-_RUNE_SEL = {"idx": 0}
+# `manual` marks a selection the USER made by clicking a rune chip. The adaptive chooser
+# (core/lolrunes) may set the index freely while it's False, but must never overrule a human.
+_RUNE_SEL = {"idx": 0, "manual": False}
 _RUNE_EVENT = threading.Event()          # set on a rune-chip click -> wakes the champ-select loop now
 
 
-def set_rune_idx(n):
+def set_rune_idx(n, manual=True):
     _RUNE_SEL["idx"] = max(0, int(n))
+    _RUNE_SEL["manual"] = bool(manual)
     _RUNE_EVENT.set()                    # re-render immediately instead of waiting out the 2s poll
 
 
@@ -585,69 +588,12 @@ def gank_kit(dd, my_cid):
     return float(GANK_KIT.get(dd.get("id2key", {}).get(my_cid, ""), GANK_KIT_DEFAULT))
 
 
-# MYSTIC is the duo-marker token (UIDESIGN §2); the rest are derived shades/other tokens so
-# a second or third duo group in the same game still reads distinctly.
-DUO_COLORS = [MYSTIC, _dim(MYSTIC, 0.68), GOLD, ARC, GREEN]
-DUO_SHARED = 3          # same-team shared recent games = a CONFIRMED duo
-DUO_LOOSE = 2           # same-team shared recent games = a PROBABLE duo ('duo?')
-
-
-def detect_duos(scout_map):
-    """{(cid, is_ally): (duo_index, sure)} for players who share recent ranked games with
-    a teammate ON THE SAME TEAM in those games (verified from the cached match results,
-    which the scout already fetched — no extra network). >= DUO_SHARED same-side games is
-    a confirmed duo; DUO_LOOSE is probable and renders as 'duo?'. The old id-overlap-only
-    check both missed real duos (10-game windows drift out of sync fast — 2 verified
-    same-side games is already strong) and could pair two players who merely FACED each
-    other repeatedly. Same index = same duo group."""
-    out, nxt = {}, [0]
-    try:
-        key = ls.read_key()
-    except Exception:
-        key = None
-    for team in (True, False):
-        players = [(k, sc) for k, sc in scout_map.items()
-                   if k[1] is team and sc.get("mids")]
-        for i in range(len(players)):
-            for j in range(i + 1, len(players)):
-                (ki, si), (kj, sj) = players[i], players[j]
-                shared = set(si.get("mids") or []) & set(sj.get("mids") or [])
-                if len(shared) < DUO_LOOSE:
-                    continue
-                pa, pb = si.get("puuid"), sj.get("puuid")
-                if pa and pb and key:
-                    same = ls.same_side_games(shared, pa, pb, key)
-                else:                      # no puuids in this row shape -> old behavior
-                    same = len(shared)
-                if same < DUO_LOOSE:
-                    continue
-                sure = same >= DUO_SHARED
-                prev = out.get(ki) or out.get(kj)
-                idx = prev[0] if prev else nxt[0]
-                if not prev:
-                    nxt[0] += 1
-                for k2 in (ki, kj):
-                    old = out.get(k2)
-                    out[k2] = (idx, sure or bool(old and old[1]))
-    return out
-
-
-def _duo_marker(d, cx, y, idx, side, sure=True):
-    col = DUO_COLORS[idx % len(DUO_COLORS)]
-    label = "duo" if sure else "duo?"
-    d.ellipse([cx - 5, y - 5, cx + 5, y + 5], fill=col)
-    if side == "L":
-        d.text((cx + 9, y), label, font=font(10, 1), fill=col, anchor="lm")
-    else:
-        d.text((cx - 9, y), label, font=font(10, 1), fill=col, anchor="rm")
-
-
 def apply_settings():
     """Pull the user's tuning (smitesettings.py) into the gank weights. The single
     'streak influence' dial scales the form weight, streak compounding, and the extreme
     override together (50 = the defaults above). Called each render so changes apply live."""
     global GANK_W_FORM, GANK_STREAK_COMP, GANK_EXTREME, GANK_W_CHAMP, GANK_OFFCHAMP, GANK_T
-    global GANK_KIT_ON, DUO_ON
+    global GANK_KIT_ON
     s = cfg.load()
     m = s["streak_influence"] / 50.0          # 0..2, default 1.0; scales all "enemy state" terms
     GANK_W_FORM = 0.15 * m
@@ -656,13 +602,11 @@ def apply_settings():
     GANK_OFFCHAMP = 4.0 * m
     GANK_EXTREME = min(32.0, 16.0 * m)        # at m=0 -> 0: pure champ matchup, ignore how they're doing
     GANK_T = float(s["gank_threshold"])
-    GANK_KIT_ON = s.get("gank_kit", True)     # feature toggles
-    DUO_ON = s.get("duo_detection", True)
+    GANK_KIT_ON = s.get("gank_kit", True)     # feature toggle
     return s
 
 
 GANK_KIT_ON = True
-DUO_ON = True
 
 
 def _streak(form):
@@ -730,15 +674,11 @@ def gank_directive(dd, gscores, glabels, enemy_role):
               tail=tail), TAN
 
 
-def queue_prediction(my_cid, scout_map, duo_map):
-    """Winners/losers queue read from recent team WR vs enemy WR.
-    Excludes you and your detected duo partner(s) from the ally average."""
+def queue_prediction(my_cid, scout_map):
+    """Winners/losers queue read from recent team WR vs enemy WR. You are excluded from
+    the ally average - your own recent form is the thing this read is being compared to."""
     me = (my_cid, True) if my_cid else None
-    my_duo = duo_map.get(me) if me else None
-    if isinstance(my_duo, tuple):              # detect_duos rows are (group_idx, sure)
-        my_duo = my_duo[0]
     ally_wrs, enemy_wrs = [], []
-    excl_duo = 0
     for k, sc in scout_map.items():
         n = int(sc.get("n") or 0)
         if n <= 0:
@@ -747,12 +687,6 @@ def queue_prediction(my_cid, scout_map, duo_map):
         cid, is_ally = k
         if is_ally:
             if me and k == me:
-                continue
-            kd = duo_map.get(k)
-            if isinstance(kd, tuple):
-                kd = kd[0]
-            if my_duo is not None and kd == my_duo:
-                excl_duo += 1
                 continue
             ally_wrs.append(wr)
         else:
@@ -768,8 +702,8 @@ def queue_prediction(my_cid, scout_map, duo_map):
         lab, col = t("LOSERS QUEUE"), REDWR
     else:
         lab, col = t("EVEN QUEUE"), TAN
-    excl = "excl. you+duo" if excl_duo > 0 else "excl. you"
-    txt = f"{lab}  {aavg:.0f}% vs {eavg:.0f}%  ({excl})"
+    txt = tf("{label}  {ally:.0f}% vs {enemy:.0f}%  (excl. you)",
+             label=lab, ally=aavg, enemy=eavg)
     return {"text": txt, "fill": col, "bg": _dim(col, 0.24)}
 
 
@@ -1061,14 +995,13 @@ def _perf_color(score):
 
 
 def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, review_kind="improve",
-                       duos=None, dur=0, ranks=None):
+                       dur=0, ranks=None):
     """The 10-player breakdown for an expanded game: name (clickable -> their profile),
-    current rank, perf-colored KDA, full item build as icons, damage/cs/gold/vision, duo
-    markers - both teams, plus the review panel. KDA color comes from each player's
+    current rank, perf-colored KDA, full item build as icons, damage/cs/gold/vision -
+    both teams, plus the review panel. KDA color comes from each player's
     _grade_game score for THIS game (role-benchmarked), so a 2/11 top laner reads demon
     red at a glance while a quiet 6/7 stays neutral.
     Returns {'review': box, 'players': [(x0,y0,x1,y1,puuid,name)]}."""
-    duos = duos or {}
     ranks = ranks or {}
     _rrect(d, (x0, y0, x0 + w, y0 + DETAIL_H), 9, fill=SURFACE, outline=PEDGE, width=1)
     me = next((pl for pl in parts if pl["puuid"] == my_puuid), None)
@@ -1125,8 +1058,6 @@ def _draw_match_detail(d, img, dd, parts, my_puuid, x0, y0, w, review=None, revi
                 rtxt, rcol = rank_str(rk)
                 d.text((nx, ry + 1), rtxt.split(" ")[0], font=font(9, 1), fill=rcol)
                 nx += d.textlength(rtxt.split(" ")[0], font=font(9, 1)) + 8
-            if pu in duos:                                # premade marker: in the gap AFTER the
-                _duo_marker(d, nx + 5, ry + 7, duos[pu], "L")   # rank, clear of the placement medal
             # right side of line 1: GRADE letter chip + KDA (both grade-colored)
             kda = f"{pl['k']}/{pl['d']}/{pl['a']}"
             kw = d.textlength(kda, font=display_font(10, True))
@@ -1534,8 +1465,7 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
             if parts:
                 rb = _draw_match_detail(d, img, dd, parts, p.get("puuid"), 14, yy, W - 28,
                                         g.get("review"), g.get("review_kind", "improve"),
-                                        duos=det.get("duos"), dur=det.get("dur", 0),
-                                        ranks=det.get("ranks"))
+                                        dur=det.get("dur", 0), ranks=det.get("ranks"))
                 if rb:
                     r = rb["review"]
                     hit_reviews.append((r[0], r[1], r[2], r[3], i))
@@ -2039,6 +1969,17 @@ MIN_MASTERY = 12000     # only suggest champs with at least this many mastery PO
 PREF_MASTERY = 30000    # ...preferring 30k+ ("real comfort") first
 
 
+_FIT_WARM = {"done": False}      # the deep personal-fit read runs once per overlay session
+
+
+def _mates(ally_ids, my_cid):
+    """Your team's champs WITHOUT your own hover. suggest_champs treats every ally champ as
+    unavailable and as comp already covered — and your own hovered champ is an ally champ, so
+    leaving it in makes the whole recommendation move every time you hover something. The
+    answer to "what's good this game" must not depend on what you're currently holding."""
+    return [c for c in (ally_ids or []) if c and c != my_cid]
+
+
 def suggest_champs(dd, role, ally_ids, enemy_ids, topn=4, fam=None):
     """A few role-appropriate champ suggestions for champ select, scored by enemy counters
     (op.gg) + ally comp fit. When `fam` (a {championId: masteryPOINTS} map, pooled across all
@@ -2422,7 +2363,7 @@ def _rune_chip(d, x, y, idx, wr, sel, hits):
 
 def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, bans=None,
                        enemy_picks=None, ban_ideas=None, dodge=None, auto_import=False,
-                       note=None, auto_ban=False):
+                       note=None, auto_ban=False, fit_notes=None, rune_note=None):
     """The champ-select helper as a TALL panel meant to dock LEFT of the League client:
     your champ + runes + core icons + import, suggested picks, good bans, lobby bans, and
     your team - stacked vertically. Returns a PIL image with .hitmap for the import button."""
@@ -2470,7 +2411,7 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         y += 34
     # runes + build card — quiet rail; the import button is THE primary action (ember pill)
     if build:
-        card_h = 214
+        card_h = 214 + (20 if rune_note else 0)
         _railed_card(d, (10, y, VW - 10, y + card_h), LINE, fill=SURFACE, outline=PEDGE, width=1)
         x = 24
         d.text((x, y + 10), t("RUNES"), font=display_font(9, True), fill=GOLD)
@@ -2488,24 +2429,32 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         d.text((x, y + 76), f"{build.get('secondary_tree', '')}: {sec}"[:60], font=font(10), fill=INFO)
         shards = " / ".join(s for s in build.get("shards", []) if s)
         d.text((x, y + 92), t("Shards:") + " " + shards, font=font(10), fill=MUTED)
-        d.line([x, y + 110, VW - 24, y + 110], fill=PEDGE, width=1)
-        d.text((x, y + 116), t("CORE BUILD"), font=display_font(9, True), fill=GOLD)
+        # ADAPTIVE RUNES: say WHY this page and not the most-played one, in op.gg's numbers.
+        # Everything below the divider shifts down by RN when the note is showing.
+        rn = 0
+        if rune_note:
+            rn = 20
+            d.text((x, y + 105), t("ADAPTED"), font=display_font(8, True), fill=ARC)
+            for i, ln in enumerate(_wrap(rune_note, font(9), VW - 108)[:2]):
+                d.text((x + 54, y + 104 + i * 11), ln, font=font(9), fill=MUTED)
+        d.line([x, y + 110 + rn, VW - 24, y + 110 + rn], fill=PEDGE, width=1)
+        d.text((x, y + 116 + rn), t("CORE BUILD"), font=display_font(9, True), fill=GOLD)
         ix = x
         for j, iid in enumerate((build.get("core_ids") or [])[:4]):
             iic = get_item_icon(dd, iid, 32)
             if iic:
-                _rrect(d, (ix - 1, y + 131, ix + 33, y + 165), 6, outline=PEDGE, width=1)
-                img.paste(iic, (ix, y + 132), iic)
+                _rrect(d, (ix - 1, y + 131 + rn, ix + 33, y + 165 + rn), 6, outline=PEDGE, width=1)
+                img.paste(iic, (ix, y + 132 + rn), iic)
             if j < min(len(build.get("core_ids") or []), 4) - 1:
-                d.text((ix + 37, y + 141), "›", font=font(12, 1), fill=MUTED)
+                d.text((ix + 37, y + 141 + rn), "›", font=font(12, 1), fill=MUTED)
             ix += 48
-        d.text((x, y + 172), t("Summs:") + " " + " / ".join(build.get("summs", [])),
+        d.text((x, y + 172 + rn), t("Summs:") + " " + " / ".join(build.get("summs", [])),
                font=font(10), fill=MUTED)
         sk = [s for s in build.get("skills", []) if s]
         if sk:
-            d.text((x + 170, y + 172), t("Max:") + " " + " > ".join(sk),
+            d.text((x + 170, y + 172 + rn), t("Max:") + " " + " > ".join(sk),
                    font=font(10), fill=MUTED)
-        bx, by, bw, bh = x, y + 186, 160, 22
+        bx, by, bw, bh = x, y + 186 + rn, 160, 22
         _rrect(d, (bx, by, bx + bw, by + bh), bh // 2, fill=GOLD)
         d.text((bx + bw // 2, by + bh // 2), t("⇩ Import runes + summs"),
                font=font(9, 1, "⇩"), fill=BG, anchor="mm")
@@ -2542,9 +2491,21 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         hits.append((xx, y + 16, xx + 40, y + 56, f"action:pick:{cid}"))
         xx += 50
     if not suggestions:
-        d.text((20, y + 20), t("no 12k+ mastery picks for this role"),
-               font=font(10), fill=MUTED)
-    y += 66
+        d.text((20, y + 20), t("suggestions load in a moment…"), font=font(10), fill=MUTED)
+    y += 62
+    # PERSONAL FIT note (core/lolfit): why the top pick is the top pick, in YOUR numbers. A
+    # promotion or a veto that can't be seen is just the app being mysterious at you.
+    top = (suggestions or [None])[0]
+    note = (fit_notes or {}).get(top) if top else None
+    if note:
+        kind, why = note
+        tag = {"fresh": (t("FRESH"), ARC), "cold": (t("COLD"), RED)}.get(kind, ("", MUTED))
+        nm = dd["id2name"].get(top, "?")
+        d.text((20, y), tag[0], font=display_font(8, True), fill=tag[1])
+        for i, ln in enumerate(_wrap(f"{nm} — {why}", font(9), VW - 76)[:2]):
+            d.text((56, y + i * 11), ln, font=font(9), fill=MUTED)
+        y += 24
+    y += 4
     # bans/draft band — one railed card wrapping GOOD BANS + lobby BANS + ENEMY PICKS,
     # BAD rail (UIDESIGN §5.1). Numbers move to Bahnschrift; slash icons are unchanged.
     band_content_h = 74 + 52 + (52 if enemy_picks else 0)
@@ -2641,7 +2602,7 @@ def _board_scale():
 
 
 def _live_tags(dd, cid, sc, ally):
-    """The loading screen's profile-read tags (duo/smurf/OTP/tilt/first-time/…), driven by
+    """The loading screen's profile-read tags (smurf/OTP/tilt/first-time/…), driven by
     the live scout's data. One tag language across every Smiteless surface."""
     try:
         import lolload as llo
@@ -2742,9 +2703,7 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
     glabels = rank_gank_labels(gscores)
 
     # ============================ VERDICT STRIP ============================
-    duo_all = detect_duos(scout_map)
-    duo_of = duo_all if DUO_ON else {}
-    qr = queue_prediction(my_cid, scout_map, duo_all)
+    qr = queue_prediction(my_cid, scout_map)
     ga, ge = team_avg_grades(scout_map)
     sy = HERO + S(8)
     _railed_card(d, (S(14), sy, BW - S(14), sy + S(58)), qr.get("fill") or ARC, fill=SURFACE,
@@ -2839,9 +2798,6 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             d.text((gx + sgn * S(16), y + S(13)),
                    tf("{games}g", games=int((sc or {}).get("n") or 0)),
                    font=font(S(8), 1), fill=_dim(gcol, 0.7), anchor=anc)
-        if (cid, ally) in duo_of:
-            di, dsure = duo_of[(cid, ally)]
-            _duo_marker(d, gx + sgn * S(52), y + S(18), di, "R" if mirror else "L", sure=dsure)
         # line 2: riot id + rank
         who = ((sc or {}).get("riot_id") or "").split("#")[0]
         rtext, rcol = rank_str((sc or {}).get("rank"))
@@ -2942,7 +2898,7 @@ def render_live_board(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, 
             d.text((S(32), y + S(26) + i * S(16)), "▸ " + b, font=font(S(11), text="▸"), fill=TEXT)
         y += plan_h
     _legend = t("S-F grade = how they PLAY (role benchmarks, not W/L; shown only with 4+ recent games) · "
-                "tags from each account's history · form = last 10, oldest → newest · ● duo · "
+                "tags from each account's history · form = last 10, oldest → newest · "
                 "★ gank = matchup edge · click a player → u.gg")
     d.text((S(16), y + S(6)), _legend, font=font(S(11), text=_legend), fill=FAINT)
     if note:
@@ -3009,12 +2965,10 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
         d.text((W2 - 26, 73), t("ENEMY"), font=display_font(13, True), fill=RED, anchor="ra")
     cxc = W2 // 2
     my_kit = gank_kit(dd, my_cid) if GANK_KIT_ON else 0.0           # toggleable
-    duo_all = detect_duos(scout_map) if (roles_known and not champ_select) else {}
-    duo_of = duo_all if DUO_ON else {}
     if roles_known and not champ_select:
         # the closest thing this board has to UIDESIGN's win-prob "verdict strip" — same
         # GOOD/BAD/MUTED status colors, numerals in the display face, true pill radius.
-        qr = queue_prediction(my_cid, scout_map, duo_all)
+        qr = queue_prediction(my_cid, scout_map)
         ga, ge = team_avg_grades(scout_map)          # grade-based read alongside the WR read
         text = qr["text"] + (tf("   ·   grades {ally} vs {enemy}", ally=ga, enemy=ge)
                              if (ga and ge) else "")
@@ -3060,12 +3014,6 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
             hits.append((27 + xoff, y + 13, 65 + xoff, y + 51, aurl))     # ally icon (left)
         if eurl:
             hits.append((W2 - 65, y + 13, W2 - 27, y + 51, eurl))   # enemy icon (right)
-        if a_cid and (a_cid, True) in duo_of:               # premade markers (shared color = same duo)
-            _duo_marker(d, 350 + xoff, y + 18, duo_of[(a_cid, True)][0], "L",
-                        sure=duo_of[(a_cid, True)][1])
-        if e_cid and (e_cid, False) in duo_of:
-            _duo_marker(d, W2 - 350, y + 18, duo_of[(e_cid, False)][0], "R",
-                        sure=duo_of[(e_cid, False)][1])
         if roles_known and not champ_select:
             d.text((cxc, y + 11), lbl, font=font(10), fill=FAINT, anchor="ma")
             if role in glabels:
@@ -3108,7 +3056,7 @@ def render_image(dd, my_cid, my_role, ally_role, enemy_role, build, lanes, scout
             d.text((22 + xoff, ly + 22 + i * 15), "▸ " + b, font=font(10, text="▸"), fill=TEXT)
         ly += plan_h
     _legend = t("rank · L10 W/L · mastery (gold=main 100k+, green=comfort 30k+, red=first-timing) · "
-                "S-F / GOOD PLAYER = skill (how they PLAY) · ● duo   |   "
+                "S-F / GOOD PLAYER = skill (how they PLAY)   |   "
                 "★ gank = champ matchup edge   |   click → u.gg")
     d.text((16 + xoff, ly), _legend, font=font(11, text=_legend), fill=FAINT)
     if note:
@@ -3349,8 +3297,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             sugg = None
             if q.get("roles") and q.get("queue") not in _NO_ROLE_QUEUES:
                 try:
-                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # queue card: same rule as champ select — what's strong, not what you own
+                    sugg = suggest_champs(dd, q["roles"][0], [], [], topn=6, fam=None)
                 except Exception:
                     sugg = None
             emit(render_queue_card(dd, q, sugg))
@@ -3396,7 +3344,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         if my_cid and my_cid != build_cid:        # (re)fetch on champ change (champ-select hover/lock)
             build = build_data(dd, my_cid, my_role)
             build_cid = my_cid
-            set_rune_idx(0)                        # new champ -> back to the most-played rune set
+            set_rune_idx(0, manual=False)          # new champ -> back to auto (adaptive) selection
         src = info.get("source", "")
         if not enemy_role:                 # champ select / loading: enemies + scout not live yet
             if src == "champ select":
@@ -3447,14 +3395,32 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                     targets = [c for c in listed if c] + [c for c, _ in ideas]
                     limp.ban_watch_update(dd, targets, ally_ids,
                                           settings.get("auto_ban", False))
-                    # MAX ELO: hold the pool to one champ and lock it. Same dedicated-watcher
-                    # shape as the ban, for the same reason — this render loop is too slow to
-                    # be trusted with a firing window.
+                    # MAX ELO: hold the pool and lock it. Same dedicated-watcher shape as the
+                    # ban, for the same reason — this render loop is too slow to be trusted
+                    # with a firing window.
                     pool = [dd["name2id"].get(dd["norm"](nm2))
                             for nm2 in (settings.get("max_elo_main"),
                                         settings.get("max_elo_backup")) if nm2]
-                    limp.pick_watch_update(dd, [c for c in pool if c],
-                                           settings.get("max_elo", False))
+                    pool = [c for c in pool if c]
+                    if settings.get("max_elo") and not pool and my_role:
+                        # NO CHAMPION SET -> lock the best pick for THIS draft instead of
+                        # standing down. Same recommender the panel's GOOD THIS GAME strip
+                        # shows (counters into the locked enemies + comp fit, merit only),
+                        # best-first, and it already excludes anything banned or taken — so
+                        # the list doubles as its own backup chain.
+                        # topn=12, not 5: auto_pick filters this to champions you can actually
+                        # pick, and a five-deep list can be emptied by ownership + bans alone.
+                        try:
+                            pool = suggest_champs(dd, my_role, _mates(ally_ids, my_cid),
+                                                  enemy_ids, topn=12, fam=None)
+                            # ...and never AUTO-LOCK you onto a champion your own results say
+                            # you're bad on (core/lolfit), which matters far more here than in
+                            # a list you can ignore.
+                            import lolfit as _fit
+                            pool, _fn = _fit.apply(_fit.build(), dd, pool)
+                        except Exception:
+                            pool = []
+                    limp.pick_watch_update(dd, pool, settings.get("max_elo", False))
                 except Exception:
                     pass
                 if settings.get("auto_swap_roles"):      # teammate offered a role you want? -> accept
@@ -3553,10 +3519,60 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                        bool(settings.get("auto_import", False)), bool(settings.get("auto_ban", False)),
                        auto_note, climb_note, team_read["text"], get_rune_idx())
                 if sig != last_cs_sig:
-                    # champs you actually play, pooled across ALL your accounts (main + smurfs):
-                    # the live current-account mastery merged with the cross-account aggregate.
-                    sugg = suggest_champs(dd, my_role, ally_ids, enemy_ids, topn=5,
-                                          fam=ls.familiarity(lg.my_mastery_points()))
+                    # WHAT'S GOOD THIS GAME — the same call the web DraftBoard makes (fam=None):
+                    # counters into the locked enemies + comp fit, ranked on merit alone.
+                    # It used to pass your pooled mastery, which applied a HARD 12k+ gate and
+                    # turned this into "champs you already play" — a list you don't need an
+                    # overlay to tell you. The climb warning above still fires if you hover
+                    # something you don't know, so the guard isn't lost, just moved off the
+                    # recommendation.
+                    sugg = suggest_champs(dd, my_role, _mates(ally_ids, my_cid), enemy_ids,
+                                          topn=12, fam=None)
+                    # PERSONAL FIT (core/lolfit): merit says what beats this draft; your own
+                    # results say whether YOU should be the one playing it. Drops champions
+                    # you're statistically proven bad on, and promotes ones you're good on but
+                    # haven't touched in a while — the boredom answer that costs no LP.
+                    # ADAPTIVE RUNES (core/lolrunes): the enemy comp decides which of op.gg's
+                    # pages to run. Recomputed as they lock, and only while the selection is
+                    # still automatic — one click on a rune chip and this stops touching it.
+                    rune_note = None
+                    if build and not _RUNE_SEL["manual"]:
+                        try:
+                            import lolrunes as _lr
+                            _ri, rune_note = _lr.choose(dd, build.get("rune_options"), enemy_ids)
+                            set_rune_idx(_ri, manual=False)
+                        except Exception:
+                            rune_note = None
+                    fit_notes = {}
+                    try:
+                        import lolfit as _fit
+                        sugg, fit_notes = _fit.apply(_fit.build(), dd, sugg)
+                    except Exception:
+                        fit_notes = {}
+                    if not _FIT_WARM["done"]:
+                        # Refresh the deep season read ONCE per session, off-thread — it's ~60
+                        # match fetches and must never sit in the champ-select render loop.
+                        _FIT_WARM["done"] = True
+
+                        def _warm():
+                            try:
+                                import lolfit as _f
+                                _f.build(dd, ls.read_key())
+                            except Exception:
+                                pass
+                        threading.Thread(target=_warm, daemon=True).start()
+                    # ...but only show what you can actually pick. This is NOT the old mastery
+                    # gate (a champ you own with 0 games still qualifies) — it just drops the
+                    # ones the client would refuse. Unavailable list -> show them all rather
+                    # than an empty strip.
+                    try:
+                        import lolimport as _limp
+                        _own = _limp.pickable_ids()
+                        if _own:
+                            sugg = [c for c in sugg if c in _own]
+                    except Exception:
+                        pass
+                    sugg = sugg[:5]
                     # High-confidence dodge read from op.gg lane matchups once enough enemies lock.
                     dodge = dodge_read(dd, allies, enemies) if settings.get("dodge_alerts", True) else None
                     if settings.get("dock_champ_select", True):
@@ -3567,7 +3583,8 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                              enemy_picks=enemy_ids, ban_ideas=ideas, dodge=dodge,
                              auto_import=bool(settings.get("auto_import", False)),
                              note=(auto_note or team_read["text"] or climb_note),
-                             auto_ban=bool(settings.get("auto_ban", False))))
+                             auto_ban=bool(settings.get("auto_ban", False)),
+                             fit_notes=fit_notes, rune_note=rune_note))
                     else:
                         emit(render_image(dd, my_cid, my_role, ally_role, {}, build, {}, {}, src,
                              "enemies are hidden in champ select - matchups + player scout load at the loading screen",
@@ -3640,12 +3657,10 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
             paint()                                   # still lands (and gets cached) before we exit
         if not monitor:
             return
-        # DUO RE-CHECK (#4): if the initial scout left gaps (a player's match list came back
-        # empty — rate-limit / transient failure), a real premade can go unflagged. Once, a
-        # little later (so the rate-limit window clears), re-scout and fill those gaps, then
-        # ask the loop to repaint. NOTE: Riot's API exposes no party/premade info, so duos are
-        # always inferred from shared recent games; a genuine first-game-together pair that
-        # shares no history still can't be detected — this only recovers ones we missed.
+        # SCOUT GAP RE-CHECK (#4): if the initial scout left gaps (a player's match list
+        # came back empty — rate-limit / transient failure), that player's card is missing the
+        # rank/form/grade the whole board exists for. Once, a little later (so the rate-limit
+        # window clears), re-scout and fill those gaps, then ask the loop to repaint.
         rescan = {"repaint": False}
         gaps = [k for k, e in scout_map.items() if not e.get("mids")]
         if gaps:
@@ -3672,7 +3687,7 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
         miss, blip, restart = 0, 0, False
         while not stop():
             time.sleep(5)
-            if rescan["repaint"]:                     # gap-fill found new duo data -> redraw
+            if rescan["repaint"]:                     # gap-fill found new scout data -> redraw
                 rescan["repaint"] = False
                 paint()
             ph = phasecheck.phase()

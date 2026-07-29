@@ -22,6 +22,8 @@ import lolbuild as lb
 import lolitems as li
 import lollive as ll
 import lolreentry as lre
+import lolbleed as lbl
+import lolclose as lcl
 import loltempo as lt
 import phasecheck
 import smiteconfig as cfg
@@ -39,6 +41,7 @@ INFO = skin.INFO; MYSTIC = skin.MYSTIC   # Duskfall tokens (docs/UIDESIGN.md); n
 KIND_COLOR = {"core": TXT, "insert": EMBER, "counter": BAD, "antiheal": MYSTIC, "build": EMBER, "boots": INFO}
 KIND_TAG = {"core": "", "insert": "⚑", "counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 1                                                  # seconds between live reads (all local)
+BLEED_SAY = 3          # spoken "Back off." lines per game, hard cap (core/lolbleed draws the card)
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
 # ---- dragon spawn chime: a soft Japanese-style pentatonic bell jingle, synthesized to a real
@@ -460,10 +463,11 @@ def _chip(d, x, y, text, fg, bg, f):
 _TONE_C = {"go": C_ARC, "hold": C_BAD, "plan": C_EMBER}
 
 
-def _render_reentry(d, card, x, y, wrapw, W):
-    """RE-ENTRY (lolreentry): the 90-second window after you respawn, drawn as a directive
-    card with its clock. Only the HOLD verdict gets the card — CLEAR/RESET ride a quiet row
-    (see _render_body) so the tempo engine keeps right-of-way when there's an actual play."""
+def _render_reentry(d, card, x, y, wrapw, W, label="RE-ENTRY", clock=None):
+    """A guard directive card with its clock: headline, one instruction, and the receipt
+    (your own W/L split for the habit). Used by RE-ENTRY (lolreentry — the 90 seconds after
+    you respawn; only the HOLD verdict gets the card, CLEAR/RESET ride a quiet row so the
+    tempo engine keeps right-of-way) and by BLEED (lolbleed — the first 14 minutes)."""
     pc = _TONE_C.get(card.get("tone"), C_EMBER)
     tint = tuple(int(b + (c - b) * 0.16) for b, c in zip(C_VOID, pc))
     lf = _dfont(12, bold=True)
@@ -474,9 +478,11 @@ def _render_reentry(d, card, x, y, wrapw, W):
     ch = 12 + 19 + len(lines) * 17 + len(subs) * 14 + 3 + (len(evs) * 12 + 3 if evs else 0)
     d.rounded_rectangle([x, y, W - x, y + ch], radius=9, fill=tint, outline=pc, width=1)
     # header row, same shape as the RESPAWN card: what this is, and the clock it runs on
-    d.text((x + 10, y + 7), t("RE-ENTRY"), font=_wfont(9, 1), fill=C_MUTED)
+    d.text((x + 10, y + 7), t(label), font=_wfont(9, 1), fill=C_MUTED)
     cf = _dfont(14, bold=True)
-    ct = f"{max(0, int(card.get('left') or 0))}s"
+    _lf = max(0, int(card.get("left") or 0))
+    # CLOSER puts its LEAD in the clock slot (+4.2k): the number that defines the card.
+    ct = card.get("clock_txt") or (clock(_lf) if clock else f"{_lf}s")
     d.text((W - x - 10 - d.textlength(ct, font=cf), y + 4), ct, font=cf, fill=C_TXT)
     yy = y + 26
     for ln in lines:
@@ -526,7 +532,8 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
     return img.crop((0, 0, W, y + 8))
 
 
-def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=None):
+def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=None,
+                 bleed=None, closer=None):
     """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
     body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
     safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
@@ -560,11 +567,44 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
     hold = bool(reentry and reentry.get("verdict") == "HOLD")
     if hold:
         y = _render_reentry(d, reentry, x, y, wrapw, W)
+    elif bleed:
+        # BLEED (lolbleed) owns the directive slot in the first 14 minutes: for those
+        # seconds "back off" IS the call, and the widget's rule is ONE directive. It never
+        # outranks a RE-ENTRY HOLD — that window is the more specific version of the same
+        # instruction — and it only exists at all while somebody can actually collect.
+        hold = True
+        y = _render_reentry(d, bleed, x, y, wrapw, W, label="BLEED",
+                            clock=lambda s: f"{s // 60}:{s % 60:02d}")
+    elif closer and not closer.get("quiet"):
+        # CLOSER (lolclose) owns the directive slot after 20:00 in a game you're WINNING.
+        # It can't collide with BLEED (that window closes at 14:00) and it never outranks a
+        # RE-ENTRY HOLD. When it has nothing urgent it goes quiet by itself (below) rather
+        # than take the card off the tempo engine.
+        hold = True
+        y = _render_reentry(d, closer, x, y, wrapw, W, label="CLOSER")
     elif reentry:
         vc = C_ARC if reentry["verdict"] == "CLEAR" else C_MUTED
         d.text((x + 2, y), t("RE-ENTRY"), font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), f"{reentry['left']}s · {reentry['line'].split(' — ')[0].lower()}",
                font=_dfont(11, bold=True), fill=vc)
+        y += 18
+
+    # ---- CLOSER quiet row: the lead you're protecting, and what you've given back of it.
+    # A won game with nothing burning gets ONE line, not a card — but the give-back number
+    # is the tell nobody else shows you, so it stays on screen the whole closeout.
+    if closer and closer.get("quiet"):
+        gv = closer.get("give_txt")
+        txt = closer.get("clock_txt") or ""
+        if gv:
+            txt += " · " + gv
+        elif closer.get("verdict") == "CLOSE":
+            txt += " · " + (closer.get("line") or "").split("—", 1)[-1].strip()
+        qf = _dfont(11, bold=True)
+        avail = W - x - 62 - 8                 # one row, never a wrap: clip, don't spill
+        while txt and d.textlength(txt, font=qf) > avail:
+            txt = txt[:-2] + "…"
+        d.text((x + 2, y), "CLOSER", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 62, y - 1), txt, font=qf, fill=C_WARN if gv else C_GOOD)
         y += 18
 
     # ---- tempo directive card ----
@@ -734,6 +774,14 @@ _LEGEND_REENTRY = (
     ("CLEAR", C_ARC, "they're a body down — the window is yours"),
     ("RESET", C_MUTED, "even — no free trade, don't go hunting one"),
 )
+# CLOSER verdicts (lolclose) — only ever shown in a game you are already winning.
+_LEGEND_CLOSER = (
+    ("END",   C_ARC,   "their inhibitor is open and you win the fight — go nexus"),
+    ("SIEGE", C_EMBER, "inhibitor open but a 5v5 loses — take it with the wave"),
+    ("CLOSE", C_EMBER, "one turret stands in front of an inhibitor — that's the game"),
+    ("HOLD",  C_BAD,   "ahead and you'd lose a fight now — this is the throw"),
+    ("BANK",  C_GOOD,  "ahead, nothing open — quiet row with the lead + give-back"),
+)
 _LEGEND_GLYPHS = (
     ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
     ("◎", C_GOOD,  "gank window — a lane is killable right now"),
@@ -815,6 +863,17 @@ def _render_legend(W=330):
         y += 14
     y += 4
     for vd, col, txt in _LEGEND_REENTRY:
+        row(t(vd), col, t(txt), 46, dfont=True)
+
+    section(t("CLOSER — THE GAME YOU'RE ALREADY WINNING"))
+    for ln in _wwrap(d, t("from 20:00, and only while you're 2k+ up: the shortest structural "
+                          "path to their nexus, read off the turret + inhibitor events, and "
+                          "what you've given back of your peak lead."),
+                     _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
+        y += 14
+    y += 4
+    for vd, col, txt in _LEGEND_CLOSER:
         row(t(vd), col, t(txt), 46, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
@@ -951,7 +1010,8 @@ def main():
     champ.pack(fill="x", padx=10, pady=(6, 7))
     shot = tk.Label(outer, bg=VOID, bd=0)
 
-    def render(rec, pulse=None, recall=None, dead=None, ref=False, reentry=None):
+    def render(rec, pulse=None, recall=None, dead=None, ref=False, reentry=None,
+               bleed=None, closer=None):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -973,12 +1033,14 @@ def main():
         champ.pack_forget()
         tempo = (pulse or {}).get("tempo")
         st["hot"] = bool(dead                     # dead = solid: you're reading the plan
-                         or (reentry and reentry.get("verdict") == "HOLD")
+                         or (reentry and reentry.get("verdict") == "HOLD") or bleed
+                         or (closer and not closer.get("quiet"))
                          or (tempo and (tempo.get("urgent") or tempo.get("phase")
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
-            im = _render_body(dd, rec, pulse, recall, dead, ref=ref, reentry=reentry)
+            im = _render_body(dd, rec, pulse, recall, dead, ref=ref, reentry=reentry,
+                              bleed=bleed, closer=closer)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1113,7 +1175,12 @@ def main():
         audio_on = _cfg.get("dragon_audio", True)
         respawn_on = _cfg.get("respawn_plan", True)
         reentry_on = _cfg.get("re_entry", True)
+        bleed_on = _cfg.get("bleed_guard", True)
+        closer_on = _cfg.get("closer", True)
         guard90 = lre.Guard()                             # RE-ENTRY: the 90s-after-respawn window
+        guard14 = lbl.Guard()                             # BLEED: the first-14-minutes health guard
+        closer = lcl.Guard()                              # CLOSER: the post-20:00 win-conversion read
+        bled = {"said": 0}                                # BLEED windows already announced aloud
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
@@ -1124,6 +1191,8 @@ def main():
                                              list(_TEMPO_SPEECH.values()) + list(_TEMPO_ROTATE.values())
                                              + [("rotate", "Rotate now."), ("hello", "Tempo online.")]],
                              daemon=True).start()
+        if bleed_on and voice_on and dvol > 0:            # pre-render the BLEED line (one-time)
+            threading.Thread(target=lambda: _tts_salli("backoff", "Back off."), daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -1189,7 +1258,7 @@ def main():
                     recall = None
             ph = phasecheck.phase()
             pulse = None
-            if (intel_on or audio_on) and raw is not None:
+            if (intel_on or audio_on or bleed_on) and raw is not None:
                 try:
                     pulse = ll.pulse(dd, data=raw)
                 except Exception:
@@ -1219,6 +1288,26 @@ def main():
                     reentry = guard90.observe(dd, raw)
                 except Exception:
                     reentry = None
+            bleed = None
+            if bleed_on and raw is not None:             # BLEED: the first-14 health guard
+                try:                                     # the jungler read rides the same tick
+                    bleed = guard14.observe(dd, raw, (pulse or {}).get("jungle"))
+                except Exception:
+                    bleed = None
+            close = None
+            if closer_on and raw is not None:            # CLOSER: the won-game conversion read
+                try:                                     # tempo rides along so CLOSE can defer
+                    close = closer.observe(dd, raw, (pulse or {}).get("tempo"))
+                except Exception:
+                    close = None
+            # Spoken once per window, and never more than BLEED_SAY times a game: this fires
+            # while your eyes are on the lane, which is the whole point of saying it out loud,
+            # but a voice that repeats is a voice you learn to ignore.
+            if (bleed and voice_on and st["vol"] > 0 and not st.get("muted", False)
+                    and bleed["calls"] > bled["said"] and bled["said"] < BLEED_SAY):
+                bled["said"] = bleed["calls"]
+                threading.Thread(target=_say, args=("backoff", "Back off.", st["vol"]),
+                                 daemon=True).start()
             # "you're up" chime: one soft two-note cue as the respawn timer crosses ~1.5s,
             # so eyes-off-screen death time ends with a nudge instead of lost seconds.
             rs = (dead or {}).get("secs")
@@ -1240,7 +1329,8 @@ def main():
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
-                       "dead": dead, "reentry": reentry})
+                       "dead": dead, "reentry": reentry, "bleed": bleed,
+                       "closer": close})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -1296,7 +1386,8 @@ def main():
                         st["last_msg"] = msg             # kept so hover can re-render in place
                         render(msg["rec"], msg.get("pulse"), msg.get("recall"),
                                msg.get("dead"), ref=st.get("ref_view", False),
-                               reentry=msg.get("reentry"))
+                               reentry=msg.get("reentry"), bleed=msg.get("bleed"),
+                               closer=msg.get("closer"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:
@@ -1363,7 +1454,8 @@ def main():
                 if m:
                     try:
                         render(m["rec"], m.get("pulse"), m.get("recall"),
-                               m.get("dead"), ref=inside, reentry=m.get("reentry"))
+                               m.get("dead"), ref=inside, reentry=m.get("reentry"),
+                               bleed=m.get("bleed"), closer=m.get("closer"))
                     except Exception:
                         pass
             mode = ("hint" if st.get("ct") else "vol") if inside else None

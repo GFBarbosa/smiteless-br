@@ -239,6 +239,44 @@ def _picklog(msg, dedupe=False):
         pass
 
 
+# Riot summoner-spell ids. The mobility spells, in priority order: whichever of these a build
+# carries goes on your preferred key (Settings -> Flash key). spell1Id is D, spell2Id is F.
+FLASH_ID, GHOST_ID = 4, 6
+MOBILITY_SPELLS = (FLASH_ID, GHOST_ID)
+
+_PICKABLE = {"ids": None, "ts": 0.0}
+_PICK_FAIL = {}            # (action_id, cid) -> consecutive failed lock attempts
+
+
+def pickable_ids(ttl=5.0):
+    """Champion ids you can ACTUALLY pick right now, or None if the client won't say.
+
+    This is the thing that was missing and it cost a whole draft: since the recommender stopped
+    gating on mastery it ranks champions on merit alone, which includes champions you don't own.
+    The client refuses to complete a pick action for one of those, so auto-lock sat there
+    failing every second while the timer ran out. `pickable-champion-ids` is the honest answer
+    during champ select (it accounts for free rotation and bans too); owned-champions-minimal
+    is the fallback outside it."""
+    now = time.monotonic()
+    if _PICKABLE["ids"] is not None and (now - _PICKABLE["ts"]) < ttl:
+        return _PICKABLE["ids"]
+    ids = None
+    for path in ("/lol-champ-select/v1/pickable-champion-ids",
+                 "/lol-champions/v1/owned-champions-minimal"):
+        try:
+            r = _lcu_json("GET", path)
+        except Exception:
+            continue
+        if isinstance(r, list) and r:
+            got = {c if isinstance(c, int) else c.get("id") for c in r}
+            got = {int(c) for c in got if c}
+            if got:
+                ids = got
+                break
+    _PICKABLE.update(ids=ids, ts=now)
+    return ids
+
+
 def auto_pick(dd, cids):
     """If it's YOUR pick turn, hover-then-LOCK the first champion in `cids` that's still
     available (not banned, not taken by either team). Returns the locked championId or None.
@@ -253,12 +291,13 @@ def auto_pick(dd, cids):
     if not isinstance(sess, dict) or sess.get("localPlayerCellId") is None:
         return None
     cell = sess.get("localPlayerCellId")
-    action_id = None
+    action_id, hovered = None, 0
     for group in (sess.get("actions") or []):
         for a in group:
             if (a.get("actorCellId") == cell and a.get("type") == "pick"
                     and a.get("isInProgress") and not a.get("completed")):
                 action_id = a.get("id")
+                hovered = int(a.get("championId") or 0)   # what's on YOUR pick slot right now
     if action_id is None:
         return None                              # not your pick turn (or already locked)
     gone = set()
@@ -271,10 +310,38 @@ def auto_pick(dd, cids):
             if a.get("completed") and a.get("championId"):
                 gone.add(int(a["championId"]))
     nm = (dd.get("id2name") or {}) if isinstance(dd, dict) else {}
-    want = next((c for c in cids if c not in gone), None)
+    own = pickable_ids()
+    # `is not None`, NOT truthiness: None means "the client wouldn't tell us" (don't filter),
+    # an empty set means "you can pick nothing" (filter everything). Collapsing those two made
+    # the guard silently do nothing in the one case it most needed to bite.
+    if own is not None:                          # never try to lock a champion you don't have
+        unowned = [c for c in cids if c not in own]
+        if unowned:
+            _picklog(f"skipping (you don't own / can't pick): "
+                     f"{[nm.get(c, c) for c in unowned]}", dedupe=True)
+        cids = [c for c in cids if c in own]
+    # a champ the client has already refused 3x is not going to start working — drop it and
+    # move down the list rather than burning the whole timer on it
+    cids = [c for c in cids if _PICK_FAIL.get((action_id, c), 0) < 3]
+
+    def _ok(c):
+        return (c and c not in gone and (own is None or c in own)
+                and _PICK_FAIL.get((action_id, c), 0) < 3)
+
+    # ONCE A CHAMPION IS ON THE SLOT, THAT IS THE ONE WE LOCK.
+    # We hover, then we lock what we hovered — we do not re-ask the recommender first. Read
+    # from the live session rather than our own memory, so a momentarily empty pool (a network
+    # blip in suggest_champs) can't wipe the commitment and restart the 2.5s timer.
+    # This is what was broken: the target changed every tick, and a changed target restarts the
+    # timer, so the lock was never reached. It hovered forever.
+    prev = _PICK_HOVER["cid"] if _PICK_HOVER["action"] == action_id else 0
+    if _ok(hovered):
+        want = hovered                           # already on the slot (ours, or you moved it)
+    else:
+        want = prev if _ok(prev) else next((c for c in cids if c not in gone), None)
     if want is None:
-        _picklog(f"main AND backup are both gone ({[nm.get(c, c) for c in cids]}) — "
-                 f"standing down, pick it yourself")
+        _picklog("nothing left to lock — everything on the list is banned, taken, unowned or "
+                 "refused. Pick it yourself.", dedupe=True)
         return None
     label = nm.get(want, str(want))
     # Hover ONCE (not a PATCH every poll), then lock a beat later. The hover is what makes the
@@ -296,6 +363,7 @@ def auto_pick(dd, cids):
     except Exception as e:
         _picklog(f"PATCH lock {label} raised {type(e).__name__} — trying two-step")
     if _pick_completed(action_id):
+        _PICK_FAIL.clear()
         _picklog(f"LOCKED {label} (action {action_id}, one-shot)")
         return want
     try:                                         # two-step: some client builds want it
@@ -306,9 +374,22 @@ def auto_pick(dd, cids):
     except Exception as e:
         _picklog(f"two-step lock {label} raised {type(e).__name__}")
     if _pick_completed(action_id):
+        _PICK_FAIL.clear()
         _picklog(f"LOCKED {label} (action {action_id}, two-step)")
         return want
-    _picklog(f"FAILED to lock {label} — action {action_id} still open after both attempts")
+    # Count the refusal and FALL THROUGH TO THE NEXT CHAMPION. v0.9.59 re-tried the same
+    # champion once a second until the timer ran out (11 identical "FAILED to lock Nasus" lines,
+    # then a random pick) — a client that has refused a champion three times is telling you
+    # something, so believe it and move down the list.
+    k = (action_id, want)
+    _PICK_FAIL[k] = _PICK_FAIL.get(k, 0) + 1
+    _PICK_HOVER.update(action=None, cid=0, ts=0.0)     # re-hover whatever comes next
+    if _PICK_FAIL[k] >= 3:
+        nxt = [nm.get(c, c) for c in cids if c != want and c not in gone]
+        _picklog(f"GIVING UP on {label} after 3 refusals (you may not own it) — "
+                 f"next: {nxt[:3] or 'nothing left'}")
+    else:
+        _picklog(f"lock {label} refused ({_PICK_FAIL[k]}/3) — retrying, then moving on")
     return None
 
 
@@ -333,8 +414,12 @@ def pick_watch_update(dd, cids, enabled):
     """Same contract as ban_watch_update: the champ-select render loop refreshes this every
     poll, and a dedicated 1s thread does the actual locking. The render loop can stall for
     seconds on network work — far too slow to hit an 8s firing window."""
-    if not enabled or not cids:            # a fresh draft must never inherit a stale hover clock
+    # Only a DISABLED watcher resets the commitment. An empty pool must not: suggest_champs
+    # does network work and can transiently return nothing, and wiping the hover state there
+    # restarted the lock timer mid-draft.
+    if not enabled:
         _PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        _PICK_FAIL.clear()
     _PICK_WATCH.update(dd=dd, cids=list(cids or []), on=bool(enabled))
     th = _PICK_WATCH.get("thread")
     if th and th.is_alive():
@@ -564,11 +649,13 @@ def import_build(dd, cid, role, build):
     if len(sums) >= 2:
         s1, s2 = int(sums[0]), int(sums[1])
         flash_on_d = cfg.load().get("flash_on_d", True)
-        if 4 in (s1, s2):
-            if flash_on_d and s2 == 4:
-                s1, s2 = s2, s1
-            if (not flash_on_d) and s1 == 4:
-                s1, s2 = s2, s1
+        # Your ESCAPE key never moves. Flash owns the preferred slot; on a build that has no
+        # Flash, GHOST inherits it — same finger, same panic button. Ghost-only builds used to
+        # land wherever op.gg happened to order them, which is the one spell you cannot afford
+        # to hunt for. If a build somehow runs both, Flash wins and Ghost takes the other slot.
+        key_spell = next((sp for sp in MOBILITY_SPELLS if sp in (s1, s2)), None)
+        if key_spell is not None and (s1 == key_spell) != bool(flash_on_d):
+            s1, s2 = s2, s1
         _lcu_json("PATCH", "/lol-champ-select/v1/session/my-selection",
                   {"spell1Id": s1, "spell2Id": s2})
     return f"imported for {dd['id2name'].get(cid, '?')} ({role})"

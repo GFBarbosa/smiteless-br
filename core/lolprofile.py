@@ -97,8 +97,6 @@ def _session(hist, games):
         if cur.get("rv") is not None and start.get("rv") is not None:
             out["lp_delta"] = cur["rv"] - start["rv"]
     return out
-
-
 def _wilson(w, n, z=1.96, upper=False):
     """Wilson score-interval bound for a win proportion — the sample-aware way to rank rates.
     A 3-0 champ has a WIDE interval (its floor sits low, ~0.44); a 40-25 main a tight one (floor
@@ -1083,35 +1081,3 @@ def season_champs(dd, puuid, key, cap=60):
                    "avg": (round(v["score"] / v["sg"]) if v["sg"] else None)} for c, v in agg.items()),
                  key=lambda x: (-x["g"], -x["wr"]))
     return out
-
-
-DUO_SHARED = 3             # shared recent matches to call two players a likely duo
-
-
-def match_duos(parts, key, count=10):
-    """{puuid: group_index} for players in this PAST match who look like premades - same
-    inference the live scout uses: pairs on the same team sharing several recent ranked
-    games. All recent_ids calls are cached, so an expanded game costs at most 10 lookups."""
-    ids_of = {}
-    for p in parts:
-        pu = p.get("puuid")
-        if pu:
-            try:
-                ids_of[pu] = set(ls.recent_ids(pu, key, count) or [])
-            except Exception:
-                ids_of[pu] = set()
-    groups, gidx = {}, 0
-    plist = [p for p in parts if p.get("puuid")]
-    for i, a in enumerate(plist):
-        for b in plist[i + 1:]:
-            if int(a.get("team") or 0) != int(b.get("team") or 0):
-                continue
-            shared = len(ids_of.get(a["puuid"], set()) & ids_of.get(b["puuid"], set()))
-            if shared >= DUO_SHARED:
-                ga, gb = groups.get(a["puuid"]), groups.get(b["puuid"])
-                g = ga if ga is not None else (gb if gb is not None else gidx)
-                if ga is None and gb is None:
-                    gidx += 1
-                groups[a["puuid"]] = g
-                groups[b["puuid"]] = g
-    return groups

@@ -78,7 +78,6 @@ RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_ga
 # Feature toggles (read live by the relevant module).
 BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-game
          "gank_kit": True,        # factor YOUR champ's CC/engage into the gank ratings
-         "duo_detection": True,   # show the duo / premade markers
          "item_widget": True,     # the floating in-game item helper
          "game_intel": True,      # widget: live win read + objective timers + spike alerts
          "tempo_coach": True,     # widget: TEMPO engine — objective-setup directives (farm/base/move/take-give)
@@ -87,6 +86,8 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "dragon_audio": True,    # widget: audio beeps 45/30/15s before a drake spawns
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "re_entry": True,        # widget: RE-ENTRY — the 90s-after-respawn guard (core/lolreentry)
+         "bleed_guard": True,     # widget: BLEED — the first-14-minutes health guard (core/lolbleed)
+         "closer": True,          # widget: CLOSER — the post-20:00 win-conversion director (core/lolclose)
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
          "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
                                     #   profile-read tags, damage lean) while the game loads. FRESH
@@ -119,8 +120,8 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 # all, and `board_topmost` is taste.
 MAX_ELO_ON = ("auto_accept", "auto_ban", "auto_import", "auto_mute",
               "item_widget", "game_intel", "tempo_coach", "free_alarm", "re_entry",
-              "respawn_plan", "death_brief", "loading_scout", "queue_call",
-              "dodge_alerts", "matchup_tips", "duo_detection", "dock_champ_select",
+              "bleed_guard", "closer", "respawn_plan", "death_brief", "loading_scout", "queue_call",
+              "dodge_alerts", "matchup_tips", "dock_champ_select",
               "draft_link", "draft_autoopen", "solo_coaching", "gank_kit")
 
 # Free-text settings (trimmed strings, no validation beyond str()).
@@ -129,7 +130,7 @@ MAX_ELO_ON = ("auto_accept", "auto_ban", "auto_import", "auto_mute",
 # draft_msg: the champ-select chat line the link is posted with ('' = the branded default).
 # Settings keys belonging to features that have been CUT. save() drops them, so a retired
 # surface leaves nothing behind in the user's settings file.
-RETIRED = ("fav_champs", "ghost_race")
+RETIRED = ("fav_champs", "ghost_race", "duo_detection")
 
 STRINGS = {"max_elo_main": "",      # MAX ELO: the one champion you play ('' = not chosen yet)
            "max_elo_backup": "",    # ... and the one you take when the main is banned/taken

@@ -128,18 +128,223 @@ def c_reentry():
     return OK, "hold / clear / reset fixtures each land on their verdict"
 
 
-def c_mute():
-    """AUTO-MUTE's keystroke path. v0.9.51 logged 'SENT' every single game and muted nobody:
-    it typed with KEYEVENTF_UNICODE, which the League game window ignores. There is no way to
-    read the mute state back, so the only guard possible is this - every character of the
-    command must map to a real scan code on the CURRENT keyboard layout."""
-    import lolmute as lm
-    bad = [c for c in lm.CMD if lm._scan_of(c) is None]
+def c_bleed():
+    """The BLEED verdict engine (the first-14-minutes health guard). Same shape of risk as
+    RE-ENTRY: a broken branch either screams every wave or never fires once, and neither is
+    visible without playing a game."""
+    import lolbleed as lbl
+    want = {"bleed": "BLEED", "dive": "BLEED", "banked": "BLEED",
+            "healthy": None, "accounted": None, "alone": None, "noread": None}
+    got = {k: (lbl._verdict(lbl.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
     if bad:
-        return FAIL, f"this keyboard layout can't type {bad!r} - auto-mute would abort"
+        return FAIL, "; ".join(bad)
+    if lbl.WINDOW != 14 * 60.0:
+        return FAIL, f"window is {lbl.WINDOW}s — it must match the early_bleeding tag's 14:00"
+    return OK, "3 warning + 4 silent fixtures each land where they should"
+
+
+def c_closer():
+    """The CLOSER (the post-20:00 win-conversion director). Two things must hold forever:
+    every verdict branch is reachable, and it is SILENT in any game you are not winning —
+    a closeout coach talking during a losing game is worse than no coach."""
+    import lolclose as lc
+    want = {"end": "END", "siege": "SIEGE", "close": "CLOSE", "closeinhib": "CLOSE",
+            "quietclose": "CLOSE", "hold": "HOLD", "giveback": "HOLD", "bank": "BANK",
+            "behind": None, "early": None, "thin": None, "winning_fight": "BANK"}
+    got = {k: (lc._verdict(lc.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    if lc.LEAD_MIN != 2000.0:
+        return FAIL, f"lead bar is {lc.LEAD_MIN} — it must match the threw_ahead tag's 2000g"
+    # never contradict a positive fight read: tempo saying TAKE and the closer saying HOLD
+    # on the same frame is the app arguing with itself.
+    for e in (900.0, 3000.0, 12000.0):
+        d = lc.demo("hold")
+        d["e"] = e
+        if (lc._verdict(d) or {}).get("verdict") == "HOLD":
+            return FAIL, f"HOLDs while fight_edge says +{e:.0f} — contradicts the tempo card"
+    # the structure map is COUNT-based on purpose (turrets can only fall front-to-back), so
+    # a Riot rename of the turret indices must not change the depth read.
+    ev = [{"EventName": "TurretKilled", "EventTime": 600 + i,
+           "TurretKilled": f"Turret_T2_C_{5 - i:02d}_A"} for i in range(3)]
+    ev.append({"EventName": "InhibKilled", "EventTime": 900, "InhibKilled": "Barracks_T2_C1"})
+    st = lc.structures(ev, "ORDER")
+    if st["them"]["turrets"].get("C") != 3 or lc.steps_to_inhib(st["them"])["C"] != 0:
+        return FAIL, f"structure map misread their mid: {st['them']['turrets']}"
+    oi = lc.open_inhibs(st["them"], 1000.0)
+    if not oi or oi[0][0] != "C" or abs(oi[0][1] - 200.0) > 0.5:
+        return FAIL, f"inhibitor clock wrong: {oi}"
+    if lc.open_inhibs(st["them"], 1201.0):
+        return FAIL, "inhibitor never closes — it respawns 5:00 after the kill"
+    g = lc.Guard()                               # no data must not arm anything
+    if g.observe(None, None) is not None or g.peak != 0.0:
+        return FAIL, "guard armed itself with no game data"
+    return OK, "12 verdict fixtures + structure map + inhib clock all correct"
+
+
+def c_mute():
+    """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
+    that landed - so it claimed success for four releases while muting nobody. It now writes
+    the client's own settings, which means the state is READABLE, and this check reads it.
+    A key Riot renames must fail here rather than silently do nothing."""
+    import lolmute as lm, lolgame as lg
+    # THE bug that cost four releases: Enter went out as a virtual key with wScan=0, the game
+    # reads scan codes, so chat never opened and every character hit a gameplay bind instead.
+    # A zero here means auto-mute is silently mashing keys at your champion. Guard it forever.
+    if not lm.ENTER_SCAN():
+        return FAIL, "Enter has no scan code - chat won't open and the command types into the game"
+    bad = [c for c in lm.CMD if lm.scan_of(c) is None]
+    if bad:
+        return FAIL, f"this keyboard layout can't type {bad!r}"
     if lm.FIRE_AT < 3.0:
         return FAIL, f"firing at gameTime {lm.FIRE_AT}s - too early, the client eats the keys"
-    return OK, f"{lm.CMD!r} maps to scan codes; fires at {lm.FIRE_AT:.0f}s + {lm.CONFIRM_AT:.0f}s"
+    # SAFETY, not tuning. Typing is only safe while you're parked in the fountain: clicking to
+    # move takes focus off League's chat box, and a character that misses it becomes a keybind
+    # ('f' in "fullmute" = Flash). v0.9.56's 25s "confirming" resend cast Flash mid-walk. There
+    # must be exactly one attempt, and it must stop before you're out on the map.
+    if hasattr(lm, "CONFIRM_AT"):
+        return FAIL, "a second mute attempt is back - it types while you're moving and casts Flash"
+    if getattr(lm, "LATE_LIMIT", 999) > 30.0:
+        return FAIL, f"still typing at gameTime {lm.LATE_LIMIT}s - you're on the map by then"
+    # THE bug that broke it in a real game: the v0.9.55 rewrite dropped the single-instance
+    # mutex, the tray re-spawns on any phase flap, and THREE copies typed into one chat box in
+    # the same second. Interleaved character by character that is garbage, not a command - and
+    # the log said TYPED three times, so it looked like success. Never again.
+    if not hasattr(lm, "_single_instance"):
+        return FAIL, "no single-instance guard - concurrent copies will interleave into garbage"
+    # Prove the SEMANTICS on a throwaway mutex. Grabbing the real one would make this check
+    # fail exactly when auto-mute is running properly, which is the wrong way round.
+    probe = "Global\\SmitelessSelftestProbe"
+    if not lm._single_instance(probe) or lm._single_instance(probe):
+        return FAIL, "the single-instance guard doesn't actually exclude a second copy"
+    if not hasattr(lm, "_SEND_LOCK"):
+        return FAIL, "no in-process send lock - two threads could interleave the command"
+    if not hasattr(lm, "player_dead"):
+        return FAIL, "no death-window retry - a missed fountain attempt would never recover"
+    detail = f"Enter=0x{lm.ENTER_SCAN():02x}, {lm.CMD!r} all mappable"
+    if not lg._lcu():
+        return OK, detail + "; client down, settings layer unverified"
+    st = lm.read_state()
+    if st is None:
+        return FAIL, "the client no longer exposes " + ", ".join(
+            f"{g}.{k}" for g, ks in lm.MUTED.items() for k in ks)
+    on = all(st.get(f"{g}.{k}") == v for g, ks in lm.MUTED.items() for k, v in ks.items())
+    return OK, detail + f"; settings {'MUTED' if on else 'unmuted'}"
+
+
+def c_muteguard():
+    """The input guard that makes auto-mute's typing safe to sit through. It must tell YOUR
+    hands apart from our injected keys (via the LLKHF_INJECTED / LLMHF_INJECTED flags) — if it
+    can't, it either aborts on its own keystrokes and never mutes, or misses yours and lets a
+    keypress shred the command. Mouse MOVEMENT must be ignored: the cursor is never still, and
+    moving it doesn't defocus League's chat box; only a click does."""
+    import lolmute as lm
+    G = lm._InputGuard
+    import ctypes
+    from ctypes import wintypes
+
+    def fire(kind, wparam, flags):
+        g = G()
+        idx, mask, skip = ((2, G._LLKHF_INJECTED, ()) if kind == "kb"
+                           else (3, G._LLMHF_INJECTED, G._HARMLESS_MOUSE))
+        proc = g._make(mask, idx, skip)
+        buf = (wintypes.DWORD * 8)(*([0] * 8))
+        buf[idx] = flags
+        proc(0, wparam, ctypes.cast(ctypes.pointer(buf), ctypes.c_void_p).value)
+        return g.interrupted
+
+    cases = [("real keypress", "kb", 0x0100, 0x00, True),
+             ("our injected key", "kb", 0x0100, 0x10, False),
+             ("mouse move", "ms", 0x0200, 0x00, False),
+             ("mouse wheel", "ms", 0x020A, 0x00, False),
+             ("real left click", "ms", 0x0201, 0x00, True),
+             ("real right click", "ms", 0x0204, 0x00, True),
+             ("our injected click", "ms", 0x0201, 0x01, False)]
+    bad = [n for n, k, w, f, want in cases if fire(k, w, f) != want]
+    if bad:
+        return FAIL, "input guard wrong on: " + ", ".join(bad)
+    # The live half only means anything if YOU aren't typing during it — otherwise it's your
+    # keyboard tripping the guard, which is the guard working. Skip it rather than cry wolf.
+    if lm.idle_ms() < 400:
+        return OK, "discrimination matrix passes (live check skipped - you're using the keyboard)"
+    with G() as g:                                   # and it must not trip on our own typing
+        time.sleep(0.1)
+        sh = lm._u32.MapVirtualKeyW(0x10, 0)
+        for _ in range(8):
+            lm._tap_scan(sh, 0.02)
+            time.sleep(0.02)
+        time.sleep(0.15)
+        self_trip = g.interrupted
+    if g._hooks:
+        return FAIL, "low-level hooks left installed after the guard exited"
+    if self_trip and lm.idle_ms() > 400:
+        return FAIL, "the guard trips on our OWN injected keys - it would abort every time"
+    return OK, "tells your keys/clicks from ours; ignores mouse movement; hooks released"
+
+
+def c_fit():
+    """PERSONAL FIT: the recommender's read of YOUR results. It must veto only on real evidence
+    (losing three in a row is not proof), demote champs you play below your own standard, and
+    promote ones you're good on but haven't touched — the rotation answer to getting bored.
+    A veto firing on thin data would silently delete good picks, so the bar is checked here."""
+    import lolfit as fit
+    rec = {"baseline": 83, "recent": ["yasuo", "hecarim", "khazix"],
+           "champs": {"loser": {"g": 10, "w": 1, "avg": 60},      # 10%: proven bad
+                      "unlucky": {"g": 3, "w": 0, "avg": 80},     # 0-3 but no sample -> no veto
+                      "cold": {"g": 5, "w": 3, "avg": 65},        # wins, plays it badly
+                      "neglected": {"g": 6, "w": 4, "avg": 95},   # good + not in recent -> fresh
+                      "onegood": {"g": 1, "w": 1, "avg": 120},    # one game is not a champion
+                      "yasuo": {"g": 16, "w": 8, "avg": 64}}}
+    want = {"loser": "veto", "unlucky": None, "cold": "cold", "neglected": "fresh",
+            "onegood": None}
+    bad = [f"{k}: got {fit.verdict(rec, k)[0]}, want {v}"
+           for k, v in want.items() if fit.verdict(rec, k)[0] != v]
+    if bad:
+        return FAIL, "; ".join(bad)
+    for k in want:
+        kind, why = fit.verdict(rec, k)
+        if kind and not why:
+            return FAIL, f"{k} returned a {kind} verdict with no evidence line"
+    dd = {"id2name": {1: "loser", 2: "neglected", 3: "cold"}}
+    order, notes = fit.apply(rec, dd, [1, 2, 3])
+    if 1 in order:
+        return FAIL, "a vetoed champion survived into the recommendations"
+    if order[0] != 2:
+        return FAIL, "a fresh champion was not promoted above a cold one"
+    if not notes.get(1) or not notes.get(2):
+        return FAIL, "apply() dropped the evidence notes the panel prints"
+    return OK, "vetoes only on real samples; cold demoted, fresh promoted, evidence attached"
+
+
+def c_runes():
+    """ADAPTIVE RUNES: the enemy comp decides which op.gg page to import. This must fire ONLY
+    on an unambiguous comp — a wrong call silently imports the wrong keystone for a whole game,
+    which is worse than always taking the most-played page."""
+    import lolrunes as lr
+    want = {"tank": 1,      # 3 tanks -> the Conqueror page
+            "squish": 0,    # all squishy -> Electrocute is already right, don't touch it
+            "mixed": 0,     # one tank -> no call
+            "early": 0,     # under 3 locked -> refuse to read a comp off two picks
+            "thin": 0}      # the fitting page has a 9-game sample -> never import a meme
+    bad = []
+    for k, idx in want.items():
+        dd, opts, en = lr.demo(k)
+        got, why = lr.choose(dd, opts, en)
+        if got != idx:
+            bad.append(f"{k}: page {got}, want {idx}")
+        elif got != 0 and not why:
+            bad.append(f"{k}: switched pages with no evidence line")
+        elif got == 0 and why:
+            bad.append(f"{k}: claimed a reason while keeping the default")
+    if bad:
+        return FAIL, "; ".join(bad)
+    if not (lr.SUSTAINED & {"Conqueror"}) or not (lr.BURST & {"Electrocute"}):
+        return FAIL, "the keystone classes lost their anchors"
+    if lr.SUSTAINED & lr.BURST:
+        return FAIL, f"a keystone is in BOTH classes: {lr.SUSTAINED & lr.BURST}"
+    return OK, "switches only on a clear comp, cites op.gg's own sample, ignores thin pages"
 
 
 def c_maxelo():
@@ -165,7 +370,10 @@ def c_autolock():
     import lolbuild as lb, lolimport as limp
     dd = lb.ddragon()
     YAS, YONE = dd["name2id"]["yasuo"], dd["name2id"]["yone"]
-    real = limp._lcu_json
+    real, real_log, real_own = limp._lcu_json, limp._picklog, limp.pickable_ids
+    # smiteless_pick.log is a DIAGNOSTIC — it exists to answer "why didn't my champ lock".
+    # Fixture runs writing fake LOCKED lines into it makes it useless for that, so they don't.
+    limp._picklog = lambda *a, **k: None
 
     class Fake:                                  # PATCH sets intent; completed (or POST) locks
         def __init__(self, bans=(), locked=(), in_progress=True):
@@ -187,9 +395,11 @@ def c_autolock():
                 self.act["completed"] = True
             return {}
 
-    def lock(fake, pool, settle=True):
+    def lock(fake, pool, settle=True, owned=None):
         limp._lcu_json = fake
+        limp.pickable_ids = (lambda *a, **k: owned) if owned is not None else (lambda *a, **k: None)
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
         limp.auto_pick(dd, pool)                 # tick 1: hover only, never a lock
         if settle:
             limp._PICK_HOVER["ts"] -= limp.PICK_SETTLE_S + 0.1
@@ -205,9 +415,38 @@ def c_autolock():
         bad = [n for n, f, pool, want in cases if lock(f, pool) != want]
         if lock(Fake(), [YAS, YONE], settle=False) is not None:
             bad.append("locked before the hover settled")
+        # OWNERSHIP. Dropping the mastery gate made the pool merit-only, which includes
+        # champions you don't own — the client refuses those, and v0.9.59 retried one every
+        # second until the timer ran out and the draft picked for you. The top pick being
+        # unowned must fall straight through to the next one.
+        if lock(Fake(), [YAS, YONE], owned={YONE}) != YONE:
+            bad.append("an unowned top pick must skip to the next champion")
+        if lock(Fake(), [YAS, YONE], owned=set()) is not None:
+            bad.append("owning nothing on the list must lock nothing")
+        if lock(Fake(), [YAS, YONE], owned={YAS, YONE}) != YAS:
+            bad.append("owning both must still take the best one")
+        # FLIP-FLOP. The pool is rebuilt every poll and suggest_champs treats an ally's champ as
+        # unavailable — and our own hover IS an ally pick, so hovering A promoted B and hovering
+        # B promoted A. It oscillated once a second and never locked. auto_pick must COMMIT to
+        # its target: a pool that reorders underneath it changes nothing.
+        f = Fake()
+        limp._lcu_json = f
+        limp.pickable_ids = lambda *a, **k: {YAS, YONE}
         limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
+        limp.auto_pick(dd, [YAS, YONE])          # commits to Yasuo
+        first = f.act["championId"]
+        for i in range(6):                       # pool flips order under it, once a "second"
+            limp.auto_pick(dd, ([YONE, YAS] if i % 2 == 0 else [YAS, YONE]))
+        if f.act["championId"] != first:
+            bad.append("target changed when the pool reordered (the flip-flop is back)")
+        limp._PICK_HOVER["ts"] -= limp.PICK_SETTLE_S + 0.1
+        if limp.auto_pick(dd, [YONE, YAS]) != first:
+            bad.append("did not lock the champion it committed to")
+        limp._PICK_HOVER.update(action=None, cid=0, ts=0.0)
+        limp._PICK_FAIL.clear()
     finally:
-        limp._lcu_json = real
+        limp._lcu_json, limp._picklog, limp.pickable_ids = real, real_log, real_own
     if bad:
         return FAIL, "auto-lock wrong on: " + "; ".join(bad)
     return OK, "hover-then-lock, ban/taken fallback to backup, stands down when both are gone"
@@ -237,7 +476,12 @@ def main():
         ("Glyph coverage (tofu)", c_glyphs),
         ("Queue call (verdict engine)", c_queuecall),
         ("Re-entry guard (90s window)", c_reentry),
-        ("Auto-mute (keystroke path)", c_mute),
+        ("Bleed guard (first 14 min)", c_bleed),
+        ("Closer (win conversion)", c_closer),
+        ("Auto-mute (chat + settings)", c_mute),
+        ("Auto-mute input guard", c_muteguard),
+        ("Personal fit (your results)", c_fit),
+        ("Adaptive runes (comp-aware)", c_runes),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
         ("League client / LCU", c_lcu),

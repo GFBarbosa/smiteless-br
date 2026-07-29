@@ -133,7 +133,12 @@ def main():
              font=skin.display(17, bold=True)).pack(side="left")
     me_state = tk.Label(me_head, text="", bg=SURFACE, font=skin.body(SMALL, bold=True))
     me_state.pack(side="left", padx=(10, 0), pady=(6, 0))
-    tk.Label(me_in, text=t("One champion. Everything that shortens the climb, on. Smiteless auto-accepts, bans the champ that threatens your team, LOCKS your champ for you (backup if it's gone), imports the runes, mutes the lobby, and runs every in-game read. The pool discipline is the point: it takes the 30 seconds before a game where the LP goes and removes the decisions from them."),
+    tk.Label(me_in, text=t("Everything that shortens the climb, on. Smiteless auto-accepts, bans "
+             "the champ that threatens your team, LOCKS your pick for you, imports the runes, "
+             "mutes the lobby, and runs every in-game read. Name a Main (and a Backup) to be "
+             "held to one champion — or leave them EMPTY and it locks the best pick for each "
+             "draft instead. Either way the 30 seconds before a game, where the LP goes, stop "
+             "being a decision."),
              bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", pady=(4, 6))
     me_row = tk.Frame(me_in, bg=SURFACE)
@@ -168,11 +173,20 @@ def main():
         me_state.config(text=t("ARMED" if on else "STANDING BY"), fg=(EMBER if on else MUTED))
         me_btn.config(text=t("STAND DOWN" if on else "ARM MAX ELO"))
         if on:
-            mn = maxelo_main.get().strip() or "?"
+            mn = maxelo_main.get().strip()
             bk = maxelo_back.get().strip()
-            me_note.config(text=t("Locked to {main}{backup}. Champ select is on rails — change your mind here, not in the lobby.").format(
-                main=mn, backup=(t(", backup {champ}").format(champ=bk) if bk else "")),
-                           fg=EMBER)
+            if mn:
+                me_note.config(
+                    text=t("Locked to {main}{backup}. Champ select is on rails — change your "
+                           "mind here, not in the lobby.").format(
+                               main=mn,
+                               backup=(t(", backup {champ}").format(champ=bk) if bk else "")),
+                    fg=EMBER)
+            else:
+                me_note.config(text=t("No champion set — so it locks the BEST PICK for each "
+                                      "draft: the same read as GOOD THIS GAME (counters into "
+                                      "their locks + comp fit), best first. Name a main above "
+                                      "if you'd rather it always be one champion."), fg=EMBER)
         else:
             me_note.config(text=t("Nothing is being locked. Arming also switches on every feature below that shortens the climb."), fg=MUTED)
 
@@ -183,10 +197,9 @@ def main():
             status.config(text=t("MAX ELO stood down - champ select is yours again"), fg=MUTED)
             _me_paint()
             return
-        main_nm = _canon(maxelo_main.get())
-        if not main_nm:
-            me_note.config(text=t("Pick a main champion first - that's the whole idea."), fg=BAD)
-            return
+        # An empty main is a VALID way to arm: no champion named means "lock whatever is best
+        # for this draft". Requiring one made the button need setup before it did anything.
+        main_nm = _canon(maxelo_main.get()) or ""
         back_nm = _canon(maxelo_back.get()) or ""
         maxelo_main.set(main_nm)
         maxelo_back.set(back_nm)
@@ -195,9 +208,9 @@ def main():
         for _v, _k in _MAXELO_VARS:              # reflect the forced-on toggles in the UI
             _v.set(True)
         _me_paint()
-        status.config(text=f"MAX ELO armed - {main_nm}"
-                           + (f" / {back_nm}" if back_nm else "") + ", everything climb-focused on",
-                      fg=GOOD)
+        who = (main_nm + (f" / {back_nm}" if back_nm else "")) if main_nm \
+            else "best pick per draft"
+        status.config(text=f"MAX ELO armed - {who}, everything climb-focused on", fg=GOOD)
 
     # THE button: this window's one primary (UIDESIGN §: exactly one EMBER-filled button per
     # window), sized up — it's the only control most sessions touch. Save drops to secondary.
@@ -285,7 +298,6 @@ def main():
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
-    duo = tk.BooleanVar(value=s["duo_detection"])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
@@ -296,6 +308,8 @@ def main():
     queuecall = tk.BooleanVar(value=s.get("queue_call", True))
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     reentryv = tk.BooleanVar(value=s.get("re_entry", True))
+    bleedv = tk.BooleanVar(value=s.get("bleed_guard", True))
+    closerv = tk.BooleanVar(value=s.get("closer", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -314,9 +328,10 @@ def main():
     _MAXELO_VARS = [(autoq, "auto_accept"), (autoban, "auto_ban"), (autoimp, "auto_import"),
                     (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
                     (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
+                    (bleedv, "bleed_guard"), (closerv, "closer"),
                     (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
                     (loadbrief, "loading_scout"), (queuecall, "queue_call"),
-                    (dodge, "dodge_alerts"), (tips, "matchup_tips"), (duo, "duo_detection"),
+                    (dodge, "dodge_alerts"), (tips, "matchup_tips"),
                     (dock, "dock_champ_select"), (draftlink, "draft_link"),
                     (draftopen, "draft_autoopen"), (solocoach, "solo_coaching")]
 
@@ -348,13 +363,30 @@ def main():
         ("Dragon spawn audio", dragon),
         ("Respawn plan (death card)", respawnv),
         ("Re-entry guard (90s after respawn)", reentryv),
+        ("Bleed guard (first 14 minutes)", bleedv),
+        ("Closer (win-conversion, from 20:00)", closerv),
     ])
+    tk.Label(body, text="BLEED GUARD watches your own health bar before 14:00 — the window "
+             "where three deaths turn into a 39% game (your last 46: 9W-14L with it, 14W-9L "
+             "without). It only speaks when somebody can actually collect: low health AND "
+             "their jungler unaccounted for, or a laner two levels up who kills you on his "
+             "own. Everything else is silence.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    tk.Label(body, text="CLOSER only exists in games you are ALREADY WINNING. From 20:00, "
+             "while your team is 2k+ up, it reads their turrets and inhibitors straight off "
+             "the event feed and tells you the shortest path to the nexus — END IT when an "
+             "inhibitor is open, CLOSE when one turret stands in front of one. It also tracks "
+             "what you have GIVEN BACK of your peak lead, and HOLDs you off a fight you would "
+             "lose, priced in the seconds your death actually costs. Behind or even, it says "
+             "nothing at all.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [
         ("Death brief (while dead)", deadbrief),
         ("Loading-screen scout (splash cards)", loadbrief),
         ("Queue call (pre-queue stop/go)", queuecall),
         ("Matchup lane tips", tips),
-        ("Duo / premade detection", duo),
         ("Keep live board always on top", boardtop),
         ("Dock champ-select panel by client", dock),
     ])
@@ -366,13 +398,15 @@ def main():
         ("Live draft link (URL in chat)", draftlink),
         ("Also open the draft board for me", draftopen),
     ])
-    _feat_group("IN-GAME AUTOMATION", [
-        ("Auto-mute everyone (chat + pings)", automute),
+    _feat_group("IN-GAME QUIET", [
+        ("Auto-mute (chat off, pings silent)", automute),
     ])
-    tk.Label(body, text=t("Auto-mute sends Riot's own /fullmute all the moment the game clock "
-             "starts — chat and pings from every player, hidden for that game only. Your own "
-             "pings still work and nothing is changed permanently. It waits until the game "
-             "window is focused, so the command is never typed anywhere else."),
+    tk.Label(body, text=t("Hides ally chat and all-chat and silences ping audio, by writing "
+             "League's OWN settings through the client — nothing is typed into the game, and "
+             "Smiteless reads the setting back to confirm it took. Two honest limits: ping "
+             "MARKERS still draw on the minimap (the client has no setting for those), and "
+             "because it's a client setting it PERSISTS until you turn it off — here, or in "
+             "League's own Audio/Interface settings."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
 
@@ -598,8 +632,13 @@ def main():
 
     fkey = skin.card(body, rail=LINE)
     fkey.pack(fill="x", padx=14, pady=(6, 2))
-    tk.Label(fkey.body, text=t("FLASH KEY"), bg=SURFACE, fg=TXT,
+    tk.Label(fkey.body, text=t("ESCAPE KEY"), bg=SURFACE, fg=TXT,
              font=skin.body(BODY, bold=True)).pack(anchor="w", padx=12, pady=(8, 0))
+    tk.Label(fkey.body, text=t("Which key auto-import puts your movement summoner on. GHOST goes "
+             "here too when the build has no Flash — same finger, same panic button, so the "
+             "escape never moves between champs."),
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left", anchor="w",
+             wraplength=430).pack(fill="x", padx=12, pady=(1, 0))
     row = tk.Frame(fkey.body, bg=SURFACE)
     row.pack(fill="x", padx=12, pady=(2, 8))
     tk.Label(row, text="D", bg=SURFACE, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
@@ -612,7 +651,8 @@ def main():
     tk.Label(row, textvariable=fstat, bg=SURFACE, fg=MUTED, font=skin.body(SMALL)).pack(side="left", padx=(10, 0))
 
     def _upd_flash(_=None):
-        fstat.set(t("Flash on D") if flash_side.get() == 0 else t("Flash on F"))
+        fstat.set(t("Flash / Ghost on D") if flash_side.get() == 0
+                  else t("Flash / Ghost on F"))
     fscale.config(command=_upd_flash)
     _upd_flash()
 
@@ -773,11 +813,12 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
-                  "duo_detection": duo.get(), "item_widget": widget.get(),
+                  "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
+                  "bleed_guard": bleedv.get(), "closer": closerv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -806,8 +847,8 @@ def main():
         pgames.set(cfg.DEFAULTS["profile_games"])
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
-        for v in (tips, duo, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
+        for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
+                  respawnv, reentryv, bleedv, closerv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
