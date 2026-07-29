@@ -306,6 +306,7 @@ def main():
     respawnv = tk.BooleanVar(value=s.get("respawn_plan", True))
     reentryv = tk.BooleanVar(value=s.get("re_entry", True))
     bleedv = tk.BooleanVar(value=s.get("bleed_guard", True))
+    closerv = tk.BooleanVar(value=s.get("closer", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -324,7 +325,7 @@ def main():
     _MAXELO_VARS = [(autoq, "auto_accept"), (autoban, "auto_ban"), (autoimp, "auto_import"),
                     (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
                     (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
-                    (bleedv, "bleed_guard"),
+                    (bleedv, "bleed_guard"), (closerv, "closer"),
                     (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
                     (loadbrief, "loading_scout"), (queuecall, "queue_call"),
                     (dodge, "dodge_alerts"), (tips, "matchup_tips"),
@@ -360,12 +361,22 @@ def main():
         ("Respawn plan (death card)", respawnv),
         ("Re-entry guard (90s after respawn)", reentryv),
         ("Bleed guard (first 14 minutes)", bleedv),
+        ("Closer (win-conversion, from 20:00)", closerv),
     ])
     tk.Label(body, text="BLEED GUARD watches your own health bar before 14:00 — the window "
              "where three deaths turn into a 39% game (your last 46: 9W-14L with it, 14W-9L "
              "without). It only speaks when somebody can actually collect: low health AND "
              "their jungler unaccounted for, or a laner two levels up who kills you on his "
              "own. Everything else is silence.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    tk.Label(body, text="CLOSER only exists in games you are ALREADY WINNING. From 20:00, "
+             "while your team is 2k+ up, it reads their turrets and inhibitors straight off "
+             "the event feed and tells you the shortest path to the nexus — END IT when an "
+             "inhibitor is open, CLOSE when one turret stands in front of one. It also tracks "
+             "what you have GIVEN BACK of your peak lead, and HOLDs you off a fight you would "
+             "lose, priced in the seconds your death actually costs. Behind or even, it says "
+             "nothing at all.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [
@@ -790,7 +801,7 @@ def main():
                   "tempo_voice": tempov.get(),
                   "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
-                  "bleed_guard": bleedv.get(),
+                  "bleed_guard": bleedv.get(), "closer": closerv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -819,7 +830,7 @@ def main():
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, bleedv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
+                  respawnv, reentryv, bleedv, closerv, deadbrief, loadbrief, dodge, dock, auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off

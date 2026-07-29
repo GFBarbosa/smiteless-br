@@ -87,6 +87,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "respawn_plan": True,    # widget: RESPAWN — death screen becomes countdown + comeback plan
          "re_entry": True,        # widget: RE-ENTRY — the 90s-after-respawn guard (core/lolreentry)
          "bleed_guard": True,     # widget: BLEED — the first-14-minutes health guard (core/lolbleed)
+         "closer": True,          # widget: CLOSER — the post-20:00 win-conversion director (core/lolclose)
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
          "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
                                     #   profile-read tags, damage lean) while the game loads. FRESH
@@ -119,7 +120,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 # all, and `board_topmost` is taste.
 MAX_ELO_ON = ("auto_accept", "auto_ban", "auto_import", "auto_mute",
               "item_widget", "game_intel", "tempo_coach", "free_alarm", "re_entry",
-              "bleed_guard", "respawn_plan", "death_brief", "loading_scout", "queue_call",
+              "bleed_guard", "closer", "respawn_plan", "death_brief", "loading_scout", "queue_call",
               "dodge_alerts", "matchup_tips", "dock_champ_select",
               "draft_link", "draft_autoopen", "solo_coaching", "gank_kit")
 
