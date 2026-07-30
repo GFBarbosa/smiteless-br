@@ -56,9 +56,10 @@ the difference between grinding a rank and arriving at it.
 | `early bleeding` (3+ deaths pre-14) | **BLEED** | 0:00 → 14:00 |
 | `chained deaths` (2+ inside 90s) | **RE-ENTRY** | the 90s after you respawn |
 | `coin-flip death while ahead` | **THE CLOSER** | 20:00+, only while winning |
-| `no vision setup` | *— not yet* | next up |
+| `no vision setup` | **THE WARD CLOCK** | every objective's setup window |
 
-Plus the **Tempo engine**, which owns the ~90 seconds before every objective. Here is the whole
+**Every tag in the ledger now has a live surface.** Plus the **Tempo engine**, which owns
+the ~90 seconds before every objective. Here is the whole
 in-game HUD, one panel per guard:
 
 ![The in-game widget](docs/widget.png)
@@ -94,7 +95,7 @@ Hit **ARM** and the app goes on rails for the climb. Name a champion and a backu
 to one pick, or **leave them empty and it locks the best champion for that draft** — counters
 into the enemies who've locked plus comp fit, falling through the list if the top one is gone.
 Then it bans the champ that most threatens your team, auto-accepts, imports your runes and
-summoners, mutes the lobby, and switches on all 23 climb-focused reads at once. Champion-pool
+summoners, mutes the lobby, and switches on all 24 climb-focused reads at once. Champion-pool
 discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
 it. **STAND DOWN** releases the lock and leaves the reads on.
 
@@ -112,6 +113,7 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 - **RE-ENTRY, the 90-second guard** — the moment you respawn, a clock starts on the window that actually loses games: dying *again* inside 90 seconds. While it runs the widget answers one thing off live data — can they punish you right now? **HOLD** (the champion who killed you is up and ahead, or you lose any fight this second) takes over the directive card with the productive thing to do instead; **CLEAR** names the enemies who are dead and how long you own the map. It carries its receipt: your own W/L split for the habit, straight out of your match history
 - **THE CLOSER — the game you're already winning.** From 20:00, and only while your team is 2k+ up (the same bar your profile uses to tag a thrown game), it answers the question the minimap answers and you never look at: *what is the shortest path to their nexus from here?* It keeps a live structure map from the turret and inhibitor events — **END IT** when an inhibitor is open, with the seconds left on its five-minute clock; **CLOSE** when one turret is all that stands in front of one. It also tracks what you've **given back** of your peak lead (*+4.5k · gave back 2.1k of 6.6k*) — the one number that shows a game being thrown in slow motion — and **HOLD**s you off a fight you'd lose, priced in the seconds your death actually costs against the live baron timer. Behind or even, it says nothing at all
 - **THE GOLD CLOCK — your lane, counted against the minions that actually spawned.** Every CS overlay ever built shows you CS/min against a flat benchmark; a flat benchmark doesn't know that at 4:32 only nine waves have left the fountain. Minions are a *schedule* — one wave at 1:05 and one every 30s, 3 melee + 3 casters, every third carrying a cannon — so the denominator here isn't a benchmark, it's the minions that have walked into your lane: *`41 of 74 · 55% · on track for 63, bar 55`*. It back-times your own profile's bar (55 CS by 10:00, the `weak first-ten economy` tag) into the only sentence that helps — ***"you need 25 of the next 32 minions"*** — and says so plainly when the answer is no, switching to plates and objectives instead. The **cannon minion** (60g, the biggest object in lane phase) gets its own seconds-out warning, but only while you're behind. Kills count as the CS they were worth, so a roaming game reads `30+44 of 82 · 90%` and stays green. A wave lost while you were dead is never billed to you. One quiet row for ten minutes; it takes the card only at the moment a wave went by, and never outranks BLEED. Top / mid / ADC — silent for jungle and support rather than invent a number
+- **THE WARD CLOCK — the objective you were always going to fight over, and whether you did anything about it before it spawned.** The GOLD CLOCK's other half: it speaks **only for jungle and support**, the two roles your profile actually grades on vision, so the two can never talk over each other. Vision isn't a rate you grind, it's a *deadline* — a ward placed as the drake spawns is decoration — so every drake, grub, herald and baron gets **one call in its setup window**, back-timed off the same objective clock the widget already draws: *`SETUP — drake in 58s · vision in by 4:15`*, with the entrance named and the instruction **adapted to the trinket you're actually holding** (a sweeper takes theirs first; a farsight can't sweep at all). It also reads three things every other surface in this app was throwing away: **your live vision score next to your opposite number's** — the one stat in Riot's own live API where you can see their support's number while the game is still being played — the **control ward sitting in your bag** (75g that wards nothing until you place it, and it knows the difference between one you bought a minute ago and one you've carried through two objectives), and the number nothing else has ever shown a player: **the share of the game you had a control ward on you at all**. One spoken *"Ward it."* per window, three a game maximum
 - **Enemy jungle tracker** — where they were seen, when they're dead, when to respect the gank
 - **Win probability, objective timers with audio, power-spike alerts, item coaching** — one compact draggable HUD that fades when nothing needs you, and is fully click-through during a live game so it can never eat a click (hold **Ctrl+Alt** to touch it)
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
@@ -138,8 +140,9 @@ python smiteless_main.py overlay      # or: widget / settings / profile
 ```
 
 `python tools\selftest.py` runs the health check and every engine guard — the verdict engines
-(tempo, gold clock, bleed, re-entry, closer, queue call) are pure functions with fixtures, so
-they're testable without a live game. Each also prints its own branches: `python core\lolgold.py`.
+(tempo, gold clock, ward clock, bleed, re-entry, closer, queue call) are pure functions with
+fixtures, so they're testable without a live game. Each also prints its own branches:
+`python core\lolward.py`.
 
 `dist\build.ps1` builds the frozen app and `dist\make-release.ps1 -Version X.Y.Z` cuts a release
 locally (PyInstaller + AHK-compiled tray/installer, Python 3.11+). Releases are normally cut in

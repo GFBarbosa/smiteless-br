@@ -308,6 +308,7 @@ def main():
     bleedv = tk.BooleanVar(value=s.get("bleed_guard", True))
     closerv = tk.BooleanVar(value=s.get("closer", True))
     goldv = tk.BooleanVar(value=s.get("gold_clock", True))
+    wardv = tk.BooleanVar(value=s.get("ward_clock", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -327,6 +328,7 @@ def main():
                     (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
                     (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
                     (bleedv, "bleed_guard"), (closerv, "closer"), (goldv, "gold_clock"),
+                    (wardv, "ward_clock"),
                     (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
                     (loadbrief, "loading_scout"), (queuecall, "queue_call"),
                     (dodge, "dodge_alerts"), (tips, "matchup_tips"),
@@ -364,7 +366,17 @@ def main():
         ("Bleed guard (first 14 minutes)", bleedv),
         ("Closer (win-conversion, from 20:00)", closerv),
         ("Gold clock (farm pace, first 10 min)", goldv),
+        ("Ward clock (objective vision, jg / sup)", wardv),
     ])
+    tk.Label(body, text="WARD CLOCK is the other half of the GOLD CLOCK: it speaks only for "
+             "JUNGLE and SUPPORT, the two roles whose vision your profile actually grades. "
+             "Every drake, grub, herald and baron gets one call in its setup window — the "
+             "entrance to ward, adapted to the trinket you're holding — plus the live vision "
+             "score you never get to see mid-game, yours next to your opposite number's. It "
+             "also watches the control ward in your bag: 75 gold that wards nothing until you "
+             "place it.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     tk.Label(body, text="GOLD CLOCK counts your CS against the minions that actually "
              "arrived in your lane — one wave every 30s from 1:05, every third with a cannon "
              "— and back-times the 55-by-10:00 bar: \u201cyou need 22 of the next 34\u201d. "
@@ -812,6 +824,7 @@ def main():
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
                   "bleed_guard": bleedv.get(), "closer": closerv.get(),
                   "gold_clock": goldv.get(),
+                  "ward_clock": wardv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -840,7 +853,8 @@ def main():
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, bleedv, closerv, goldv, deadbrief, loadbrief, dodge, dock,
+                  respawnv, reentryv, bleedv, closerv, goldv, wardv, deadbrief, loadbrief,
+                  dodge, dock,
                   auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)

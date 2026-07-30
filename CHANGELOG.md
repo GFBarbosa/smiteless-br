@@ -1,5 +1,87 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.68 - THE WARD CLOCK: the objective you were always going to fight over
+
+**New feature, and it closes the ledger. Every single leak your profile tags now has a live
+surface that fires while the mistake is still preventable.**
+
+`no vision setup` was the last tag in the file with nothing in the game to answer it - the
+README has carried it as *"not yet"* for as long as the ledger has existed. BLEED watches
+your health bar, RE-ENTRY the 90 seconds after a death, THE CLOSER the closeout, THE GOLD
+CLOCK the lane phase - and the GOLD CLOCK is deliberately silent for jungle and support,
+because camps aren't on the wave schedule and a support's CS was never the story. Which left
+the two roles that actually own the map with no lane-phase coach at all.
+
+**The WARD CLOCK is the GOLD CLOCK's other half.** Jungle and support only, so the two can
+never talk over each other, and between them every role now has one.
+
+- **Vision is a DEADLINE, not a rate.** "Ward more" changes nothing. A ward that goes down
+  as the drake spawns is decoration; the same ward forty seconds earlier decides whether the
+  fight happens on your terms. So every drake, grub, herald and baron gets **exactly one
+  call, in its setup window**, back-timed off the same objective clock the widget is already
+  drawing for you:
+
+      SETUP - drake in 58s - vision in by 4:15
+      ward their botside jungle entrance - the side they walk in from, not your own
+
+  The entrance is named, and it's named side-relative, so it's right on blue side and red side.
+- **The advice fits the item in your hand.** Holding a sweeper and it tells you to take
+  theirs first, because a swept pit beats a pit with one more ward in it. Holding a farsight
+  and it tells you to place from range and get it in early, because you cannot sweep at all.
+  Advice you can't execute with what you're actually carrying is advice you learn to ignore.
+- **Your vision score against theirs, live.** Riot's own live feed carries a vision score for
+  all ten players and *nothing* - not the scoreboard, not TAB, not any overlay - shows it to
+  you during the game. It is the one stat where you can see your direct opposite number's
+  figure while the game is still being played:
+
+      VISION   6 of 18 - 0.4/min, bar 1.2 - their sup 19 - no pink 5:00
+
+  Six against nineteen isn't coaching folklore. That's the scoreboard of the map you're
+  about to fight on, and the bar it's measured against is **your own profile's** - the same
+  1.2/min (support) and 0.55/min (jungle) that decides whether the game gets tagged. It is
+  read straight out of that code rather than typed twice, so the live row and the post-game
+  verdict can never disagree.
+- **It watches the 75 gold that decides objectives.** The control ward in your bag is
+  tracked every second, so the app knows when you bought one, when you *placed* one, and how
+  long the one you're carrying has been sitting there:
+
+      PINK - drake in 58s - the 75g in your bag wards nothing yet
+      the control ward goes in the pit - it's the only ward that deletes theirs
+
+  And it knows the difference between a ward you bought six seconds ago and one you've
+  carried through two objectives, so it never calls a fresh buy dead gold.
+- **The number nobody has ever put in front of a player:** the share of the game you had a
+  control ward *on you at all*. Most vision leaks aren't bad ward placement - they're never
+  having one in the bag. Now that's a number you can see: *`1 of 2 placed - control ward on
+  you 38% of the game`*. In a recall window - the one moment buying is actually an action -
+  the row switches to **`+75g control ward`**.
+- **It never accuses you of something it can't see.** When an objective spawns and your
+  vision score hasn't moved in minutes, it says exactly that - *what the number did* - and
+  not a guess about what you were doing. If your score is above the bar it says nothing at all.
+- **It is one quiet row, not a nag.** Three spoken *"Ward it."* callouts a game, maximum, and
+  it takes the directive card only for a few seconds in a setup window before handing the slot
+  straight back. It never outranks BLEED (something that can kill you beats a ward that isn't
+  in yet) and it stands down the instant the tempo engine has a live TAKE/GIVE - by design its
+  window closes exactly where tempo's opens.
+- On by default: **Settings -> Ward clock (objective vision, jg / sup)**. The widget legend has
+  a new WARD CLOCK section. Included in MAX ELO.
+
+**Tested:** 51 distinct guard conditions and 1,400+ live-payload ticks before this shipped.
+The bar is asserted equal to the profile tag's own (drift there and the row would grade you
+against a number your review doesn't use) and the setup window equal to the objective timer's
+own leads. The inventory read is driven through every shape the live client can hand it -
+stacked control wards, a row with no count, a literal `null` inside your items, a trinket in
+any slot - and a *missing* vision score is proven to read as "unknown" rather than as a zero,
+because "you've warded nothing" is the one thing it must never say when it simply doesn't
+know. Every one of the five objectives is checked against all four trinket states for a
+finished, side-correct sentence. Then the guard is driven second-by-second through three full
+simulated games - a support who buys two control wards and places one (the purchase ledger is
+checked against the truth), a game where the drake actually respawns so the setup window comes
+round twice, and a mid laner who must never hear a single word - plus a ten-payload malformed-
+data sweep that must never cost the widget a frame. Every frame the guard produced was
+rendered through the real widget path and inspected, and the legend is now verified to
+actually contain the new section rather than silently draw it off the bottom of the card.
+
 ## v0.9.67 - THE GOLD CLOCK: your lane, counted against the minions that actually spawned
 
 **New feature, and it covers the biggest leak in your ledger that had nothing in the game

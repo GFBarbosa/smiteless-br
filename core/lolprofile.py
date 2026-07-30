@@ -571,6 +571,11 @@ _BEHAVIOR_TAGS = {
     "threw_ahead": "coin-flip death while ahead (post-25)",
     "low_vision": "no vision setup",
 }
+# Vision score per minute the low_vision tag holds a role to. ONE BRAIN: the live WARD CLOCK
+# (core/lolward) reads its bar out of here rather than re-typing it, so the in-game surface
+# and the post-game tag can never disagree about where the bar is. Laners are absent on
+# purpose - this tag has only ever been evaluated for the two roles that own the map.
+VIS_BAR = {"UTILITY": 1.2, "JUNGLE": 0.55}
 
 
 def behavior_read(dd, mid, my_puuid, key, parts, dur):
@@ -619,9 +624,9 @@ def behavior_read(dd, mid, my_puuid, key, parts, dur):
             if t >= 25 * 60 and lead(m) >= 2000:
                 hits.add("threw_ahead")
                 break
-    if pos in ("JUNGLE", "UTILITY"):               # vision setup benchmark (jg/sup only)
+    if pos in VIS_BAR:                             # vision setup benchmark (jg/sup only)
         ev.add("low_vision")
-        if float(mine.get("vision") or 0) / gmins < (1.2 if pos == "UTILITY" else 0.55):
+        if float(mine.get("vision") or 0) / gmins < VIS_BAR[pos]:
             hits.add("low_vision")
     return hits, ev
 

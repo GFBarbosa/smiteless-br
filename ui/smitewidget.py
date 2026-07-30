@@ -25,6 +25,7 @@ import lolreentry as lre
 import lolbleed as lbl
 import lolclose as lcl
 import lolgold as lgd
+import lolward as lwd
 import loltempo as lt
 import phasecheck
 import smiteconfig as cfg
@@ -42,6 +43,7 @@ KIND_COLOR = {"core": TXT, "insert": EMBER, "counter": BAD, "antiheal": MYSTIC, 
 KIND_TAG = {"core": "", "insert": "⚑", "counter": "⚠", "antiheal": "✚", "build": "▸", "boots": "▸"}
 POLL = 1                                                  # seconds between live reads (all local)
 BLEED_SAY = 3          # spoken "Back off." lines per game, hard cap (core/lolbleed draws the card)
+WARD_SAY = 3           # spoken "Ward it." lines per game, hard cap (core/lolward draws the card)
 # objective-timer feature toggles read from settings (default on); a per-frame gate keeps the
 # widget honest when the user turns them off.
 # ---- dragon spawn chime: a soft Japanese-style pentatonic bell jingle, synthesized to a real
@@ -531,7 +533,7 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
 
 
 def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=None,
-                 bleed=None, closer=None, gold=None):
+                 bleed=None, closer=None, gold=None, ward=None):
     """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
     body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
     safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
@@ -587,6 +589,14 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         hold = True
         y = _render_reentry(d, gold, x, y, wrapw, W, label="GOLD",
                             clock=lambda s: f"{s // 60}:{s % 60:02d}")
+    elif ward and not ward.get("quiet"):
+        # WARD CLOCK (lolward) takes the directive slot for a few seconds in an objective's
+        # SETUP window, and once just after it spawns. It can never collide with the GOLD
+        # CLOCK — that one speaks only for top/mid/adc and this one only for jungle/support —
+        # and it sits below BLEED for the same reason GOLD does: something that can kill you
+        # right now outranks a ward that isn't in yet.
+        hold = True
+        y = _render_reentry(d, ward, x, y, wrapw, W, label="WARD")
     elif reentry:
         vc = C_ARC if reentry["verdict"] == "CLEAR" else C_MUTED
         d.text((x + 2, y), "RE-ENTRY", font=_wfont(9, 1), fill=C_MUTED)
@@ -629,6 +639,22 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         d.text((x + 2, y), "GOLD", font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf,
                fill=C_GOOD if gold.get("ahead") else (C_WARN if gold.get("under") else C_ARC))
+        y += 18
+
+    # ---- WARD CLOCK quiet row: your live vision score against the bar your own profile
+    # grades you on, your opposite number's next to it, and the pink ledger. Same ordered-
+    # segment contract as the GOLD row — keep as many as fit rather than clip a number.
+    if ward and ward.get("quiet"):
+        qf = _dfont(11, bold=True)
+        avail = W - x - 62 - 8                 # one row, never a wrap
+        bits = list(ward.get("bits") or [(ward.get("line") or "").split("—", 1)[-1].strip()])
+        while len(bits) > 1 and d.textlength(" · ".join(bits), font=qf) > avail:
+            bits.pop()
+        txt = " · ".join(bits)
+        while txt and d.textlength(txt, font=qf) > avail:
+            txt = txt[:-2] + "…"
+        d.text((x + 2, y), "WARD", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 62, y - 1), txt, font=qf, fill=C_WARN if ward.get("under") else C_GOOD)
         y += 18
 
     # ---- tempo directive card ----
@@ -804,6 +830,13 @@ _LEGEND_GOLD = (
     ("CANNON", C_EMBER, "a siege minion (60g) lands in seconds and you're behind"),
     ("PACE",   C_GOOD,  "the quiet row: your CS of what actually arrived in your lane"),
 )
+# WARD CLOCK verdicts (lolward) — jungle/support only; objective vision deadlines.
+_LEGEND_WARD = (
+    ("PINK",   C_EMBER, "an objective's setup window is open and a control ward is still in your bag"),
+    ("SETUP",  C_EMBER, "vision has to be in NOW — the entrance named, adapted to your trinket"),
+    ("DARK",   C_BAD,   "it spawned and your vision score hasn't moved in minutes"),
+    ("VISION", C_GOOD,  "the quiet row: your vision score vs the bar, and theirs next to it"),
+)
 _LEGEND_GLYPHS = (
     ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
     ("◎", C_GOOD,  "gank window — a lane is killable right now"),
@@ -821,7 +854,10 @@ _LEGEND_ITEMS = (
 
 def _render_legend(W=330):
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (W, 1200), C_VOID)
+    # Tall enough for every section plus room to add one: drawing past the canvas is SILENT,
+    # so a new section that overruns it doesn't error — it just vanishes off the bottom of the
+    # decoder card. The crop at the end trims whatever is unused.
+    img = Image.new("RGB", (W, 1700), C_VOID)
     d = ImageDraw.Draw(img)
     x, y = 10, 8
     wrapw = W - 2 * x
@@ -908,6 +944,19 @@ def _render_legend(W=330):
         y += 14
     y += 4
     for vd, col, txt in _LEGEND_GOLD:
+        row(vd, col, txt, 52, dfont=True)
+
+    section("WARD CLOCK — THE OTHER TWO ROLES")
+    for ln in _wwrap(d, "the GOLD CLOCK's other half: jungle and support only, the two roles "
+                        "your profile grades on vision. Every objective gets ONE call in its "
+                        "setup window — vision is a deadline, not a rate — and the row shows "
+                        "the live vision score League never lets you see mid-game, yours next "
+                        "to your opposite number's.",
+                     _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
+        y += 14
+    y += 4
+    for vd, col, txt in _LEGEND_WARD:
         row(vd, col, txt, 52, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
@@ -1045,7 +1094,7 @@ def main():
     shot = tk.Label(outer, bg=VOID, bd=0)
 
     def render(rec, pulse=None, recall=None, dead=None, ref=False, reentry=None,
-               bleed=None, closer=None, gold=None):
+               bleed=None, closer=None, gold=None, ward=None):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -1070,12 +1119,13 @@ def main():
                          or (reentry and reentry.get("verdict") == "HOLD") or bleed
                          or (closer and not closer.get("quiet"))
                          or (gold and not gold.get("quiet"))
+                         or (ward and not ward.get("quiet"))
                          or (tempo and (tempo.get("urgent") or tempo.get("phase")
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
             im = _render_body(dd, rec, pulse, recall, dead, ref=ref, reentry=reentry,
-                              bleed=bleed, closer=closer, gold=gold)
+                              bleed=bleed, closer=closer, gold=gold, ward=ward)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1213,11 +1263,14 @@ def main():
         bleed_on = _cfg.get("bleed_guard", True)
         closer_on = _cfg.get("closer", True)
         gold_on = _cfg.get("gold_clock", True)
+        ward_on = _cfg.get("ward_clock", True)
         guard90 = lre.Guard()                             # RE-ENTRY: the 90s-after-respawn window
         guard14 = lbl.Guard()                             # BLEED: the first-14-minutes health guard
         closer = lcl.Guard()                              # CLOSER: the post-20:00 win-conversion read
         goldclock = lgd.Guard()                           # GOLD CLOCK: first-ten farm pace vs the wave schedule
+        wardclock = lwd.Guard()                           # WARD CLOCK: objective vision deadlines (jg/sup)
         bled = {"said": 0}                                # BLEED windows already announced aloud
+        warded = {"said": 0}                              # ...same, for the WARD CLOCK's setup calls
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
@@ -1230,6 +1283,8 @@ def main():
                              daemon=True).start()
         if bleed_on and voice_on and dvol > 0:            # pre-render the BLEED line (one-time)
             threading.Thread(target=lambda: _tts_salli("backoff", "Back off."), daemon=True).start()
+        if ward_on and voice_on and dvol > 0:             # ...and the WARD CLOCK's (one-time)
+            threading.Thread(target=lambda: _tts_salli("wardit", "Ward it."), daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -1343,6 +1398,13 @@ def main():
                     gold = goldclock.observe(dd, raw, (pulse or {}).get("tempo"))
                 except Exception:
                     gold = None
+            ward = None
+            if ward_on and raw is not None:              # WARD CLOCK: objective vision deadlines
+                try:                                     # ONE BRAIN: the tempo read AND the
+                    ward = wardclock.observe(dd, raw, (pulse or {}).get("tempo"),
+                                             (pulse or {}).get("objectives"))
+                except Exception:                        # objective clock the widget already drew
+                    ward = None
             # Spoken once per window, and never more than BLEED_SAY times a game: this fires
             # while your eyes are on the lane, which is the whole point of saying it out loud,
             # but a voice that repeats is a voice you learn to ignore.
@@ -1350,6 +1412,15 @@ def main():
                     and bleed["calls"] > bled["said"] and bled["said"] < BLEED_SAY):
                 bled["said"] = bleed["calls"]
                 threading.Thread(target=_say, args=("backoff", "Back off.", st["vol"]),
+                                 daemon=True).start()
+            # Spoken once per setup window, capped like BLEED's line. This one is worth
+            # saying out loud precisely because your eyes are on the map and not the widget —
+            # but three a game is the difference between a callout and a nag.
+            if (ward and not ward.get("quiet") and voice_on and st["vol"] > 0
+                    and not st.get("muted", False) and ward["calls"] > warded["said"]
+                    and warded["said"] < WARD_SAY):
+                warded["said"] = ward["calls"]
+                threading.Thread(target=_say, args=("wardit", "Ward it.", st["vol"]),
                                  daemon=True).start()
             # "you're up" chime: one soft two-note cue as the respawn timer crosses ~1.5s,
             # so eyes-off-screen death time ends with a nudge instead of lost seconds.
@@ -1373,7 +1444,7 @@ def main():
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
                        "dead": dead, "reentry": reentry, "bleed": bleed,
-                       "closer": close, "gold": gold})
+                       "closer": close, "gold": gold, "ward": ward})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -1430,7 +1501,8 @@ def main():
                         render(msg["rec"], msg.get("pulse"), msg.get("recall"),
                                msg.get("dead"), ref=st.get("ref_view", False),
                                reentry=msg.get("reentry"), bleed=msg.get("bleed"),
-                               closer=msg.get("closer"), gold=msg.get("gold"))
+                               closer=msg.get("closer"), gold=msg.get("gold"),
+                               ward=msg.get("ward"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:
@@ -1499,7 +1571,7 @@ def main():
                         render(m["rec"], m.get("pulse"), m.get("recall"),
                                m.get("dead"), ref=inside, reentry=m.get("reentry"),
                                bleed=m.get("bleed"), closer=m.get("closer"),
-                               gold=m.get("gold"))
+                               gold=m.get("gold"), ward=m.get("ward"))
                     except Exception:
                         pass
             mode = ("hint" if st.get("ct") else "vol") if inside else None
