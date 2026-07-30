@@ -481,7 +481,7 @@ def _render_reentry(d, card, x, y, wrapw, W, label="RE-ENTRY", clock=None):
     ch = 12 + 19 + len(lines) * 17 + len(subs) * 14 + 3 + (len(evs) * 12 + 3 if evs else 0)
     d.rounded_rectangle([x, y, W - x, y + ch], radius=9, fill=tint, outline=pc, width=1)
     # header row, same shape as the RESPAWN card: what this is, and the clock it runs on
-    d.text((x + 10, y + 7), t(label), font=_wfont(9, 1), fill=C_MUTED)
+    d.text((x + 10, y + 7), t(label).upper(), font=_wfont(9, 1), fill=C_MUTED)
     cf = _dfont(14, bold=True)
     _lf = max(0, int(card.get("left") or 0))
     # CLOSER puts its LEAD in the clock slot (+4.2k): the number that defines the card.
@@ -591,7 +591,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         # BLEED on purpose: those two share the first fourteen minutes, and "something can
         # kill you right now" always outranks "that wave was worth 105 gold".
         hold = True
-        y = _render_reentry(d, gold, x, y, wrapw, W, label="GOLD",
+        y = _render_reentry(d, gold, x, y, wrapw, W, label="Gold",
                             clock=lambda s: f"{s // 60}:{s % 60:02d}")
     elif ward and not ward.get("quiet"):
         # WARD CLOCK (lolward) takes the directive slot when a pit is about to be fought in
@@ -600,7 +600,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         # one is silent for jungle/support and this one is silent for everybody else — and
         # it stands down to its row by itself whenever the tempo engine calls a fight.
         hold = True
-        y = _render_reentry(d, ward, x, y, wrapw, W, label="WARD")
+        y = _render_reentry(d, ward, x, y, wrapw, W, label="Ward")
     elif reentry:
         vc = C_ARC if reentry["verdict"] == "CLEAR" else C_MUTED
         d.text((x + 2, y), t("RE-ENTRY"), font=_wfont(9, 1), fill=C_MUTED)
@@ -640,7 +640,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         txt = " · ".join(bits)
         while txt and d.textlength(txt, font=qf) > avail:
             txt = txt[:-2] + "…"
-        d.text((x + 2, y), t("GOLD"), font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 2, y), t("Gold").upper(), font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf,
                fill=C_GOOD if gold.get("ahead") else (C_WARN if gold.get("under") else C_ARC))
         y += 18
@@ -659,7 +659,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         while txt and d.textlength(txt, font=qf) > avail:
             txt = txt[:-2] + "…"
         gap = ward.get("gap")
-        d.text((x + 2, y), t("WARD"), font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 2, y), t("Ward").upper(), font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf,
                fill=C_WARN if ward.get("under") else (C_GOOD if (gap or 0) >= 0 else C_ARC))
         y += 18

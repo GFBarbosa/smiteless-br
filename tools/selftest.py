@@ -536,7 +536,7 @@ def c_ward():
     who has warded all game of being dark), it never bills you for dark time you spent on the
     grey screen, its bar is lolprofile's own, and it stays quiet for the roles the profile has
     never graded on vision."""
-    import lolward as lw, lolprofile as lp, loltempo as lt
+    import lolward as lw, lolprofile as lp, loltempo as lt, smitei18n as i18n
     # --- ONE BRAIN: the bar is lolprofile's, the pit sides are loltempo's. Both are read at
     #     runtime rather than re-typed, so a change on either side can't silently diverge.
     if lw.vpm_bar("support") != lp.VPM_BAR["UTILITY"] or lw.vpm_bar("jungle") != lp.VPM_BAR["JUNGLE"]:
@@ -686,28 +686,30 @@ def c_ward():
         if lw.trinket(junk) is not None or lw.ctrl_wards(junk):
             return FAIL, f"the inventory read invented something from {junk!r}"
     sw = lw._verdict(lw.demo("pitsweeper"))
-    if "sweep it before you place" not in sw["sub"]:
+    sweep_copy = i18n.t(lw._HOW["sweeper"])
+    if sweep_copy not in sw["sub"]:
         return FAIL, "a sweeper wasn't told to take theirs first"
     fs = lw._verdict(lw.demo("pitfarsight"))
-    if "can't sweep" not in fs["sub"] or "sweep it before" in fs["sub"]:
+    farsight_copy = i18n.t(lw._HOW["farsight"])
+    if farsight_copy not in fs["sub"] or sweep_copy in fs["sub"]:
         return FAIL, "a farsight was told to sweep, which it cannot do"
     if lw._HOW.get("yellow"):
         return FAIL, "a plain yellow trinket adds a clause that says nothing"
     # the DEADLINE: named while there is still one, and never once the fight has started
     dl = lw._verdict(lw.demo("pitdeadline"))
-    if "in by" not in dl["line"]:
-        return FAIL, "the pit card lost its deadline"
     import lollive as ll
     want_by = lw._mmss(lw.demo("pitdeadline")["gt"] + 68 - ll.ALERT_LEAD)
     if want_by not in dl["line"]:
         return FAIL, f"the deadline isn't spawn minus lollive's own lead ({want_by})"
     for k in ("pit", "pitup"):                       # inside the fight there is no deadline
-        if "in by" in (lw._verdict(lw.demo(k)) or {})["line"]:
+        if want_by in (lw._verdict(lw.demo(k)) or {})["line"]:
             return FAIL, f"{k} printed a deadline that has already passed"
     # the LEDGER, and its absence when there is nothing to report
-    if "1 of 2 placed" not in lw._verdict(lw.demo("pink"))["sub"]:
+    placed_copy = i18n.tf("{placed} of {bought} placed", placed=1, bought=2)
+    if placed_copy not in lw._verdict(lw.demo("pink"))["sub"]:
         return FAIL, "the PINK card lost the buy/place ledger"
-    if "control ward on you 42%" not in lw._verdict(lw.demo("dark"))["sub"]:
+    share_copy = i18n.tf("control ward on you {percent}% of the game", percent=42)
+    if share_copy not in lw._verdict(lw.demo("dark"))["sub"]:
         return FAIL, "the share-of-game control-ward number is gone"
     if "%" in lw._verdict(lw.demo("noledger"))["sub"]:
         return FAIL, "a percentage was printed before there was a sample for one"
@@ -716,10 +718,11 @@ def c_ward():
         if not lo <= lw._verdict(d)["have_pct"] <= hi:
             return FAIL, f"have_pct {pct} escaped 0-100"
     # the buy prompt: only in a recall window, only if affordable, never while carrying
-    if f"+{lw.CTRL_GOLD}g" not in lw._verdict(lw.demo("base"))["row"]:
+    buy_copy = i18n.tf("+{gold}g control ward", gold=lw.CTRL_GOLD)
+    if buy_copy not in lw._verdict(lw.demo("base"))["row"]:
         return FAIL, "a recall window is the one moment the buy must lead the row"
     for k in ("basebroke", "basecarrying", "row"):
-        if f"+{lw.CTRL_GOLD}g" in lw._verdict(lw.demo(k))["row"]:
+        if buy_copy in lw._verdict(lw.demo(k))["row"]:
             return FAIL, f"{k} was sold a control ward it doesn't need or can't afford"
 
     # --- and the purchase ledger against the truth, over a whole game: two bought, one
@@ -1045,16 +1048,71 @@ def c_runes():
 
 
 def c_new_i18n():
-    """New v0.9.55-v0.9.66 surfaces must switch copy without changing their internal
+    """New v0.9.55-v0.9.69 surfaces must switch copy without changing their internal
     contracts. Exercise the same deterministic fixtures in both languages."""
+    import ast
+    import collections
+    import string
+
     import loldraft as draft
     import lolbleed as bleed, lolclose as close, lolfit as fit, lolrunes as runes
+    import lolgold as gold, lolward as ward
     import smitei18n as i18n
+
+    # Audit the source literal rather than the imported dict so a duplicate key cannot be
+    # silently overwritten before this test sees it.
+    catalog_path = os.path.join(_ROOT, "core", "i18n_pt_BR.py")
+    source = open(catalog_path, encoding="utf-8").read()
+    tree = ast.parse(source, filename=catalog_path)
+    catalog = next((node.value for node in tree.body
+                    if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == "MESSAGES"
+                            for target in node.targets)), None)
+    if not isinstance(catalog, ast.Dict):
+        return FAIL, "PT-BR catalog is not a literal MESSAGES dict"
+    literal_keys = [key.value for key in catalog.keys
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str)]
+    duplicates = sorted(key for key, count in collections.Counter(literal_keys).items()
+                        if count > 1)
+    if duplicates:
+        return FAIL, f"duplicate PT-BR catalog keys: {duplicates[:3]}"
+    formatter = string.Formatter()
+    placeholder_errors = []
+    for msgid, translated in i18n.PT_BR_MESSAGES.items():
+        source_fields = collections.Counter(
+            (field, spec, conversion) for _text, field, spec, conversion
+            in formatter.parse(msgid) if field is not None)
+        translated_fields = collections.Counter(
+            (field, spec, conversion) for _text, field, spec, conversion
+            in formatter.parse(translated) if field is not None)
+        if source_fields != translated_fields:
+            placeholder_errors.append(msgid)
+    if placeholder_errors:
+        return FAIL, f"PT-BR placeholder mismatch: {placeholder_errors[:3]}"
+
+    def localized_guards():
+        gold_kinds = ("pace", "behind", "miss", "cannon", "roaming", "unrecoverable",
+                      "onpace_miss", "jungle", "support", "early", "late")
+        ward_kinds = ("row", "under", "pit", "pitup", "pitshort", "pitfight",
+                      "pitdeadline", "pitsweeper", "pitfarsight", "dark", "darkquiet",
+                      "pink", "pinkquiet", "noledger", "base", "basebroke",
+                      "basecarrying", "jungle", "adc", "mid", "notarmed", "nofield",
+                      "early", "nocounterpart")
+        return ({kind: gold._verdict(gold.demo(kind)) for kind in gold_kinds},
+                {kind: ward._verdict(ward.demo(kind)) for kind in ward_kinds})
+
+    def contract(card):
+        if card is None:
+            return None
+        presentation = {"line", "sub", "row", "bits", "evidence"}
+        return {key: value for key, value in card.items() if key not in presentation}
+
     previous = i18n.lang()
     try:
         i18n.set_lang("en")
         bleed_en = bleed._verdict(bleed.demo("bleed"))
         close_en = close._verdict(close.demo("end"))
+        gold_en, ward_en = localized_guards()
         rec = {"baseline": 83, "recent": [],
                "champs": {"loser": {"g": 10, "w": 1, "avg": 60}}}
         fit_en = fit.verdict(rec, "loser")
@@ -1074,6 +1132,7 @@ def c_new_i18n():
         i18n.set_lang("pt_BR")
         bleed_pt = bleed._verdict(bleed.demo("bleed"))
         close_pt = close._verdict(close.demo("end"))
+        gold_pt, ward_pt = localized_guards()
         fit_pt = fit.verdict(rec, "loser")
         rune_pt = runes.choose(dd, opts, enemies)
         draft_pt = draft._demo_scout(demo_dd)
@@ -1086,14 +1145,45 @@ def c_new_i18n():
             bad.append("CLOSER internal verdict changed with locale")
         if not close_en["line"].startswith("END IT") or not close_pt["line"].startswith("TERMINE"):
             bad.append("CLOSER copy did not switch EN/PT")
+        for name, english, portuguese in (("GOLD", gold_en, gold_pt),
+                                          ("WARD", ward_en, ward_pt)):
+            for kind in english:
+                if contract(english[kind]) != contract(portuguese[kind]):
+                    bad.append(f"{name} {kind} contract changed with locale")
+                    break
+        for kind, verdict in (("miss", "MISS"), ("cannon", "CANNON"), ("behind", "PACE")):
+            if not gold_en[kind]["line"].startswith(verdict) \
+                    or not gold_pt[kind]["line"].startswith(verdict):
+                bad.append(f"GOLD {verdict} internal ID changed with locale")
+        for kind, verdict in (("pit", "PIT"), ("dark", "DARK"),
+                              ("pink", "PINK"), ("row", "WARD")):
+            if not ward_en[kind]["line"].startswith(verdict) \
+                    or not ward_pt[kind]["line"].startswith(verdict):
+                bad.append(f"WARD {verdict} internal ID changed with locale")
+        if gold_en["miss"]["line"] == gold_pt["miss"]["line"] \
+                or "onda" not in gold_pt["miss"]["line"] \
+                or gold_en["cannon"]["sub"] == gold_pt["cannon"]["sub"]:
+            bad.append("GOLD card/plan copy did not switch EN/PT")
+        if ward_en["pit"]["line"] == ward_pt["pit"]["line"] \
+                or "dragão" not in ward_pt["pit"]["line"] \
+                or ward_en["pink"]["sub"] == ward_pt["pink"]["sub"]:
+            bad.append("WARD card/objective copy did not switch EN/PT")
+        if len(gold_en["behind"]["bits"]) != len(gold_pt["behind"]["bits"]) \
+                or len(ward_en["under"]["bits"]) != len(ward_pt["under"]["bits"]):
+            bad.append("GOLD/WARD quiet-row segment shape changed with locale")
         if fit_en[0] != "veto" or fit_pt[0] != "veto" \
                 or "W-" not in fit_en[1] or "V-" not in fit_pt[1]:
             bad.append("personal-fit evidence did not switch EN/PT")
         if rune_en[0] != 1 or rune_pt[0] != 1 or "frontline locked" not in rune_en[1] \
                 or "linha de frente" not in rune_pt[1]:
             bad.append("adaptive-rune evidence did not switch EN/PT")
-        if i18n.t("ESCAPE KEY") == "ESCAPE KEY" or i18n.t("Back off.") == "Back off.":
+        if i18n.t("ESCAPE KEY") == "ESCAPE KEY" or i18n.t("Back off.") == "Back off." \
+                or i18n.t("Ward it.") == "Ward it.":
             bad.append("new Settings/TTS catalog entries are missing")
+        if i18n.t("Gold clock (farm pace, first 10 min)").startswith("Gold") \
+                or i18n.t("Ward clock (the vision war, jg / sup)").startswith("Ward") \
+                or i18n.t("GOLD CLOCK — THE FIRST TEN MINUTES").startswith("GOLD"):
+            bad.append("GOLD/WARD Settings or legend catalog entries are missing")
         if i18n.t("Matchup AI fallback:") == "Matchup AI fallback:" \
                 or "dica escrita" not in i18n.t(
                     "Used only when no written matchup tip is available. The selected local "
@@ -1120,7 +1210,8 @@ def c_new_i18n():
             bad.append("DraftBoard demo tags/plan did not switch EN/PT")
         if bad:
             return FAIL, "; ".join(bad)
-        return OK, "BLEED, CLOSER, fit, runes, DraftBoard demo and Settings/TTS switch PT/EN"
+        return OK, ("catalog unique/placeholders valid; BLEED, CLOSER, GOLD, WARD, fit, "
+                    "runes, DraftBoard demo and Settings/TTS switch PT/EN")
     finally:
         i18n.set_lang(previous)
 

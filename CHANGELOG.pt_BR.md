@@ -4,6 +4,128 @@
 
 - Interface, boards e coaching respeitam o idioma selecionado.
 
+## v0.9.69 — THE WARD CLOCK amadurece: o prazo, seu amuleto e os 75 de ouro esquecidos
+
+**Uma grande evolução do guard lançado na versão anterior, nos quatro pontos em que ainda
+faltava informação para selva e suporte.**
+
+- **O prazo, não apenas a contagem regressiva.** Uma sentinela colocada quando o dragão nasce
+  é decoração. O cartão **PIT** agora usa o mesmo relógio de objetivos do app para informar
+  até quando a visão precisa estar no covil:
+
+      PIT — dragão em 68 s · visão até 9:23 e nenhuma visão sua está viva    1:00
+
+  Nos últimos segundos, o prazo desaparece e a instrução passa a ser agir agora.
+- **O amuleto na sua mão muda a instrução.** Com lente do oráculo, remova a visão inimiga
+  antes de colocar a sua. Com alteração vidente, posicione à distância e nunca receba uma
+  ordem impossível de varrer. O amuleto amarelo não acrescenta uma frase inútil.
+- **A sentinela de controle virou um histórico, não uma foto.** Como a queda da contagem no
+  inventário é a evidência de que uma sentinela foi colocada, o app acompanha os dois lados:
+
+      1 de 2 colocadas · sentinela de controle com você em 42% da partida
+
+  Essa porcentagem mede a parcela observada da partida em que você carregou controle de mapa.
+  Ela não aparece antes de existir uma amostra de um minuto e nunca sai do intervalo 0–100%.
+- **A compra aparece quando pode virar ação.** Durante um retorno à base, sem sentinela de
+  controle e com pelo menos 75 de ouro, a linha começa com `+75 de ouro: sentinela de
+  controle`. O pedido não aparece para quem já carrega uma nem para quem não pode comprá-la.
+- **Agora há voz:** “Coloque visão.”, no máximo três vezes por partida, seguindo o mesmo
+  contrato de chamadas do BLEED. A chave interna de cache de áudio continua sendo `wardit`.
+
+As proteções anteriores permanecem: o guard só arma depois que o feed prova que fornece
+pontuação de visão; tempo morto não aumenta nem reinicia o relógio de escuridão; decisões de
+luta do coach de ritmo têm precedência; BLEED, RE-ENTRY e CLOSER mantêm seus cartões; e todas
+as três rotas permanecem silenciosas.
+
+**Testes:** 24 fixtures e seis partidas simuladas cobrem prazo, amuletos, histórico de pinks,
+compra na base, limites da porcentagem, payloads malformados, arming do feed, congelamento
+durante a morte, lobbies ambíguos e silêncio completo para laners. O histórico de uma partida
+de 25 minutos confirma duas sentinelas compradas, uma colocada e 40% do tempo carregando uma.
+
+## v0.9.68 — THE WARD CLOCK: a disputa de visão ao vivo e o último vazamento do histórico
+
+**Novo recurso. Todas as tags que o perfil pode atribuir agora têm uma superfície que age
+enquanto o erro ainda pode ser evitado.**
+
+`no vision setup` era a última tag sem resposta dentro da partida. O GOLD CLOCK é
+deliberadamente silencioso para selva e suporte; por isso, o WARD CLOCK pertence justamente
+às duas funções responsáveis pelo mapa.
+
+- **É medição, não palpite.** A porta `:2999` fornece a pontuação de visão dos dez jogadores.
+  Como ela só aumenta enquanto uma sentinela sua está viva, 1:40 sem mudança prova que não há
+  visão sua ativa no mapa.
+- **Comparação direta da mesma função.** A linha discreta mostra sua pontuação contra a do
+  suporte ou caçador inimigo, além da taxa por minuto e da meta do perfil:
+
+      WARD   14,2 x 21,6 · 0,9/min, meta 1,2 · 1 pink
+
+  As metas continuam sendo 1,2/min para suporte e 0,55/min para selva, lidas da mesma fonte
+  usada pela tag `no vision setup`.
+- **PIT — a luta que seria feita às cegas.** Na janela de aproximadamente 75 segundos antes
+  de dragão, Vastilarvas, Arauto ou Barão, 45 segundos sem visão bastam para o cartão assumir.
+  Ele indica onde colocar: além do covil quando o time está à frente, ou no próprio arbusto
+  triangular e na entrada do covil quando está atrás.
+- **DARK** aparece brevemente após 1:40 sem pontuação nova. **PINK** aparece uma vez quando uma
+  sentinela de controle comprada permanece dois minutos na mochila. **WARD** é a linha
+  discreta permanente.
+- O guard permanece adormecido até observar uma pontuação de visão diferente de zero em algum
+  jogador. Se a Riot remover o campo ou uma fila não o fornecer, toda a superfície degrada
+  para silêncio.
+- Tempo na tela cinza não é cobrado. O coach de ritmo recebe a decisão de luta, e BLEED,
+  RE-ENTRY e CLOSER preservam precedência.
+- Apenas selva e suporte. Topo, meio e atirador nunca recebem uma avaliação de visão inventada.
+- Ativado por padrão em **Configurações → Relógio de visão (disputa de visão, selva /
+  suporte)**, incluído no MAX ELO e na legenda do widget.
+
+**Testes:** 419.160 asserções antes do lançamento, além dos guards permanentes do self-test.
+Foram cobertos função, relógio, pontuação, escuridão, inventário, objetivo, fase do coach,
+estado de arming, comparação ambígua, quatro janelas de morte, sentinela
+comprada/carregada/colocada, payloads malformados e renderização real de todos os quadros.
+
+## v0.9.67 — THE GOLD CLOCK: sua rota comparada aos minions que realmente nasceram
+
+**Novo recurso para o maior vazamento do histórico que ainda não tinha resposta durante a
+partida: a economia fraca nos primeiros dez minutos.**
+
+A tag `weak first-ten economy` exige terminar 10:00 abaixo de 55 de farm **e** 3.100 de ouro.
+Quatro funções podem recebê-la, mas antes nenhuma superfície ajudava enquanto ainda era
+possível corrigir o ritmo.
+
+- **A conta usa o cronograma real.** A primeira onda sai em 1:05 e outra sai a cada 30
+  segundos; cada onda tem três minions corpo a corpo e três conjuradores, e cada terceira
+  leva um canhão. A onda só entra no denominador quando chega à rota: meio em 1:30 e laterais
+  em 1:38.
+
+      OURO   41 de 74 · 55% · projeção 63, meta 55
+
+  Minions corpo a corpo valem 21 de ouro, conjuradores 14 e canhões 60. Esses valores ficam
+  estáveis até 15:00, portanto toda a janela pode ser calculada exatamente.
+- **A meta é calculada de trás para frente.** A partir dos 55 aos 10:00, o cartão informa o
+  que precisa ser coletado:
+
+      MISS — a onda passou · projeção de 42 em 10:00, meta 55
+      você precisa de 25 dos próximos 32 minions (78%)
+
+  Quando a recuperação apenas pelas ondas se torna impossível, mostra quantos minions faltam
+  e troca o plano para placas, acampamentos e objetivos.
+- **O canhão tem relógio.** O aviso **CANNON** aparece segundos antes da chegada do minion de
+  60 de ouro, mas somente quando o jogador está abaixo da meta.
+- **Roaming não parece farm ruim.** Abates e assistências são convertidos em farm equivalente
+  usando a mesma constante do modelo de ouro ao vivo. Assim, 30 de farm e três abates podem
+  aparecer como `30+44 de 82 · 90%` e permanecer acima da meta.
+- Ondas perdidas durante a morte não são cobradas. BLEED mantém precedência sobre uma onda
+  perdida, e uma chamada de objetivo ao vivo mantém precedência sobre o GOLD CLOCK.
+- **PACE** é uma linha discreta durante toda a janela. O cartão só aparece quando uma onda é
+  perdida ou um canhão está chegando.
+- Apenas topo, meio e atirador. Selva e suporte permanecem silenciosos.
+- Ativado por padrão em **Configurações → Relógio de ouro (ritmo de farm, primeiros 10 min)**,
+  incluído no MAX ELO e na legenda do widget.
+
+**Testes:** 10.721 asserções validam o nascimento e a chegada das ondas, o relógio dos canhões,
+o ouro por minion, a conversão de ouro para farm, todos os vereditos, quatro partidas
+simuladas, silêncio para funções excluídas, ondas durante a morte e payloads malformados.
+Todos os quadros produzidos pelo guard foram renderizados pelo caminho real do widget.
+
 ## v0.9.66 — THE CLOSER: as partidas que você estava vencendo e perdeu
 
 **Novo recurso que só aparece quando seu time já está vencendo.** A partir dos 20 minutos,
