@@ -590,11 +590,11 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         y = _render_reentry(d, gold, x, y, wrapw, W, label="GOLD",
                             clock=lambda s: f"{s // 60}:{s % 60:02d}")
     elif ward and not ward.get("quiet"):
-        # WARD CLOCK (lolward) takes the directive slot for a few seconds in an objective's
-        # SETUP window, and once just after it spawns. It can never collide with the GOLD
-        # CLOCK — that one speaks only for top/mid/adc and this one only for jungle/support —
-        # and it sits below BLEED for the same reason GOLD does: something that can kill you
-        # right now outranks a ward that isn't in yet.
+        # WARD CLOCK (lolward) takes the directive slot when a pit is about to be fought in
+        # the dark, when the map has been dark for 1:40, or when a bought control ward has
+        # sat in your bag for two minutes. It can never collide with the GOLD CLOCK — that
+        # one is silent for jungle/support and this one is silent for everybody else — and
+        # it stands down to its row by itself whenever the tempo engine calls a fight.
         hold = True
         y = _render_reentry(d, ward, x, y, wrapw, W, label="WARD")
     elif reentry:
@@ -641,9 +641,10 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
                fill=C_GOOD if gold.get("ahead") else (C_WARN if gold.get("under") else C_ARC))
         y += 18
 
-    # ---- WARD CLOCK quiet row: your live vision score against the bar your own profile
-    # grades you on, your opposite number's next to it, and the pink ledger. Same ordered-
-    # segment contract as the GOLD row — keep as many as fit rather than clip a number.
+    # ---- WARD CLOCK quiet row: the vision war, live — your score against the enemy in your
+    # own role, your per-minute against the bar the profile grades you on, and what you're
+    # still carrying. The head-to-head is the point: it is the one number in this game that
+    # tells a support whether he is winning his actual job, and nothing has ever shown it.
     if ward and ward.get("quiet"):
         qf = _dfont(11, bold=True)
         avail = W - x - 62 - 8                 # one row, never a wrap
@@ -653,8 +654,10 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         txt = " · ".join(bits)
         while txt and d.textlength(txt, font=qf) > avail:
             txt = txt[:-2] + "…"
+        gap = ward.get("gap")
         d.text((x + 2, y), "WARD", font=_wfont(9, 1), fill=C_MUTED)
-        d.text((x + 62, y - 1), txt, font=qf, fill=C_WARN if ward.get("under") else C_GOOD)
+        d.text((x + 62, y - 1), txt, font=qf,
+               fill=C_WARN if ward.get("under") else (C_GOOD if (gap or 0) >= 0 else C_ARC))
         y += 18
 
     # ---- tempo directive card ----
@@ -830,12 +833,12 @@ _LEGEND_GOLD = (
     ("CANNON", C_EMBER, "a siege minion (60g) lands in seconds and you're behind"),
     ("PACE",   C_GOOD,  "the quiet row: your CS of what actually arrived in your lane"),
 )
-# WARD CLOCK verdicts (lolward) — jungle/support only; objective vision deadlines.
+# WARD CLOCK verdicts (lolward) — jungle + support only, the two roles graded on vision.
 _LEGEND_WARD = (
-    ("PINK",   C_EMBER, "an objective's setup window is open and a control ward is still in your bag"),
-    ("SETUP",  C_EMBER, "vision has to be in NOW — the entrance named, adapted to your trinket"),
-    ("DARK",   C_BAD,   "it spawned and your vision score hasn't moved in minutes"),
-    ("VISION", C_GOOD,  "the quiet row: your vision score vs the bar, and theirs next to it"),
+    ("PIT",  C_BAD,   "an objective is coming and nothing of yours is on the map"),
+    ("DARK", C_BAD,   "1:40 with no vision of yours alive — the score hasn't moved"),
+    ("PINK", C_EMBER, "a bought control ward has sat in your bag for two minutes"),
+    ("WARD", C_GOOD,  "the quiet row: you vs their support/jungler, live"),
 )
 _LEGEND_GLYPHS = (
     ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
@@ -854,10 +857,12 @@ _LEGEND_ITEMS = (
 
 def _render_legend(W=330):
     from PIL import Image, ImageDraw
-    # Tall enough for every section plus room to add one: drawing past the canvas is SILENT,
-    # so a new section that overruns it doesn't error — it just vanishes off the bottom of the
-    # decoder card. The crop at the end trims whatever is unused.
-    img = Image.new("RGB", (W, 1700), C_VOID)
+    # Canvas height is a CEILING, not a layout — the card is cropped to its real height at the
+    # end, so this only has to be BIGGER than the content. Overrunning it doesn't raise, it
+    # silently drops the last section (which is how v0.9.68 nearly shipped a WARD CLOCK
+    # section nobody could read), so it's set far past any plausible legend rather than
+    # trimmed to the current one: 330x3000 is ~3MB for the moment it takes to crop.
+    img = Image.new("RGB", (W, 3000), C_VOID)
     d = ImageDraw.Draw(img)
     x, y = 10, 8
     wrapw = W - 2 * x
@@ -946,18 +951,17 @@ def _render_legend(W=330):
     for vd, col, txt in _LEGEND_GOLD:
         row(vd, col, txt, 52, dfont=True)
 
-    section("WARD CLOCK — THE OTHER TWO ROLES")
-    for ln in _wwrap(d, "the GOLD CLOCK's other half: jungle and support only, the two roles "
-                        "your profile grades on vision. Every objective gets ONE call in its "
-                        "setup window — vision is a deadline, not a rate — and the row shows "
-                        "the live vision score League never lets you see mid-game, yours next "
-                        "to your opposite number's.",
+    section("WARD CLOCK — THE VISION WAR")
+    for ln in _wwrap(d, "jungle + support only, the two roles your profile grades on vision. "
+                        "Vision score only ever goes UP while a ward of yours is alive — so a "
+                        "score that hasn't moved is a measurement that the map is dark, not a "
+                        "guess. The row is you against the enemy in your own role.",
                      _wfont(10), wrapw - 4):
         d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
         y += 14
     y += 4
     for vd, col, txt in _LEGEND_WARD:
-        row(vd, col, txt, 52, dfont=True)
+        row(vd, col, txt, 46, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
 
@@ -1268,9 +1272,9 @@ def main():
         guard14 = lbl.Guard()                             # BLEED: the first-14-minutes health guard
         closer = lcl.Guard()                              # CLOSER: the post-20:00 win-conversion read
         goldclock = lgd.Guard()                           # GOLD CLOCK: first-ten farm pace vs the wave schedule
-        wardclock = lwd.Guard()                           # WARD CLOCK: objective vision deadlines (jg/sup)
+        wardclock = lwd.Guard()                           # WARD CLOCK: the vision war (jungle/support)
         bled = {"said": 0}                                # BLEED windows already announced aloud
-        warded = {"said": 0}                              # ...same, for the WARD CLOCK's setup calls
+        warded = {"said": 0}                              # ...and WARD CLOCK card windows
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
         dragon = {"prev": None, "fired": set(), "last_up_ping": 0.0}  # dragon-spawn/up audio state
         tvoice = _TempoVoice()                            # tempo callout announce state
@@ -1399,11 +1403,12 @@ def main():
                 except Exception:
                     gold = None
             ward = None
-            if ward_on and raw is not None:              # WARD CLOCK: objective vision deadlines
-                try:                                     # ONE BRAIN: the tempo read AND the
+            if ward_on and raw is not None:              # WARD CLOCK: the live vision war
+                try:                                     # the whole tick's reads ride along:
                     ward = wardclock.observe(dd, raw, (pulse or {}).get("tempo"),
-                                             (pulse or {}).get("objectives"))
-                except Exception:                        # objective clock the widget already drew
+                                             (pulse or {}).get("objectives"),
+                                             (pulse or {}).get("winprob"))
+                except Exception:
                     ward = None
             # Spoken once per window, and never more than BLEED_SAY times a game: this fires
             # while your eyes are on the lane, which is the whole point of saying it out loud,
@@ -1413,9 +1418,10 @@ def main():
                 bled["said"] = bleed["calls"]
                 threading.Thread(target=_say, args=("backoff", "Back off.", st["vol"]),
                                  daemon=True).start()
-            # Spoken once per setup window, capped like BLEED's line. This one is worth
-            # saying out loud precisely because your eyes are on the map and not the widget —
-            # but three a game is the difference between a callout and a nag.
+            # The WARD CLOCK's own callout, on the same contract as BLEED's: once per card
+            # WINDOW (lolward.Guard.calls counts windows, not frames, precisely so a voice line
+            # can hang off it), three a game maximum. This is the one guard whose whole subject
+            # is somewhere your eyes are NOT — the map — so saying it out loud is the point.
             if (ward and not ward.get("quiet") and voice_on and st["vol"] > 0
                     and not st.get("muted", False) and ward["calls"] > warded["said"]
                     and warded["said"] < WARD_SAY):

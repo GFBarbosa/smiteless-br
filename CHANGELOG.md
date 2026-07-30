@@ -1,86 +1,142 @@
 ﻿# Smiteless â€” Patch Notes
 
-## v0.9.68 - THE WARD CLOCK: the objective you were always going to fight over
+## v0.9.69 - THE WARD CLOCK grows up: the deadline, your trinket, and the 75 gold you keep forgetting
 
-**New feature, and it closes the ledger. Every single leak your profile tags now has a live
+**A big upgrade to the guard that shipped last version, in the four places it was still
+leaving something on the table. If you play jungle or support, this is the one to read.**
+
+v0.9.68 gave the two map-owning roles their first coach: the live vision war (your score
+against the enemy in your own role), **PIT** before a fight you'd be taking blind, and
+**PINK** for a control ward rotting in your bag. What it didn't do was tell you *when* the
+vision had to be in, *how* to place it with what you were carrying, or how much of the game
+you'd spent with no control ward at all. All four are in now.
+
+- **The deadline, not just the countdown.** A ward that goes down as the drake spawns is
+  decoration. So the PIT card now back-times the moment vision actually has to be in - off
+  the app's own objective clock, the same one drawing your timer chips:
+
+      PIT - drake in 68s · in by 9:23 and nothing of yours is alive        1:00
+
+  Inside the last seconds it drops the deadline and just says *now*, because by then that's
+  the only honest answer.
+- **It reads the trinket in your hand.** The same pit, three different instructions,
+  because the item you're holding changes what "go ward it" even means:
+
+      go PAST the pit - their bot jungle entrance, so you see them walk in
+      and the fight starts on your terms · sweep it before you place -
+      take theirs, don't just add yours
+
+  Carrying a **sweeper** and it tells you to take theirs first: a swept pit beats a pit with
+  one more ward in it. Carrying a **farsight** and it tells you to place from range and
+  never to sweep, because you can't. A plain yellow trinket adds nothing, so it says nothing.
+- **The control ward in your bag is now a ledger, not a snapshot.** A control ward leaving
+  your inventory is the only evidence anywhere that you actually *placed* one - so the app
+  now counts both halves, and the cards carry it:
+
+      1 of 2 placed · control ward on you 42% of the game
+
+  **That second number has never existed.** Not on the scoreboard, not in a post-game, not
+  in any other tool: the share of the game you had 75 gold of map control *on you at all*.
+  Most vision leaks are not bad ward placement. They are never having one in the bag - and
+  now that's a number you can watch instead of a habit you can't see.
+- **It asks for the buy at the only moment you can act on it.** Standing in the shop on a
+  recall, with no control ward and the gold for one, the row leads with **`+75g control
+  ward`** - and then drops it again. It never asks while you're already carrying one, and
+  never when you can't afford it.
+- **It says it out loud.** *"Ward it."* - at most three times a game, on the same contract
+  BLEED's callout uses. This is the one guard whose entire subject is somewhere your eyes
+  are not, which is exactly why it shouldn't need your eyes to land.
+
+Everything that made the guard safe last version is untouched: it stays **completely silent
+until the live feed has proven it reports a vision score**, so it can never accuse a support
+who has warded all game of being dark; dark time you spent on the grey screen is **never
+billed to you**; it defers to BLEED, RE-ENTRY and THE CLOSER for the card and stands down to
+its quiet row the instant the tempo engine calls a fight; and it never says a word to a
+laner, because your profile has never graded one on vision.
+
+**Tested:** the guard's permanent suite grew to **24 fixtures and six full simulated games**,
+and every one of the four new behaviours is asserted on the text it prints, not just on which
+verdict fired: the deadline must equal the objective clock's own lead (and must *disappear*
+once the fight has started), a farsight must never be told to sweep, a sweeper must always be
+told to take theirs first, the percentage must never print before there's a minute of game to
+measure and must never escape 0-100, and the buy prompt must never reach somebody already
+carrying a ward or unable to afford one. The purchase ledger is checked against the truth over
+a 25-minute simulated game (two bought, one placed, carried 40% of the game - the number has
+to agree). The inventory reads survive a `null` item row, a non-numeric item id and a missing
+items list. Everything from v0.9.68 still holds: the arming tripwire, the dead-time freeze
+proven neither to reset nor to accrue across four death windows, ambiguous lobbies returning
+no counterpart rather than a wrong one, and total silence for all three laners. Every state
+was rendered through the real widget path and looked at.
+
+## v0.9.68 - THE WARD CLOCK: the vision war, live - and the last leak in the ledger
+
+**New feature, and it finishes the set. Every tag your profile can give you now has a
 surface that fires while the mistake is still preventable.**
 
-`no vision setup` was the last tag in the file with nothing in the game to answer it - the
-README has carried it as *"not yet"* for as long as the ledger has existed. BLEED watches
-your health bar, RE-ENTRY the 90 seconds after a death, THE CLOSER the closeout, THE GOLD
-CLOCK the lane phase - and the GOLD CLOCK is deliberately silent for jungle and support,
-because camps aren't on the wave schedule and a support's CS was never the story. Which left
-the two roles that actually own the map with no lane-phase coach at all.
+`no vision setup` has sat in your ledger with nothing in the game to answer it since the
+ledger existed. It was the last one. BLEED watches your health bar, RE-ENTRY the 90s after
+a death, THE CLOSER the closeout, THE GOLD CLOCK the first ten minutes of farm - and the
+gold clock is deliberately silent for jungle and support, because camps aren't on the lane
+schedule and a support's CS was never the story. So the two roles whose entire job is
+vision were the two roles with nothing to read. **This one is theirs.**
 
-**The WARD CLOCK is the GOLD CLOCK's other half.** Jungle and support only, so the two can
-never talk over each other, and between them every role now has one.
+- **It is a measurement, not a guess.** :2999 reports a **vision score for all ten
+  players**, every tick, unfiltered by fog - and that number *only ever goes up while a
+  ward of yours is alive*. So a score that hasn't moved in 1:40 isn't an opinion. It is a
+  fact that **nothing of yours is on the map**, and it needs no modelling constant at all.
+- **The head-to-head nobody has ever shown you.** One quiet row, all game: you against the
+  enemy in your own role. Same job, same minutes, same units - so it's an exact comparison,
+  not a benchmark:
 
-- **Vision is a DEADLINE, not a rate.** "Ward more" changes nothing. A ward that goes down
-  as the drake spawns is decoration; the same ward forty seconds earlier decides whether the
-  fight happens on your terms. So every drake, grub, herald and baron gets **exactly one
-  call, in its setup window**, back-timed off the same objective clock the widget is already
-  drawing for you:
+      WARD   14.2 v 21.6 · 0.9/min, bar 1.2 · 1 pink
 
-      SETUP - drake in 58s - vision in by 4:15
-      ward their botside jungle entrance - the side they walk in from, not your own
+  That is the only live scoreboard in League for the thing a support is actually doing, and
+  the bar is your own profile's (1.2/min support, 0.55 jungle - the same number the
+  `no vision setup` tag grades you on, read from one place so the two can never disagree).
+- **PIT - the fight you were about to take blind.** In the ~75 seconds before a drake,
+  grubs, herald or baron, if nothing of yours is alive, it takes the card:
 
-  The entrance is named, and it's named side-relative, so it's right on blue side and red side.
-- **The advice fits the item in your hand.** Holding a sweeper and it tells you to take
-  theirs first, because a swept pit beats a pit with one more ward in it. Holding a farsight
-  and it tells you to place from range and get it in early, because you cannot sweep at all.
-  Advice you can't execute with what you're actually carrying is advice you learn to ignore.
-- **Your vision score against theirs, live.** Riot's own live feed carries a vision score for
-  all ten players and *nothing* - not the scoreboard, not TAB, not any overlay - shows it to
-  you during the game. It is the one stat where you can see your direct opposite number's
-  figure while the game is still being played:
+      PIT - drake in 40s and nothing of yours is alive          1:00
+      go PAST the pit - their bot jungle entrance, so you see them
+      walk in and the fight starts on your terms
 
-      VISION   6 of 18 - 0.4/min, bar 1.2 - their sup 19 - no pink 5:00
+  It speaks on a **shorter fuse there than anywhere else** on purpose: "ward the pit before
+  the drake" cannot be wrong, so a false alarm costs nothing and staying quiet costs the
+  objective. And it tells you **where** - deep past the pit when you're ahead, your own tri
+  and the pit mouth when you're behind, because those are opposite instructions and the
+  right one depends on the game you're in.
+- **PINK - 75 gold of map you already paid for.** It reads your actual inventory. A control
+  ward you bought and have carried for two minutes gets one card, once, and then never
+  again for that ward.
+- **It cannot cry wolf.** The whole surface stays **asleep until the live feed has proven
+  it reports a vision score at all**. If Riot ever drops the field, or a lobby doesn't send
+  it, everything here degrades to silence instead of telling a support who has warded all
+  game that he's blind. That tripwire is checked every single tick.
+- **It bills you once.** Dark time you spent on the grey screen is never counted against
+  you - that's RE-ENTRY's and BLEED's subject, and charging you twice for one death is how
+  a coach gets switched off. It also hands the slot straight back the moment the tempo
+  engine calls an actual fight, and it never outranks BLEED, RE-ENTRY or THE CLOSER.
+- Jungle and support only. It stays **silent for every laner** rather than invent a number,
+  for the same reason your profile has never graded a laner on vision.
+- On by default: **Settings -> Ward clock (the vision war, jg / sup)**. The widget legend
+  has a new WARD CLOCK section. Included in MAX ELO.
 
-  Six against nineteen isn't coaching folklore. That's the scoreboard of the map you're
-  about to fight on, and the bar it's measured against is **your own profile's** - the same
-  1.2/min (support) and 0.55/min (jungle) that decides whether the game gets tagged. It is
-  read straight out of that code rather than typed twice, so the live row and the post-game
-  verdict can never disagree.
-- **It watches the 75 gold that decides objectives.** The control ward in your bag is
-  tracked every second, so the app knows when you bought one, when you *placed* one, and how
-  long the one you're carrying has been sitting there:
+**Tested:** 419,160 assertions before this shipped, plus the permanent guards in
+`selftest.py`. Every verdict branch is driven across a full grid of role x clock x vision
+score x dark time x control wards x objective state x tempo phase (and both armed states);
+the pit window is checked against the app's *real* objective clock at every 7 seconds of a
+40-minute game rather than hand-written fixtures; the counterpart matcher is asserted to
+return **nothing** rather than guess whenever the lobby is ambiguous; and the guard is
+driven second-by-second through whole simulated games - a support who wards constantly
+(never accused once), one who stops at 6:40 (caught on the exact second the clock earns
+it), one who never wards at all, a jungler on his own bar, four different death windows
+(the dark clock must freeze, not reset and not accrue), a bought-carried-placed control
+ward, all three laners (total silence), and a game where the feed reports no vision score
+at all (total silence). A 20-shape malformed-payload sweep x every tempo/objective/win-read
+combination must never raise. Two real defects were found and fixed by that sweep before
+release, and every frame the guard produces was rendered through the real widget path and
+inspected.
 
-      PINK - drake in 58s - the 75g in your bag wards nothing yet
-      the control ward goes in the pit - it's the only ward that deletes theirs
-
-  And it knows the difference between a ward you bought six seconds ago and one you've
-  carried through two objectives, so it never calls a fresh buy dead gold.
-- **The number nobody has ever put in front of a player:** the share of the game you had a
-  control ward *on you at all*. Most vision leaks aren't bad ward placement - they're never
-  having one in the bag. Now that's a number you can see: *`1 of 2 placed - control ward on
-  you 38% of the game`*. In a recall window - the one moment buying is actually an action -
-  the row switches to **`+75g control ward`**.
-- **It never accuses you of something it can't see.** When an objective spawns and your
-  vision score hasn't moved in minutes, it says exactly that - *what the number did* - and
-  not a guess about what you were doing. If your score is above the bar it says nothing at all.
-- **It is one quiet row, not a nag.** Three spoken *"Ward it."* callouts a game, maximum, and
-  it takes the directive card only for a few seconds in a setup window before handing the slot
-  straight back. It never outranks BLEED (something that can kill you beats a ward that isn't
-  in yet) and it stands down the instant the tempo engine has a live TAKE/GIVE - by design its
-  window closes exactly where tempo's opens.
-- On by default: **Settings -> Ward clock (objective vision, jg / sup)**. The widget legend has
-  a new WARD CLOCK section. Included in MAX ELO.
-
-**Tested:** 51 distinct guard conditions and 1,400+ live-payload ticks before this shipped.
-The bar is asserted equal to the profile tag's own (drift there and the row would grade you
-against a number your review doesn't use) and the setup window equal to the objective timer's
-own leads. The inventory read is driven through every shape the live client can hand it -
-stacked control wards, a row with no count, a literal `null` inside your items, a trinket in
-any slot - and a *missing* vision score is proven to read as "unknown" rather than as a zero,
-because "you've warded nothing" is the one thing it must never say when it simply doesn't
-know. Every one of the five objectives is checked against all four trinket states for a
-finished, side-correct sentence. Then the guard is driven second-by-second through three full
-simulated games - a support who buys two control wards and places one (the purchase ledger is
-checked against the truth), a game where the drake actually respawns so the setup window comes
-round twice, and a mid laner who must never hear a single word - plus a ten-payload malformed-
-data sweep that must never cost the widget a frame. Every frame the guard produced was
-rendered through the real widget path and inspected, and the legend is now verified to
-actually contain the new section rather than silently draw it off the bottom of the card.
 
 ## v0.9.67 - THE GOLD CLOCK: your lane, counted against the minions that actually spawned
 

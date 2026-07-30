@@ -1,70 +1,61 @@
 #!/usr/bin/env python3
-"""lolward.py - THE WARD CLOCK: the objective you were always going to fight over, and
-whether you did anything about it before it spawned.
+"""lolward.py - THE WARD CLOCK: the map you can see, against the map they can see.
 
 THE LEAK THIS EXISTS FOR
-lolprofile.behavior_read tags a game `low_vision` when your vision score per minute
-finishes under the bar for your role - 1.2/min as a support, 0.55/min as a jungler. It
-was the LAST tag in the ledger with nothing in the game to answer it, and the README has
-carried it as "not yet" since the ledger existed. BLEED (lolbleed) owns your health bar in
-the first fourteen minutes, RE-ENTRY (lolreentry) the ninety seconds after a death, the
-CLOSER (lolclose) the closeout, the GOLD CLOCK (lolgold) the lane-phase economy - and the
-GOLD CLOCK is deliberately SILENT for jungle and support, because camps aren't on the wave
-schedule and a support's CS was never the story. So the two roles that own the map had no
-lane-phase surface at all. That is this module. The two can never collide: lolgold speaks
-only for top/mid/adc, lolward only for jungle/support.
+lolprofile.behavior_read tags a game `low_vision` ("no vision setup") when your vision
+score per minute finishes under the bar for your role - 1.2/min for a support, 0.55/min
+for a jungler. It is the LAST tag in the behaviour ledger with no in-game surface, and
+that is exactly why this module exists: BLEED (lolbleed) owns the first fourteen minutes
+of your health bar, RE-ENTRY (lolreentry) the ninety seconds after a death, THE CLOSER
+(lolclose) the closeout, THE GOLD CLOCK (lolgold) the first-ten farm pace - and the gold
+clock is deliberately SILENT for jungle and support, because camps are not on the lane
+schedule and a support's CS was never the story.
 
-WHY NOT "WARD MORE"
-Because it changes nothing. Vision is not a rate you grind, it is a DEADLINE you either
-beat or miss: a ward that goes down when the drake spawns is decoration, and the same ward
-forty seconds earlier is what decides whether the fight happens on your terms. The clock
-this reads off is therefore not a vision-score-per-minute target, it is the objective timer
-the app already computes (lollive.objectives), back-timed by its own setup lead:
+So the two roles with nothing to read were the two roles whose whole job this is. This
+surface is theirs, and it is silent for everybody else for the same reason the gold clock
+is silent for them: lolprofile has never evaluated a laner on vision, and inventing a
+number for one here would make the app argue with its own review page.
 
-    SETUP - drake in 58s · vision in by 4:15
-            ward their botside jungle entrance - the side they walk in from, not yours
+WHY VISION SCORE, AND WHY A DIFFERENTIAL
+:2999 reports `scores.wardScore` for ALL TEN PLAYERS, every tick, unfiltered by fog. That
+is a rare thing in this feed - enemy items go stale the moment they leave your vision, but
+this number never does. It buys two reads nothing else in the app can make:
 
-WHAT IT WATCHES, AND WHY THAT IS NEW
-Four facts, all of them EXACT off :2999, none of them modelled - and three of them were
-being thrown straight in the bin by every surface in this app:
+  1. THE COUNTERPART. Your vision score against the enemy in YOUR role, live. Same role,
+     same game length, same units, both measured - so the comparison is exact rather than
+     modelled, and it is the only scoreboard in the game that shows who is winning the
+     vision war while you can still do something about it.
+  2. DARK. Vision score is MONOTONE: it only ever goes up, and it goes up while wards you
+     placed are giving your team vision. So a score that has not moved in a hundred seconds
+     is not an opinion - it is a measurement that nothing of yours is on the map. That is
+     the fact this whole surface hangs off, and it needs no modelling constant at all.
 
-  - scores.wardScore. Riot's own vision score, live, FOR ALL TEN PLAYERS. Nothing in
-    Smiteless read it and nothing in League shows it to you mid-game. It is the only stat
-    in the API where you can see your direct opponent's number next to yours while the
-    game is still being played: "you 6 · their sup 14" is not coaching folklore, it is the
-    scoreboard of the map you are about to fight on.
-  - The control wards IN YOUR BAG (item 2055, count and all). Watched every tick, so the
-    count going DOWN is a ward you placed and the count going UP is one you bought. From
-    that: how many you have bought, how many you have actually placed, how long the one in
-    your bag has been sitting there unplaced, and the number no tool anywhere has ever put
-    in front of a player - the share of the game you have spent with NO control ward
-    available at all. 75 gold is the cheapest map control in the game and the whole leak is
-    usually that you never had one on you.
-  - Your trinket (3340 / 3363 / 3364). The instruction changes completely depending on what
-    you are actually holding: a sweeper means take theirs first, a farsight means you place
-    from range and can't sweep at all. Advice you can't execute with the item in your hand
-    is advice that gets ignored.
-  - Your gold. "Buy a control ward" is only worth saying when you can afford one, and it is
-    worth saying loudest in a recall window - which the tempo engine already knows about.
+Both of those are worth more in one specific place than everywhere else combined, which is
+the third read:
 
-THE VERDICTS
-PINK   - an objective's setup window is open and you are CARRYING a control ward. The 75
-         gold in your bag wards nothing; this is the pit it was bought for.
-SETUP  - the same window, nothing in the bag: get the ward that matters in NOW, with the
-         entrance named, and the buy noted if you can afford one.
-DARK   - the objective just spawned and your vision score has not moved in minutes. Stated
-         as what the number did, never as an accusation about what you did - vision score
-         only accrues while something of yours is alive on the map.
-VISION - the quiet row. Your score against what the bar would have you on right now, your
-         opponent's number, and the pink ledger. One line, all game.
-None   - outside the window, dead, or a role whose vision the tag has never held to a bar
-         (top/mid/adc: lolprofile has always evaluated `low_vision` for jungle and support
-         only, and inventing a number for a mid laner is how a surface gets switched off).
+  3. THE PIT. The ~75 seconds before a neutral objective spawns is the window the tempo
+     engine already owns ("team fights 4v5 with no vision" is loltempo's own opening line).
+     If your vision has been flat going INTO that window, the fight that is about to happen
+     is a coinflip you chose. The bar to speak is lower here than anywhere else on purpose -
+     45s of dark instead of 100 - because "ward the pit before the drake" is never bad
+     advice, so a false positive costs nothing and a miss costs the objective.
 
-It fires ONCE per objective, holds the card for a few seconds and hands the slot straight
-back. It never outranks BLEED (something that can kill you beats a ward) and it stands down
-to the quiet row the moment the tempo engine has a live TAKE/GIVE verdict - by design it
-lives in the SETUP window, which closes exactly where tempo's urgent window opens.
+ARMING (why this can never invent a warning)
+The whole surface stays asleep until it has SEEN a non-zero vision score from somebody in
+the game - proof the field is live in this build/queue. If Riot ever drops the field, or
+zeroes it, or a custom lobby doesn't report it, every read here degrades to silence rather
+than telling a support who has warded all game that he is dark. One tripwire, checked every
+tick, and it is the difference between a guard and a liar.
+
+PIT  - a neutral objective is inside its setup window and nothing of yours is alive. The card.
+DARK - your vision score has not moved in 1:40. The card, briefly, then it stands down.
+PINK - the control ward in your bag has been in your bag for two minutes. 75g doing nothing.
+WARD - the quiet row: you vs your counterpart, your per-minute against your role's bar, stock.
+None - outside a lane role that owns vision, dead, too early, or the feed isn't reporting.
+
+It never counts DARK time you spent on the grey screen: you cannot ward from the fountain,
+and billing you for a death you are already being billed for by two other guards is how a
+coach gets switched off.
 
 House rule (docs/TAGS.md spirit): the card carries its receipt - YOUR OWN W/L split for the
 habit, straight out of the behavior ledger, so it is your data talking and not folklore.
@@ -76,68 +67,72 @@ habit, straight out of the behavior ledger, so it is your data talking and not f
 import math
 import time
 
-CW_ID = 2055               # Control Ward — the only ward that deletes theirs
-CW_COST = 75               # ...and the cheapest map control in the game
+# ---- what the live feed calls things ----
+WARD_KEYS = ("wardScore", "visionScore")   # :2999 calls it wardScore; alias kept defensively
+CTRL_WARD = 2055                           # Control Ward (the only ward you buy and carry)
+CTRL_GOLD = 75                             # ...and what it costs, so the waste has a price
+# Your trinket, by item id. This changes the instruction completely and not just its wording:
+# a sweeper means take THEIRS first (a swept pit beats a pit with one more ward in it), a
+# farsight means you place from range and cannot sweep at all. Advice you can't execute with
+# what is actually in your hand is advice you learn to skip.
 TRINKETS = {3340: "yellow", 3363: "farsight", 3364: "sweeper"}
-TRINKET_SLOT = 6           # the trinket slot; the item read never depends on it (id-matched)
 
-OPEN_AT = 180.0            # 3:00 — early enough to cover the first drake's setup window
-CARD_SECS = 9.0            # how long a card owns the directive slot before going quiet
-DARK_STALE = 105.0         # vision score flat for this long = nothing of yours is alive
-                           # (a stealth ward lives 90-120s, so a full ward life has passed)
-CARRY_NAG = 45.0           # a pink in the bag this long is dead gold worth mentioning
-_EV_TTL = 600.0            # re-read the behavior ledger at most this often
+# ---- the windows ----
+OPEN_AT = 180.0        # say nothing before 3:00: nobody's vision score means anything yet
+DARK_SECS = 100.0      # vision score flat this long -> nothing of yours is alive. Deliberately
+                       # longer than any plausible accrual tick: one ward alive anywhere on the
+                       # map moves this number well inside 100s, so a flat span is a fact.
+PIT_DARK = 45.0        # ...but inside an objective's setup window the bar is this instead. The
+                       # advice there ("ward the pit") is free, so the cost of speaking early is
+                       # zero and the cost of staying quiet is the objective.
+PIT_TAIL = 60.0        # keep calling for this long after it actually spawns (it's still a fight)
+PINK_HOLD = 120.0      # a control ward carried this long without being placed is 75g of nothing
+CARD_SECS = 10.0       # how long a DARK/PINK card keeps the directive slot before going quiet
+_EV_TTL = 600.0        # re-read the behavior ledger at most this often
 
-# The roles lolprofile.behavior_read actually evaluates `low_vision` for, mapped from the
-# tempo engine's role names to the position keys the ledger uses. A role that isn't in here
-# never hears from this module.
-_POS = {"jungle": "JUNGLE", "support": "UTILITY"}
-# Objectives worth a setup card. Scuttle is deliberately out: it is a 6-second fight over a
-# crab, not a window you set vision for.
-_SIDE = {"Drake": "bot", "Elder": "bot", "Baron": "top", "Herald": "top", "Grubs": "top"}
-_MOUTH = {"bot": "their botside jungle entrance", "top": "their topside jungle entrance",
-          None: "the entrance they walk in from"}      # objective we can't place: stay neutral
-                                                       # rather than point at the wrong river
+# The tempo phases that are a FIGHT DECISION rather than a setup instruction. Once the call is
+# "take it" or "give it", vision advice is a second too late and a second card is noise - the
+# ward clock keeps its quiet row and lets the tempo engine have the slot. During the SETUP
+# phases (MOVE/BASE/PUSH/FARM) it is strictly additive: tempo says where to walk, this says
+# what the pit currently looks like to your team, which is a fact tempo does not have.
+FIGHT_PHASES = ("TAKE", "GIVE", "EVEN", "FORCE", "FREE")
+
+# The roles lolprofile evaluates for vision, in loltempo._my_role's vocabulary. Exactly the two
+# the gold clock stays silent for - between them, every role now has one surface that is its own.
+ROLE_POS = {"support": "UTILITY", "jungle": "JUNGLE"}
+ROLE_WORD = {"support": "support", "jungle": "jungler"}      # how the row names your opposite
+_VPM_FALLBACK = {"UTILITY": 1.2, "JUNGLE": 0.55}     # only used if lolprofile can't be imported
+
+# Which river a pit sits in. Same table loltempo routes rotations with; kept as a local copy
+# only because importing loltempo at module scope would be a cycle (it imports lollive, which
+# the widget already has loaded) - selftest asserts the two never drift.
+OBJ_SIDE = {"Drake": "bot", "Elder": "bot", "Baron": "top", "Herald": "top", "Grubs": "top"}
 
 _EV = {"t": 0.0, "text": None}
 _BAR = {"v": None}
-_LEAD = {"v": None}
 
 
-def vis_bar(role):
-    """Vision score per minute the `low_vision` tag holds this role to, READ OUT OF
-    lolprofile rather than re-typed here - the live surface and the post-game tag must never
-    be able to disagree about where the bar is. 0.0 for a role the tag never evaluates."""
+def vpm_bar(role):
+    """Vision score per minute your role has to clear, DERIVED from lolprofile's own
+    `low_vision` bar rather than re-typed - the review page and the live guard must never
+    disagree about what 'enough vision' is. Falls back to that tag's documented numbers if
+    lolprofile can't be imported (standalone `python lolward.py`)."""
     if _BAR["v"] is None:
-        d = {"UTILITY": 1.2, "JUNGLE": 0.55}          # lolprofile.VIS_BAR's own values
+        bar = dict(_VPM_FALLBACK)
         try:
             import lolprofile as lp
-            if getattr(lp, "VIS_BAR", None):
-                d = dict(lp.VIS_BAR)
+            if isinstance(getattr(lp, "VPM_BAR", None), dict) and lp.VPM_BAR:
+                bar = dict(lp.VPM_BAR)
         except Exception:
             pass
-        _BAR["v"] = d
-    return float(_BAR["v"].get(_POS.get(role) or "", 0.0) or 0.0)
-
-
-def leads():
-    """(urgent_lead, setup_lead) in seconds, DERIVED from lollive so this module's window
-    and the objective chips the widget draws can never drift apart. The card lives in
-    (urgent, setup]: the setup window, which ends exactly where tempo's urgent one starts."""
-    if _LEAD["v"] is None:
-        lo, hi = 45.0, 75.0
-        try:
-            import lollive as ll
-            lo, hi = float(ll.ALERT_LEAD), float(ll.SETUP_LEAD)
-        except Exception:
-            pass
-        _LEAD["v"] = (lo, hi)
-    return _LEAD["v"]
+        _BAR["v"] = bar
+    return _BAR["v"].get(ROLE_POS.get(role, ""), 0.0)
 
 
 def _evidence():
-    """YOUR measured split for the no-vision habit ('with it: 3W-9L / without: 11W-5L'), or
-    None until the ledger has both sides. Cached - it's a disk read on a 1s poll loop."""
+    """YOUR measured split for the no-vision habit ('with it: 2W-7L / without: 9W-4L'), or
+    None when the ledger doesn't have both sides yet. Cached - it's a disk read and this is
+    called from a 1s poll loop."""
     now = time.monotonic()
     if _EV["text"] is not None and (now - _EV["t"]) < _EV_TTL:
         return _EV["text"]
@@ -145,7 +140,7 @@ def _evidence():
     try:
         import lolprofile as lp
         raw = lp.pattern_evidence("low_vision")
-        if raw:
+        if raw:                       # "with it: 2W-7L · without: 9W-4L" — name what "it" is
             txt = "your games under the vision bar — " + raw
     except Exception:
         txt = None
@@ -153,36 +148,62 @@ def _evidence():
     return txt
 
 
-# ------------------------------------------------------------------ the inventory read ----
-def _items(p):
-    """The item rows, filtered to the ones that are actually dicts. :2999 has handed us a
-    literal `None` inside `items` before (a payload read while the shop was open), and one
-    bad row must never cost the widget a frame."""
-    try:
-        rows = (p or {}).get("items") or []
-    except AttributeError:
-        return []
-    return [it for it in rows if isinstance(it, dict)]
-
-
-def pinks(p):
-    """Control wards in this player's bag RIGHT NOW - summed over stacks, because they
-    stack and one entry with count 2 is two wards. Exact: the live client reports your own
-    inventory every tick."""
-    n = 0
-    for it in _items(p):
+def ward_score(p):
+    """One player's vision score off the live feed, or None when the field isn't there. None
+    and 0.0 are NOT the same thing here and never get collapsed: 0.0 is 'has warded nothing',
+    None is 'this build isn't telling us', and only one of those is safe to coach on."""
+    sc = (p or {}).get("scores") or {}
+    for k in WARD_KEYS:
+        v = sc.get(k)
+        if v is None:
+            continue
         try:
-            if int(it.get("itemID") or 0) == CW_ID:
-                n += max(1, int(it.get("count") or 1))
-        except (TypeError, ValueError):             # an item row caught mid-write
+            f = float(v)
+        except (TypeError, ValueError):            # a score line caught mid-write
+            return None
+        return f if math.isfinite(f) else None
+    return None
+
+
+def feed_live(players):
+    """True once ANY player in the game has a non-zero vision score - the tripwire that proves
+    :2999 is actually reporting the field in this build. Until it trips, this whole surface
+    stays silent rather than tell a support who has warded all game that he is dark."""
+    for p in players or []:
+        v = ward_score(p)
+        if v is not None and v > 0:
+            return True
+    return False
+
+
+def ctrl_wards(p):
+    """Control wards in this player's inventory. Riot reports a stackable as one slot with a
+    count, so this sums counts and not slots."""
+    n = 0
+    items = (p or {}).get("items")
+    if not isinstance(items, (list, tuple)):       # a payload caught mid-write, or a shape change
+        return 0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        try:
+            if int(it.get("itemID") or 0) == CTRL_WARD:
+                n += int(it.get("count") or 1)
+        except (TypeError, ValueError):
             continue
     return n
 
 
 def trinket(p):
-    """"yellow" / "farsight" / "sweeper", or None when the slot is empty (you sold it, or
-    the payload was caught mid-write). Matched by item id, never by slot index."""
-    for it in _items(p):
+    """"yellow" / "farsight" / "sweeper", or None when the slot is empty or the payload was
+    caught mid-write. Matched by item id, never by slot index - the slot is an implementation
+    detail of the client and the id is the contract."""
+    items = (p or {}).get("items")
+    if not isinstance(items, (list, tuple)):
+        return None
+    for it in items:
+        if not isinstance(it, dict):
+            continue
         try:
             t = TRINKETS.get(int(it.get("itemID") or 0))
         except (TypeError, ValueError):
@@ -192,237 +213,310 @@ def trinket(p):
     return None
 
 
-def ward_score(p):
-    """Riot's own live vision score for a player, or None when the field isn't there (an
-    older client, or a score line caught mid-write). None is not zero: a missing number
-    must never read as 'you have warded nothing'."""
+def _gold(data):
+    """Your unspent gold, or 0.0. Only ever used to decide whether "buy a control ward" is
+    worth saying at all - telling somebody with 20 gold to buy a 75g ward is noise."""
     try:
-        v = (p or {}).get("scores", {}).get("wardScore")
-    except AttributeError:
-        return None
-    if v is None:
-        return None
-    try:
-        v = float(v)
-    except (TypeError, ValueError):
-        return None
-    return v if math.isfinite(v) and v >= 0 else None
+        return float((data.get("activePlayer") or {}).get("currentGold") or 0.0)
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
 
 
-def counterpart(role, enemies):
-    """(label, ward_score) for the enemy whose vision number is the one that matters: your
-    direct opposite by position, else their best. Labelled honestly either way - claiming
-    'their support' about a number you took off their top laner is exactly the kind of lie
-    that makes a player stop trusting a row."""
-    want = _POS.get(role)
-    lab = {"UTILITY": "their sup", "JUNGLE": "their jg"}.get(want)
-    if want and lab:
-        for p in enemies or []:
-            if (p.get("position") or "").upper() == want:
-                vs = ward_score(p)
-                if vs is not None:
-                    return lab, vs
-    best = None
-    for p in enemies or []:
-        vs = ward_score(p)
-        if vs is not None and (best is None or vs > best):
-            best = vs
-    return ("their best", best) if best is not None else (None, None)
+def counterpart(me, enemies, role=None):
+    """The enemy playing YOUR role - the only fair comparison for a vision score, because it
+    is the same job over the same number of minutes. Position first (ranked/normals report
+    it); for a jungler, lollive's smite check is the fallback; for a support, the enemy with
+    the fewest minions is. Returns None rather than guess wrong - the row simply drops the
+    segment, which is the house rule everywhere else too.
+
+    `role` is loltempo._my_role's answer for YOU, which knows things the position field
+    doesn't (it falls back to the role you locked at champ select when :2999 reports none).
+    Without it this is position-only, and a role this surface never speaks for gets None."""
+    enemies = [p for p in (enemies or []) if isinstance(p, dict)]
+    pos = (me or {}).get("position") or ""
+    role = role or {"JUNGLE": "jungle", "UTILITY": "support"}.get(pos.upper())
+    if role not in ROLE_POS:
+        return None                     # only the two roles graded on vision have a counterpart
+    want = ROLE_POS[role]
+    same = [p for p in enemies or [] if (p.get("position") or "").upper() == want]
+    if len(same) == 1:
+        return same[0]
+    if role == "jungle":
+        try:
+            import lollive as ll
+            jgs = [p for p in enemies or [] if ll._is_jungler(p)]
+            if len(jgs) == 1:
+                return jgs[0]
+        except Exception:
+            pass
+    if role == "support":
+        cs = [(float((p.get("scores") or {}).get("creepScore") or 0), p) for p in enemies or []]
+        if len(cs) >= 2:
+            cs.sort(key=lambda t: t[0])
+            if cs[0][0] < cs[1][0]:                # a clear low-CS player = the support
+                return cs[0][1]
+    return None
+
+
+def pit_window(objs):
+    """The neutral objective whose setup window is OPEN right now, or None. The window itself
+    is lollive.objectives()' own `setup`/`urgent` flags (ONE BRAIN - the widget's objective
+    chips and this guard can never disagree about when a fight is coming), plus a short tail
+    after it actually spawns, because an uncontested drake sitting in an unwarded pit is the
+    same problem thirty seconds later."""
+    for o in objs or []:
+        label = o.get("label")
+        if label not in OBJ_SIDE:                  # scuttle isn't a pit; nothing else is either
+            continue
+        try:
+            secs = float(o.get("secs") or 0)
+        except (TypeError, ValueError):
+            continue
+        if o.get("setup") or o.get("urgent"):
+            return o
+        if o.get("up") and secs > -PIT_TAIL:
+            return o
+    return None
 
 
 def _mmss(s):
-    s = max(0, int(s))
+    s = max(0, int(round(s)))
     return f"{s // 60}:{s % 60:02d}"
 
 
-# What to actually do, and it changes with the item in your hand: a sweeper means take
-# theirs first (a swept pit is worth more than the ward you add to it), a farsight means you
-# place from range and cannot sweep at all, a yellow means you have to walk it in.
-_BY_TRINKET = {
-    "sweeper": "sweep {mouth} first, then ward it — take theirs, don't just add yours",
-    "farsight": "farsight into the pit from range — you can't sweep, so get it in early",
-    "yellow": "ward {mouth} — their side of the river, not your own",
-}
-_FALLBACK = "ward {mouth} — their side of the river, not your own"
-_PINK_SPOT = "the control ward goes in the pit — it's the only ward that deletes theirs"
+# WHERE to put it. The instruction changes with the game state and it has to, because the two
+# answers are opposites: ahead you buy information about their next move, behind you buy the
+# few seconds that let you leave. lolprofile's own review line says exactly this ("deep wards
+# when ahead, defensive wards when behind") — this is that sentence, at the moment it applies.
+def _where(side, ahead, trink=None):
+    if ahead is True:
+        base = (f"go PAST the pit — their {side} jungle entrance, so you see them walk in "
+                f"and the fight starts on your terms")
+    elif ahead is False:
+        base = (f"your own {side} tri and the pit mouth — behind, you're buying the seconds "
+                f"that let you leave, not a fight")
+    else:
+        base = f"the {side} river bush and the pit mouth — a pit you can't see is a coinflip"
+    how = _HOW.get(trink)
+    return f"{base} · {how}" if how else base
 
 
-def spot(label, trink):
-    """The concrete instruction for this objective and this trinket. Side-relative on
-    purpose ('their botside entrance'): it is correct on blue side and red side, which a
-    named bush is not."""
-    mouth = _MOUTH.get(_SIDE.get(label)) or _MOUTH[None]
-    return (_BY_TRINKET.get(trink) or _FALLBACK).format(mouth=mouth)
+# ...and HOW, which is decided by the trinket you are holding rather than by the game state.
+# Only said when it changes what you'd do: a yellow trinket adds nothing to "go ward it".
+_HOW = {"sweeper": "sweep it before you place — take theirs, don't just add yours",
+        "farsight": "farsight it in from range, you can't sweep"}
+
+
+_DARK_FIX = {"support": "you have two trinket charges and they cap — a charge you're saving is "
+                        "a ward that isn't on the map",
+             "jungle": "ward the camp you're walking to, not the one you just did — vision "
+                       "in front of your path is what makes a counter-gank free"}
 
 
 def _verdict(ctx):
-    """Pure: context -> the card (or None). Split out from observe() so the fixtures below
-    can drive every branch without a live game."""
+    """Pure: context -> the card (or None). Split out from observe() so the fixtures in
+    selftest can drive every branch without a live game."""
     role = ctx.get("role")
-    bar = vis_bar(role)
-    if bar <= 0:                                   # a role the tag never holds to a bar
-        return None
+    if role not in ROLE_POS:
+        return None                        # lolprofile never grades a laner on vision
+    if not ctx.get("armed"):
+        return None                        # the feed hasn't proven itself — say nothing at all
     gt = float(ctx.get("gt") or 0.0)
     if not math.isfinite(gt) or gt < OPEN_AT:
         return None
-    mins = gt / 60.0
     vs = ctx.get("vs")
-    vs = float(vs) if vs is not None else None
-    pace = bar * mins                              # what the bar would have you on right now
-    rate = (vs / mins) if (vs is not None and mins > 0) else None
-    under = bool(rate is not None and rate < bar)
-    held = int(ctx.get("pink") or 0)
-    gold = float(ctx.get("gold") or 0.0)
-    trink = ctx.get("trink")
-    label, osecs = ctx.get("obj"), ctx.get("obj_secs")
-    lo, hi = leads()
-
-    # ---- the quiet row, as ORDERED SEGMENTS (the widget joins as many as fit, most
-    # important first, so a long game state degrades instead of clipping a number in half).
-    bits = []
-    if vs is not None:
-        bits.append(f"{int(round(vs))} of {int(round(pace))}")
-        if rate is not None:
-            bits.append(f"{rate:.1f}/min" + (f", bar {bar:g}" if under else ""))
-    opp_lab, opp_vs = ctx.get("opp_label"), ctx.get("opp_vs")
-    if opp_lab and opp_vs is not None:
-        bits.append(f"{opp_lab} {int(round(float(opp_vs)))}")
-    dark = float(ctx.get("dark_for") or 0.0)
-    if held:
-        bits.append(f"pink in bag {_mmss(ctx.get('carry') or 0)}" if float(ctx.get("carry") or 0) >= CARRY_NAG
-                    else f"{held} pink" + ("s" if held > 1 else ""))
-    elif dark >= 60.0:
-        bits.append(f"no pink {_mmss(dark)}")
-    if not bits:                                   # nothing measurable yet: say nothing
+    if vs is None:
+        return None                        # no number for US -> no claim about us
+    vs = float(vs)
+    if not math.isfinite(vs):
         return None
-    # A recall window is the one moment "buy a control ward" is an action and not a wish.
-    if ctx.get("base") and not held and gold >= CW_COST:
-        bits.insert(0, f"+{CW_COST}g control ward")
+    bar = vpm_bar(role)
+    vpm = vs / max(1.0, gt / 60.0)
+    them = ctx.get("them")
+    them = float(them) if them is not None and math.isfinite(float(them)) else None
+    dark = max(0.0, float(ctx.get("dark") or 0.0))
+    pinks = int(ctx.get("pinks") or 0)
+    pit = ctx.get("pit") or None
+    under = vpm < bar
+    trink = ctx.get("trink")
+    gold = float(ctx.get("gold") or 0.0)
+    # The pink LEDGER: bought, placed, and the share of the game you had one on you at all.
+    # A control ward leaving your bag is the only evidence in the API that you placed one, so
+    # these three numbers exist nowhere else - not on the scoreboard, not in a post-game.
+    bought, placed = int(ctx.get("bought") or 0), int(ctx.get("placed") or 0)
+    have_pct = ctx.get("have_pct")
+    have_pct = None if have_pct is None else max(0, min(100, int(round(float(have_pct) * 100))))
+    ledger = ((f"{placed} of {bought} placed" if bought else "")
+              + (" · " if bought and have_pct is not None else "")
+              + (f"control ward on you {have_pct}% of the game" if have_pct is not None else ""))
 
-    placed, bought = int(ctx.get("placed") or 0), int(ctx.get("bought") or 0)
-    card = {"vs": (None if vs is None else round(vs, 1)), "bar": bar,
-            "pace": round(pace, 1), "rate": (None if rate is None else round(rate, 2)),
-            "under": under, "held": held, "placed": placed, "bought": bought,
-            "dark_pct": int(round(float(ctx.get("dark_pct") or 0.0) * 100)),
-            "opp_vs": (None if opp_vs is None else round(float(opp_vs), 1)),
-            "obj": label, "obj_secs": (None if osecs is None else int(osecs)),
-            "trink": trink, "row": " · ".join(bits), "bits": bits,
-            "left": int(osecs) if osecs is not None else 0, "clock_txt": None}
-    # The number nothing else has ever shown a player: the share of the game you actually
-    # had 75 gold of map control ON you. Stated the way round that reads as a fact about you
-    # rather than a scold, and the purchase ledger only when we saw a purchase at all (a
-    # widget opened mid-game must not report "0 of 0" about wards it never watched you buy).
-    have = 100 - card["dark_pct"]
-    ledger = ((f"{placed} of {bought} placed · " if bought else "")
-              + f"control ward on you {have}% of the game")
+    # The quiet row, as ORDERED SEGMENTS rather than one string: the widget has ~240px for it
+    # and joins as many as fit, so a long game state degrades to the important half instead of
+    # being clipped mid-number. Most important first — the head-to-head is the whole point.
+    lead = f"{vs:.1f}" + (f" v {them:.1f}" if them is not None else "")
+    bits = [lead, f"{vpm:.1f}/min" + (f", bar {bar:.2f}".rstrip("0").rstrip(".") if under else "")]
+    if pinks:
+        bits.append(f"{pinks} pink" + ("s" if pinks > 1 else ""))
+    elif dark >= 30:
+        bits.append(f"dark {_mmss(dark)}")
+    # A recall window is the ONE moment "buy a control ward" is an action rather than a wish -
+    # you are standing in the shop. It leads the row for those seconds and then goes away.
+    if ctx.get("base") and not pinks and gold >= CTRL_GOLD:
+        bits.insert(0, f"+{CTRL_GOLD}g control ward")
+    card = {"vs": round(vs, 1), "them": (round(them, 1) if them is not None else None),
+            "vpm": round(vpm, 2), "bar": bar, "under": under,
+            "gap": (round(vs - them, 1) if them is not None else None),
+            "dark": int(round(dark)), "pinks": pinks, "role": role, "trink": trink,
+            "bought": bought, "placed": placed, "have_pct": have_pct,
+            "row": " · ".join(bits), "bits": bits, "clock_txt": None}
 
-    # A live objective verdict outranks a ward every time - by then the ward is either in or
-    # it isn't, and the decision on screen is the fight. The row still reads `under`.
-    speak = not ctx.get("tempo_urgent")
-
-    # ---- 1. the setup window is open and there is 75 gold in your bag doing nothing. The
-    #         strongest thing this module can say, because the fix costs one right-click.
-    if (speak and ctx.get("card") and label and osecs is not None and held
-            and float(ctx.get("carry") or 0.0) >= CARRY_NAG):
-        card.update(verdict="PINK", tone="plan", quiet=False,
-                    line=(f"PINK — {label.lower()} in {int(osecs)}s · "
-                          f"the {CW_COST}g in your bag wards nothing yet"),
-                    sub=f"{_PINK_SPOT} · {spot(label, trink)}")
+    # A fight verdict from the tempo engine outranks everything here: once the call is TAKE or
+    # GIVE the decision is made, and a second card about wards is a card you learn to skip.
+    if str(ctx.get("tempo_phase") or "") in FIGHT_PHASES:
+        card.update(verdict="WARD", tone="plan", quiet=True, line=f"WARD — {card['row']}",
+                    sub=f"vision {vpm:.1f}/min against a {bar:g} bar")
         return card
 
-    # ---- 2. the same window, nothing to place. Name the entrance, and note the buy only
-    #         when you can actually afford it.
-    if speak and ctx.get("card") and label and osecs is not None:
-        sub = spot(label, trink)
-        if not held and gold >= CW_COST:      # never sell a ward to somebody already holding one
-            sub += f" · +{CW_COST}g control ward on the next trip (you have {int(gold)})"
-        card.update(verdict="SETUP", tone="plan", quiet=False,
-                    line=(f"SETUP — {label.lower()} in {int(osecs)}s · "
-                          f"vision in by {_mmss(gt + osecs - lo)}"),
-                    sub=sub)
+    # ---- 1. an objective is coming and your team is walking into an unlit pit. The single
+    #         highest-leverage moment this surface has, and the only one where it speaks on a
+    #         SHORTER dark clock — because "ward before the drake" cannot be wrong.
+    if pit and dark >= PIT_DARK:
+        label = pit.get("label") or "Drake"
+        side = OBJ_SIDE.get(label, "bot")
+        try:
+            secs = float(pit.get("secs") or 0)
+        except (TypeError, ValueError):
+            secs = 0.0
+        when = f"in {int(round(secs))}s" if secs > 0 else "is UP"
+        # The DEADLINE, not just the countdown: vision placed as the fight starts is
+        # decoration, so what you actually need is the clock it has to be in BY. Only while
+        # there is still one - inside the last few seconds the answer is "now".
+        try:
+            import lollive as _ll
+            lead = float(_ll.ALERT_LEAD)
+        except Exception:
+            lead = 45.0
+        by = f" · in by {_mmss(gt + secs - lead)}" if secs > lead else ""
+        # The clock slot carries the DARK duration, not the objective countdown: the countdown
+        # is already in the headline (and on the widget's own objective chip), and the number
+        # only this surface knows is how long the map has been unlit.
+        card.update(verdict="PIT", tone="hold", quiet=False, obj=label, secs=int(round(secs)),
+                    clock_txt=_mmss(dark),
+                    line=f"PIT — {label.lower()} {when} and nothing of yours is alive{by}",
+                    sub=_where(side, ctx.get("ahead"), trink))
         return card
 
-    # ---- 3. it spawned, and the number has not moved in minutes. What the NUMBER did -
-    #         never an accusation about what you did.
-    stale = ctx.get("stale")
-    if speak and ctx.get("spawned") and under and stale is not None and float(stale) >= DARK_STALE:
-        card.update(verdict="DARK", tone="hold", quiet=False,
-                    line=(f"DARK — {(label or 'it').lower()} is up and your vision score "
-                          f"hasn't moved in {_mmss(stale)}"),
-                    sub=f"{spot(label, trink)} · {ledger}",
-                    # the clock slot holds the number that DEFINES this card (the CLOSER does
-                    # the same with its lead): a spawn countdown here would read "0s".
-                    clock_txt=_mmss(stale))
+    # ---- 2. no objective pending, but the map has been dark for a minute and forty. Said
+    #         once, held for a few seconds, then it hands the slot straight back.
+    if dark >= DARK_SECS and ctx.get("dark_card"):
+        gapt = (f" · they're on {them:.0f}" if them is not None and them > vs else "")
+        card.update(verdict="DARK", tone="hold", quiet=False, clock_txt=_mmss(dark),
+                    line=f"DARK — {_mmss(dark)} with no vision of yours on the map{gapt}",
+                    sub=((_DARK_FIX.get(role, "") or "") if not pinks else
+                         f"you are carrying {pinks} control ward{'s' if pinks > 1 else ''} — "
+                         f"that is {pinks * CTRL_GOLD}g of map you already paid for")
+                        + (f" · {ledger}" if ledger else ""))
         return card
 
-    # ---- 4. the quiet row. A number you can glance at for a whole game, not a coach
-    #         clearing its throat every thirty seconds.
-    card.update(verdict="VISION", tone="hold" if under else "plan", quiet=True,
-                line=f"VISION — {card['row']}", sub=ledger)
+    # ---- 3. the pink in your bag. Bought, carried, never placed — the most fixable half of
+    #         this tag, and the only one that costs you gold as well as the map.
+    if pinks and ctx.get("pink_card"):
+        held = _mmss(ctx.get("held") or 0)
+        card.update(verdict="PINK", tone="plan", quiet=False, clock_txt=held,
+                    line=f"PINK — {pinks * CTRL_GOLD}g of control ward, carried {held}",
+                    sub="it does nothing in your bag — the pit mouth before the next objective, "
+                        "your own tri when you're behind"
+                        + (f" · {ledger}" if ledger else ""))
+        return card
+
+    # ---- 4. the quiet row. One line, all game: this is a scoreboard you want to be able to
+    #         GLANCE at, not a coach clearing its throat every thirty seconds.
+    card.update(verdict="WARD", tone="hold" if under else "plan", quiet=True,
+                line=f"WARD — {card['row']}",
+                sub=(f"{vs - them:+.0f} on their {ROLE_WORD.get(role, role)} — this is the vision war"
+                     if them is not None else f"vision {vpm:.1f}/min against a {bar:g} bar"))
     return card
 
 
 class Guard:
-    """One instance per widget session. Stateful for three reasons, none of which can be
-    seen in a single frame: a control ward LEAVING your bag is the only evidence in the API
-    that you placed one, 'how long have you had none' is an integral over the game, and a
-    card must fire once per objective rather than for the whole thirty-second window."""
+    """One instance per widget session. Stateful for three reasons, all of them the same
+    reason: a vision score is a running total, and every read worth making here is about how
+    long it has been since it MOVED."""
 
     def __init__(self):
         self.reset()
 
     def reset(self):
         self._gt = 0.0
+        self._vs = None            # last vision score we saw for you
+        self._moved = None         # game-time it last went UP  (None until we have a baseline)
+        self._armed = False        # the feed has proven it reports the field (see feed_live)
+        self._pinks = 0            # control wards in your bag last tick
+        self._pink_at = None       # ...and when this stock started sitting there
+        self._pink_said = False    # one PINK card per stock, not one per second
         self._t0 = None            # the first clock we ever saw — the honest denominator for
-                                   # 'share of the game': a widget opened at 12:00 (or a
-                                   # reconnect) must measure the part it actually watched
-                                   # rather than claim the first twelve minutes were fine
-        self._pink = None          # last seen control-ward count (None = never read one)
-        self._carry_at = None      # game-time the current carry started
-        self._dark_at = None       # ...or the current dry spell
-        self._dark = 0.0           # accumulated seconds with no control ward in the bag
-        self._vs = None            # last seen vision score...
-        self._vs_at = 0.0          # ...and when it last actually CHANGED
-        self._done = set()         # objectives already carded (label, spawn bucket)
-        self._card_until = 0.0     # game-time the current card stops owning the slot
-        self._card_obj = None      # ...and which objective it belongs to
-        self._spawn_until = 0.0    # the DARK window just after a spawn
-        self._spawn_obj = None
-        self.bought = 0            # control wards bought this game
-        self.placed = 0            # ...and placed
-        self.calls = 0             # cards opened this game (diagnostics / voice rate cap)
+                                   # 'share of the game' (a widget opened at 12:00, or a
+                                   # reconnect, must only measure the part it watched)
+        self.bought = 0            # control wards bought this game...
+        self.placed = 0            # ...and placed: the count FALLING is the placement event
+        self._nopink = 0.0         # accumulated seconds with none in the bag
+        self._nopink_at = None     # ...and when the current dry spell started
+        self._card_until = 0.0     # game-time the current DARK/PINK card stops owning the slot
+        self._dark_said = 0.0      # game-time of the last DARK card (rate-limits the repeat)
+        self._said = None          # the verdict currently owning the slot (edge detection)
+        self.calls = 0             # cards opened this game (diagnostics / voice rate)
 
-    # -- inventory bookkeeping: the count going down IS the placement event ---------------
-    def _track_pink(self, gt, n):
-        prev = self._pink
-        if prev is None:
-            self._pink = n
-            (self._carry_at, self._dark_at) = ((gt, None) if n else (None, gt))
-            return
-        if n > prev:
-            self.bought += n - prev
-            if prev == 0:
-                if self._dark_at is not None:
-                    self._dark += max(0.0, gt - self._dark_at)
-                self._dark_at, self._carry_at = None, gt
-        elif n < prev:
-            self.placed += prev - n
-            if n == 0:
-                self._carry_at, self._dark_at = None, gt
-        self._pink = n
+    # -- state, split out so selftest can drive it without building a whole payload --
+    def _track(self, gt, vs, dead, pinks):
+        """Advance the vision + stock clocks one tick. Returns seconds of DARK."""
+        dt = max(0.0, gt - self._gt)
+        if self._vs is None or self._moved is None:        # first sight: start the clock here
+            self._vs, self._moved = vs, gt
+        elif vs > self._vs + 1e-9:                         # it moved -> you have vision alive
+            self._vs, self._moved = vs, gt
+        elif vs < self._vs - 1e-9:                         # went backwards -> not the same game
+            self._vs, self._moved = vs, gt
+        if dead:
+            # You cannot ward from the fountain. FREEZE the dark clock rather than reset it:
+            # resetting would hand out a free 100 seconds after every death (and this guard
+            # would go quiet exactly when a support dies for being blind), while letting it
+            # run bills you a second time for a death two other guards already own.
+            self._moved = min(gt, (self._moved or gt) + dt)
+        if pinks != self._pinks:                           # bought or placed one
+            # WHICH it was is knowable, and it is the only evidence in the API that you ever
+            # placed one: the count can only fall because a ward left your hand.
+            if pinks > self._pinks:
+                self.bought += pinks - self._pinks
+            else:
+                self.placed += self._pinks - pinks
+            self._pink_at = gt if pinks else None
+            self._pink_said = False
+            self._pinks = pinks
+        elif pinks and self._pink_at is None:
+            self._pink_at = gt
+        # the dry-spell integral: how much of this game you had no control ward at all
+        if pinks:
+            if self._nopink_at is not None:
+                self._nopink += max(0.0, gt - self._nopink_at)
+                self._nopink_at = None
+        elif self._nopink_at is None:
+            self._nopink_at = gt
+        return max(0.0, gt - (self._moved if self._moved is not None else gt))
 
-    def _track_vs(self, gt, vs):
-        if vs is None:
-            return
-        if self._vs is None or abs(vs - self._vs) > 1e-9:
-            self._vs, self._vs_at = vs, gt
+    def _have_pct(self, gt):
+        """Share of the game you had a control ward ON you - 1 minus the dry-spell integral
+        over the time we have actually been watching. None before there is a sample worth
+        printing a percentage of."""
+        if self._t0 is None or gt - self._t0 < 60.0:
+            return None
+        dry = self._nopink + (max(0.0, gt - self._nopink_at) if self._nopink_at is not None else 0.0)
+        return max(0.0, 1.0 - dry / max(1.0, gt - self._t0))
 
-    def observe(self, dd, data, tempo=None, objs=None):
-        """One tick. Returns the VISION row (or a card) while you're in a role the tag holds
-        to a vision bar; None every other moment. `tempo` and `objs` are this same tick's
-        reads (ONE BRAIN - the widget already computed both): the card stands down to the row
-        rather than talk over a live objective verdict, and the objective clock is the one
-        the widget is already drawing."""
+    def observe(self, dd, data, tempo=None, objs=None, winprob=None):
+        """One tick. Returns the WARD row (or a card) while you're playing a role that owns
+        vision; None every other moment. `tempo`/`objs`/`winprob` are this same tick's reads
+        off the shared payload (ONE BRAIN - the widget already computed them, and re-deriving
+        them here is how two surfaces start telling different stories about one game)."""
         if not data:
             return None
         import lollive as ll
@@ -433,80 +527,61 @@ class Guard:
         me, _allies, enemies, _team = split
         try:
             gt = float((data.get("gameData") or {}).get("gameTime") or 0.0)
-        except (TypeError, ValueError):            # a payload caught mid-write
+        except (TypeError, ValueError):            # a payload caught mid-write: hold, don't crash
             return None
         if not math.isfinite(gt):
             return None
         if gt + 1.0 < self._gt:                    # clock went backwards -> a different game
             self.reset()
-        self._gt = gt
         if self._t0 is None:
             self._t0 = gt
 
         role = lt._my_role(dd, me)
-        if role not in _POS:
-            return None
-
-        held = pinks(me)
-        self._track_pink(gt, held)
         vs = ward_score(me)
-        self._track_vs(gt, vs)
-        if bool(me.get("isDead")):                 # the death screen owns the grey screen
+        self._armed = self._armed or feed_live(data.get("allPlayers"))
+        dead = bool(me.get("isDead"))
+        dark = self._track(gt, vs, dead, ctrl_wards(me)) if vs is not None else 0.0
+        self._gt = gt
+        if dead:                                   # the death screen owns the grey screen
             return None
-        if gt < OPEN_AT:
+        if role not in ROLE_POS or vs is None or not self._armed:
             return None
 
-        # the objective clock: the widget's own list, or our own read if we're driven bare
-        if objs is None:
-            try:
-                objs = ll.objectives(data)
-            except Exception:
-                objs = []
-        lo, hi = leads()
-        nxt = next((o for o in (objs or []) if o.get("label") in _SIDE
-                    and o.get("secs") is not None and float(o["secs"]) > 0), None)
-        label = nxt.get("label") if nxt else None
-        osecs = float(nxt["secs"]) if nxt else None
-
-        # fire ONCE per objective: the setup window is thirty seconds long and a card that
-        # sits there for all of it is a card you stop reading.
-        if label and osecs is not None and lo < osecs <= hi:
-            key = (label, int(round((gt + osecs) / 5.0)))
-            if key not in self._done:
-                self._done.add(key)
-                self._card_until, self._card_obj = gt + CARD_SECS, label
-                self.calls += 1
-        # ...and a short window just AFTER it spawns, for the retrospective read
-        up = next((o for o in (objs or []) if o.get("label") in _SIDE
-                   and o.get("secs") is not None and -6.0 <= float(o["secs"]) <= 0.0), None)
-        if up:
-            self._spawn_until, self._spawn_obj = gt + CARD_SECS, up.get("label")
-
-        carding = gt < self._card_until
-        spawned = gt < self._spawn_until and not carding
-        opp_lab, opp_vs = counterpart(role, enemies)
-        dark_now = self._dark + (max(0.0, gt - self._dark_at) if self._dark_at is not None else 0.0)
-        try:
-            gold = float((data.get("activePlayer") or {}).get("currentGold") or 0.0)
-        except (TypeError, ValueError):
-            gold = 0.0
-        ph = (tempo or {}).get("phase")
+        # One card at a time, and each of them stands down on its own clock. DARK repeats no
+        # more than once per its own window - a warning you get every second is wallpaper.
+        # Each card is DUE when its own clock says so, but the rate limit is only SPENT if it
+        # actually wins the slot below. PIT outranks both, and a card you were never shown
+        # must not be the reason you don't get shown the next one.
+        dark_due = dark >= DARK_SECS and (gt - self._dark_said) >= DARK_SECS
+        pink_due = (self._pink_at is not None and not self._pink_said
+                    and (gt - self._pink_at) >= PINK_HOLD)
+        held = (gt - self._pink_at) if self._pink_at is not None else 0.0
+        cp = counterpart(me, enemies, role)
         card = _verdict({
-            "gt": gt, "role": role, "vs": vs, "pink": held, "gold": gold,
-            "trink": trinket(me), "opp_label": opp_lab, "opp_vs": opp_vs,
-            "obj": (self._card_obj if carding else (self._spawn_obj if spawned else label)),
-            "obj_secs": osecs if not spawned else None,
-            "card": carding, "spawned": spawned,
-            "carry": (gt - self._carry_at) if self._carry_at is not None else 0.0,
-            "dark_for": (gt - self._dark_at) if self._dark_at is not None else 0.0,
-            "dark_pct": min(1.0, dark_now / max(1.0, gt - float(self._t0 or 0.0))),
-            "placed": self.placed, "bought": self.bought,
-            "stale": (gt - self._vs_at) if self._vs is not None else None,
-            "base": ph == "BASE",
-            "tempo_urgent": bool((tempo or {}).get("urgent")),
+            "gt": gt, "role": role, "vs": vs, "them": ward_score(cp) if cp else None,
+            "dark": dark, "pinks": self._pinks, "held": held,
+            "trink": trinket(me), "bought": self.bought, "placed": self.placed,
+            "have_pct": self._have_pct(gt), "base": (tempo or {}).get("phase") == "BASE",
+            "gold": _gold(data),
+            "pit": pit_window(objs), "armed": True,
+            "ahead": (winprob or {}).get("ahead") if winprob else None,
+            "tempo_phase": (tempo or {}).get("phase"),
+            "dark_card": dark_due or (gt < self._card_until and dark >= DARK_SECS),
+            "pink_card": pink_due or (gt < self._card_until and self._pink_said and self._pinks),
         })
         if card is None:
             return None
+        if card["verdict"] == "DARK" and dark_due:          # shown -> now the clock is spent
+            self._dark_said, self._card_until = gt, gt + CARD_SECS
+        elif card["verdict"] == "PINK" and pink_due:
+            self._pink_said, self._card_until = True, gt + CARD_SECS
+        # `calls` counts WINDOWS, not ticks: a card holds the slot for CARD_SECS so you can
+        # read it, and something rate-limiting a voice line off this number needs "how many
+        # times has it spoken", not "how many frames has it been up".
+        vd = card["verdict"] if not card.get("quiet") else None
+        if vd and vd != self._said:
+            self.calls += 1
+        self._said = vd
         card["calls"] = self.calls
         card["evidence"] = _evidence()
         return card
@@ -514,61 +589,80 @@ class Guard:
 
 # ---- fixtures for tools/selftest.py: each must land on exactly one verdict ----
 def demo(kind):
-    """A support at 8:20 with the grubs 58 seconds out - inside the setup window."""
-    base = {"gt": 500.0, "role": "support", "vs": 6.0, "pink": 0, "gold": 320.0,
-            "trink": "yellow", "opp_label": "their sup", "opp_vs": 19.0,
-            "obj": "Grubs", "obj_secs": 58.0, "card": True, "spawned": False,
-            "carry": 0.0, "dark_for": 300.0, "dark_pct": 0.9,
-            "placed": 1, "bought": 2, "stale": 20.0, "base": False}
-    if kind == "setup":                   # the window is open and the bag is empty
+    """A support at 9:00, on a bar of 1.2/min. Every branch below is reachable live."""
+    base = {"gt": 540.0, "role": "support", "vs": 14.0, "them": 15.0, "dark": 10.0,
+            "pinks": 0, "held": 0.0, "pit": None, "armed": True, "ahead": None,
+            "tempo_phase": "FARM", "dark_card": False, "pink_card": False,
+            "trink": "yellow", "gold": 300.0, "base": False,
+            "bought": 2, "placed": 1, "have_pct": 0.42}
+    if kind == "row":                     # comfortably on the bar -> the quiet row
         pass
-    elif kind == "pink":                  # ...and there is a control ward sitting in it
-        base.update(pink=1, carry=120.0, dark_for=0.0)
-    elif kind == "broke":                 # no pink and no gold: never mention the buy
-        base.update(gold=20.0)
-    elif kind == "justbought":            # bought it seconds ago: not "wards nothing yet",
-        base.update(pink=1, carry=6.0, dark_for=0.0)    # and never sold another one
-    elif kind == "sweeper":               # the instruction changes with the item in hand
-        base.update(trink="sweeper")
-    elif kind == "farsight":
-        base.update(trink="farsight")
-    elif kind == "row":                   # outside every window -> the quiet row
-        base.update(card=False, obj_secs=180.0)
-    elif kind == "onbar":                 # above the bar: the row, and not a warning color
-        base.update(card=False, obj_secs=180.0, vs=20.0)
-    elif kind == "dark":                  # it spawned and the number hasn't moved in 2:20
-        base.update(card=False, spawned=True, obj_secs=None, stale=140.0)
-    elif kind == "dark_onbar":            # ...but a player ON the bar is never accused
-        base.update(card=False, spawned=True, obj_secs=None, stale=140.0, vs=20.0)
-    elif kind == "base":                  # a recall window is when the buy is an action
-        base.update(card=False, obj_secs=180.0, base=True)
-    elif kind == "noscore":               # no wardScore in the payload: degrade, don't lie
-        base.update(card=False, obj_secs=180.0, vs=None)
-    elif kind == "quiet":                 # a live tempo verdict outranks the setup card
-        base.update(tempo_urgent=True)
-    elif kind == "mid":                   # a laner's vision was never held to a bar
+    elif kind == "under":                 # under the bar, nothing else happening -> still a row
+        base.update(vs=4.0)
+    elif kind == "pit":                   # a drake is coming and you have nothing on the map
+        base.update(vs=4.0, dark=60.0,
+                    pit={"label": "Drake", "secs": 40, "setup": True, "urgent": False, "up": False})
+    elif kind == "pitup":                 # ...and the same call once it has actually spawned
+        base.update(vs=4.0, dark=60.0,
+                    pit={"label": "Baron", "secs": -20, "setup": False, "urgent": False, "up": True})
+    elif kind == "pitshort":              # a pit is open but you warded 20s ago -> no claim
+        base.update(vs=4.0, dark=20.0,
+                    pit={"label": "Drake", "secs": 40, "setup": True, "urgent": False, "up": False})
+    elif kind == "pitfight":              # tempo already called the fight -> stand down to the row
+        base.update(vs=4.0, dark=60.0, tempo_phase="TAKE",
+                    pit={"label": "Drake", "secs": 40, "setup": True, "urgent": False, "up": False})
+    elif kind == "dark":                  # no objective, but the map has been dark 1:40+
+        base.update(vs=4.0, dark=110.0, dark_card=True)
+    elif kind == "darkquiet":             # ...the same state after the card has stood down
+        base.update(vs=4.0, dark=110.0, dark_card=False)
+    elif kind == "pink":                  # 75g of control ward, carried two minutes
+        base.update(pinks=1, held=140.0, pink_card=True)
+    elif kind == "pinkquiet":             # ...and it is not said twice
+        base.update(pinks=1, held=140.0, pink_card=False)
+    elif kind == "jungle":                # the other role that owns vision, on its own bar
+        base.update(role="jungle", vs=3.0)
+    elif kind == "adc":                   # lolprofile never grades a laner on vision -> silent
+        base.update(role="adc")
+    elif kind == "mid":
         base.update(role="mid")
-    elif kind == "jungle":                # the jungler's own (lower) bar
-        base.update(role="jungle", opp_label="their jg", opp_vs=9.0)
-    elif kind == "early":                 # before the first drake's setup window
-        base.update(gt=100.0, card=False)
+    elif kind == "notarmed":              # the feed has never reported a vision score -> silent
+        base.update(armed=False)
+    elif kind == "nofield":               # ...or it has no number for US
+        base.update(vs=None)
+    elif kind == "early":                 # before anyone's vision score means anything
+        base.update(gt=100.0)
+    elif kind == "nocounterpart":         # can't identify their support -> drop the segment
+        base.update(them=None)
+    elif kind == "pitdeadline":           # far enough out that there is still a DEADLINE to name
+        base.update(vs=4.0, dark=60.0,
+                    pit={"label": "Drake", "secs": 68, "setup": True, "urgent": False, "up": False})
+    elif kind == "pitsweeper":            # ...and the instruction changes with the trinket
+        base.update(vs=4.0, dark=60.0, trink="sweeper", ahead=True,
+                    pit={"label": "Drake", "secs": 40, "setup": True, "urgent": False, "up": False})
+    elif kind == "pitfarsight":           # a farsight cannot sweep, so it must not be told to
+        base.update(vs=4.0, dark=60.0, trink="farsight", ahead=False,
+                    pit={"label": "Baron", "secs": 40, "setup": True, "urgent": False, "up": False})
+    elif kind == "base":                  # a recall window: the one moment the buy is an action
+        base.update(base=True)
+    elif kind == "basebroke":             # ...but never to somebody who can't afford one
+        base.update(base=True, gold=20.0)
+    elif kind == "basecarrying":          # ...or to somebody already carrying one
+        base.update(base=True, pinks=1, held=10.0)
+    elif kind == "noledger":              # nothing watched yet -> print no percentage at all
+        base.update(pinks=1, held=140.0, pink_card=True, bought=0, have_pct=None)
     return base
 
 
-if __name__ == "__main__":                # python lolward.py — the bars + every branch
-    print("the bar, straight out of lolprofile.VIS_BAR")
-    for r in ("support", "jungle"):
-        b = vis_bar(r)
-        print(f"  {r:8} {b:g}/min  ->  by 20:00 that is {b * 20:.0f} vision score")
-    lo, hi = leads()
-    print(f"\nsetup window (from lollive): a card fires between {hi:.0f}s and {lo:.0f}s "
-          f"before spawn\n")
-    for k in ("setup", "pink", "justbought", "broke", "sweeper", "farsight", "row", "onbar",
-              "dark",
-              "dark_onbar", "base", "noscore", "quiet", "mid", "jungle", "early"):
+if __name__ == "__main__":                # python lolward.py — every branch, printed
+    print(f"bars: support {vpm_bar('support')}/min · jungle {vpm_bar('jungle')}/min "
+          f"(lolprofile.low_vision)\n")
+    for k in ("row", "under", "pit", "pitup", "pitshort", "pitfight", "pitdeadline",
+              "pitsweeper", "pitfarsight", "dark", "darkquiet", "pink", "pinkquiet", "noledger",
+              "base", "basebroke", "basecarrying", "jungle", "adc", "mid", "notarmed",
+              "nofield", "early", "nocounterpart"):
         c = _verdict(demo(k))
         if not c:
-            print(f"{k:11} (silent)")
+            print(f"{k:15} (silent)")
         else:
             q = " [quiet row]" if c.get("quiet") else ""
-            print(f"{k:11} {c['verdict']:6}{q} {c['line']}\n            {c['sub']}")
+            print(f"{k:15} {c['verdict']:5}{q} {c['line']}\n                {c['sub']}")

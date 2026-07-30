@@ -366,22 +366,24 @@ def main():
         ("Bleed guard (first 14 minutes)", bleedv),
         ("Closer (win-conversion, from 20:00)", closerv),
         ("Gold clock (farm pace, first 10 min)", goldv),
-        ("Ward clock (objective vision, jg / sup)", wardv),
+        ("Ward clock (the vision war, jg / sup)", wardv),
     ])
-    tk.Label(body, text="WARD CLOCK is the other half of the GOLD CLOCK: it speaks only for "
-             "JUNGLE and SUPPORT, the two roles whose vision your profile actually grades. "
-             "Every drake, grub, herald and baron gets one call in its setup window — the "
-             "entrance to ward, adapted to the trinket you're holding — plus the live vision "
-             "score you never get to see mid-game, yours next to your opposite number's. It "
-             "also watches the control ward in your bag: 75 gold that wards nothing until you "
-             "place it.",
-             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
-             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     tk.Label(body, text="GOLD CLOCK counts your CS against the minions that actually "
              "arrived in your lane — one wave every 30s from 1:05, every third with a cannon "
              "— and back-times the 55-by-10:00 bar: \u201cyou need 22 of the next 34\u201d. "
              "Kills count as the CS they were worth, so a roaming game never reads as a "
              "farming failure. Top / mid / ADC only; it stays silent for jungle and support.",
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    tk.Label(body, text="WARD CLOCK is the other half of that: jungle and support, the two "
+             "roles your profile actually grades on vision. Your vision score only ever goes "
+             "UP while a ward of yours is alive — so a score that hasn’t moved in 1:40 "
+             "is a measurement that the map is dark, not a guess. It shows you against the "
+             "enemy in your own role live, and it speaks in the seconds before a pit fight "
+             "you’d be taking blind — naming the deadline it has to be in by, and how to "
+             "place it with the trinket you’re actually holding. It also tracks the control "
+             "ward in your bag: bought, placed, and the share of the game you had one on you "
+             "at all.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     tk.Label(body, text="BLEED GUARD watches your own health bar before 14:00 — the window "
@@ -823,8 +825,7 @@ def main():
                   "dragon_audio": dragon.get(), "queue_call": queuecall.get(),
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
                   "bleed_guard": bleedv.get(), "closer": closerv.get(),
-                  "gold_clock": goldv.get(),
-                  "ward_clock": wardv.get(),
+                  "gold_clock": goldv.get(), "ward_clock": wardv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -853,8 +854,7 @@ def main():
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, bleedv, closerv, goldv, wardv, deadbrief, loadbrief,
-                  dodge, dock,
+                  respawnv, reentryv, bleedv, closerv, goldv, wardv, deadbrief, loadbrief, dodge, dock,
                   auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)
