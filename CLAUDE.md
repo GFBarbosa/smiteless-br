@@ -16,16 +16,32 @@ surfaces so we stop stepping on each other.**
   page) deploys to GitHub Pages on push — just commit + push, no `make-release`. Only cut an
   app release when the bundled Python/exe actually changed. Dev-only changes (dev tray) skip
   releasing too — say so.
-- **How to release:** `powershell -ExecutionPolicy Bypass -File dist\make-release.ps1 -Version X.Y.Z -Notes "..."`
-  It bumps VERSION, builds, commits `Release vX.Y.Z`, pushes, and publishes a GitHub Release
-  with the installer. The in-app updater reads **only** `/releases/latest` — old releases are
-  pure history, leave them.
-- **Never build on top of a live game.** `make-release` is a multi-minute PyInstaller freeze +
-  installer build; running it while `tools\phasecheck.py` says GameStart/InProgress/Reconnect
-  costs him FPS in the ranked game this whole project exists to win. Poll the phase and cut the
-  release when he's out. Don't ask — just wait, then ship.
+- **How to release — TWO paths. A cloud session can release on its own; never claim a release
+  "needs his Windows machine".**
+  - *On his box:* `powershell -ExecutionPolicy Bypass -File dist\make-release.ps1 -Version X.Y.Z -Notes "..."`
+  - *Anywhere else (cloud sessions — this is the one you want):* dispatch
+    `.github/workflows/release.yml` with `{"version": "X.Y.Z"}` and `ref` = your working
+    branch (GitHub MCP: `actions_run_trigger`, method `run_workflow`). It builds
+    SmitelessSetup.exe on a **Windows runner**, fast-forwards `main` to your branch, tags, and
+    publishes — ~4 minutes, no local toolchain. **Don't touch VERSION**; the workflow sets and
+    commits it. Release notes are grepped out of the `## vX.Y.Z` CHANGELOG section.
+  Either way the in-app updater reads **only** `/releases/latest` — old releases are pure
+  history, leave them.
+- **Verify the release before you call it done:** `/releases/latest` must show the new tag
+  **and** a `SmitelessSetup.exe` asset. A release published without that asset is worse than
+  no release — `smiteupdate.latest_release()` returns None and installed copies stop being
+  offered *any* update, including the previous version.
+- **New `core/`/`ui/` module? Add it to the `$hidden` list in `dist\build.ps1`** before you
+  release. Its siblings are all in there; left out, PyInstaller can ship an exe that crashes
+  on import — a release missing the very feature it's named for.
+- **Never build on top of a live game — LOCAL path only.** `make-release` is a multi-minute
+  PyInstaller freeze + installer build; running it while `tools\phasecheck.py` says
+  GameStart/InProgress/Reconnect costs him FPS in the ranked game this whole project exists to
+  win. Poll the phase and cut the release when he's out. Don't ask — just wait, then ship.
+  The **cloud workflow runs on GitHub's hardware and costs him nothing** — never delay it for
+  a live game, and never make him wait for a release you could have shipped while he played.
 - **Version numbering:** bump +0.0.1 (0.9.40 → 0.9.41). Never jump to 1.0 without his say-so.
-- **CHANGELOG.md first:** add an entry (top of file) before `make-release` — it feeds the
+- **CHANGELOG.md first:** add an entry (top of file) before you release — it feeds the
   in-app Patch Notes window. Each release needs ≥1 change the user can SEE in a minute;
   invisible-only correctness batches read as "paid for nothing."
 

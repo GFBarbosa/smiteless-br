@@ -458,6 +458,298 @@ def c_closer():
     return OK, "12 verdict fixtures + structure map + inhib clock all correct"
 
 
+def c_gold():
+    """The GOLD CLOCK (core/lolgold) — the first-ten farm read. Three things must hold
+    forever, and none of them are visible without playing a game: the minion SCHEDULE is
+    exact (it is the denominator for every number the surface prints), the bar is still the
+    weak_first_ten tag's own, and it is SILENT for the roles whose CS is not the story."""
+    import lolgold as lg, lollive as ll
+    # --- the schedule. Wave k spawns at 1:05 + 30(k-1) and is only counted once it has
+    #     ARRIVED (mid meets at 1:30, side lanes at 1:38). Off by one wave = every number
+    #     the card prints is wrong, quietly.
+    for role, trav in lg.LANE_ARRIVE.items():
+        for k in (1, 3, 7, 18, 26):
+            at = lg.WAVE_FIRST + lg.WAVE_EVERY * (k - 1) + trav
+            if lg.waves_by(at - 0.01, role) != k - 1 or lg.waves_by(at, role) != k:
+                return FAIL, f"{role}: wave {k} is not counted at its {at:.0f}s arrival"
+    if lg.waves_by(90.0, "mid") != 1 or lg.waves_by(89.9, "mid") != 0:
+        return FAIL, "mid lane does not meet at 1:30"
+    if lg.waves_by(98.0, "adc") != 1 or lg.waves_by(97.9, "adc") != 0:
+        return FAIL, "the side lanes do not meet at 1:38"
+    if lg.offered(600.0, "mid") != (114, 2250.0):
+        return FAIL, f"mid is offered {lg.offered(600.0, 'mid')} by 10:00, not (114, 2250)"
+    # every minion value is flat until 15:00 — that is the whole reason this can be exact
+    # rather than modelled, so the last wave inside the window must still spawn before it.
+    last = lg.waves_by(lg.WINDOW, "mid")
+    if lg.WAVE_FIRST + lg.WAVE_EVERY * (last - 1) >= 15 * 60:
+        return FAIL, f"wave {last} spawns at/after 15:00 — minion gold is no longer flat"
+    for t in range(0, 900, 13):                  # the cannon clock can never look backwards
+        nc = lg.next_cannon(float(t), "mid")
+        if nc[0] < 0 or nc[1] % 3 or nc[1] <= lg.waves_by(float(t), "mid"):
+            return FAIL, f"cannon clock wrong at {t}s: {nc}"
+    # --- the bars are the tag's, and gold-per-CS is DERIVED from lollive, never re-typed
+    if lg.BAR_CS10 != 55 or lg.FIRST_TEN != 600.0:
+        return FAIL, f"bar is {lg.BAR_CS10} CS at {lg.FIRST_TEN}s — must match weak_first_ten"
+    probe = ll.est_gold({"scores": {"creepScore": 100}}, 300.0) - ll.est_gold({"scores": {}}, 300.0)
+    if abs(lg.cs_gold() * 100 - probe) > 1e-6:
+        return FAIL, f"gold-per-CS ({lg.cs_gold()}) has drifted from lollive.est_gold"
+    # --- every verdict branch is reachable and lands where it should
+    want = {"pace": "PACE", "behind": "PACE", "miss": "MISS", "cannon": "CANNON",
+            "roaming": "PACE", "unrecoverable": "MISS", "onpace_miss": "PACE",
+            "jungle": None, "support": None, "early": None, "late": None}
+    got = {k: (lg._verdict(lg.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    # a kill-fed lane is NOT a weak first ten — the tag needs the gold bar missed too, and
+    # scolding a roaming mid for his CS is how you teach somebody to stop roaming.
+    if (lg._verdict(lg.demo("roaming")) or {}).get("under"):
+        return FAIL, "a 30-CS mid with three kills read as under the farm bar"
+    # a live objective verdict always outranks a dropped wave
+    if (lg._verdict(dict(lg.demo("miss"), tempo_urgent=True)) or {}).get("quiet") is not True:
+        return FAIL, "MISS talks over a live tempo verdict"
+    # --- the guard: never bill a wave lost on the grey screen, never speak while dead
+    g, billed = lg.Guard(), 0
+    for t in range(0, 700):
+        dead = 240 <= t <= 330
+        cs = int(lg.offered(float(min(t, 240)), "mid")[0] * 0.90)
+        me = {"riotId": "M#1", "team": "ORDER", "position": "MIDDLE", "isDead": dead,
+              "level": 6, "championName": "Ahri",
+              "scores": {"creepScore": cs, "kills": 0, "assists": 0, "deaths": 0}}
+        c = g.observe({}, {"activePlayer": {"riotId": "M#1"}, "allPlayers": [me],
+                           "gameData": {"gameTime": float(t)}, "events": {"Events": []}})
+        if dead and c:
+            return FAIL, f"the gold clock spoke at {t}s while the player was dead"
+        if c and c["verdict"] == "MISS" and 240 <= t <= 400:
+            billed += 1
+    if billed:
+        return FAIL, f"billed {billed} MISS cards for waves lost while dead"
+    if g.observe({}, None) is not None or lg.Guard().observe({}, {}) is not None:
+        return FAIL, "guard produced a card with no game data"
+    return OK, "wave schedule exact, bar matches the tag, 11 fixtures + dead-wave rule hold"
+
+
+def c_ward():
+    """The WARD CLOCK (core/lolward) — the live vision war for jungle + support. Four things
+    must hold forever and none of them are visible without playing a game: it is SILENT until
+    the live feed has proven it reports a vision score at all (otherwise it accuses a support
+    who has warded all game of being dark), it never bills you for dark time you spent on the
+    grey screen, its bar is lolprofile's own, and it stays quiet for the roles the profile has
+    never graded on vision."""
+    import lolward as lw, lolprofile as lp, loltempo as lt
+    # --- ONE BRAIN: the bar is lolprofile's, the pit sides are loltempo's. Both are read at
+    #     runtime rather than re-typed, so a change on either side can't silently diverge.
+    if lw.vpm_bar("support") != lp.VPM_BAR["UTILITY"] or lw.vpm_bar("jungle") != lp.VPM_BAR["JUNGLE"]:
+        return FAIL, f"vision bar {lw._BAR['v']} has drifted from lolprofile.VPM_BAR"
+    if set(lw.ROLE_POS.values()) != set(lp.VPM_BAR):
+        return FAIL, "the roles this speaks for aren't the roles low_vision is evaluated for"
+    if lw.OBJ_SIDE != lt._OBJ_SIDE:
+        return FAIL, f"pit sides {lw.OBJ_SIDE} have drifted from loltempo._OBJ_SIDE"
+    # --- None and 0.0 are NOT the same: one is 'hasn't warded', one is 'not being reported',
+    #     and coaching on the second is the whole reason the arming tripwire exists.
+    if lw.ward_score({"scores": {"wardScore": 0}}) != 0.0:
+        return FAIL, "a reported vision score of 0 was collapsed to 'no data'"
+    for bad in ({}, {"scores": {}}, {"scores": {"wardScore": None}}, {"scores": {"wardScore": "x"}},
+                {"scores": {"wardScore": float("nan")}}, None):
+        if lw.ward_score(bad) is not None:
+            return FAIL, f"ward_score invented a number from {bad!r}"
+    if lw.feed_live([{"scores": {"wardScore": 0}}] * 10) or not lw.feed_live(
+            [{"scores": {"wardScore": 0}}] * 9 + [{"scores": {"wardScore": 3.5}}]):
+        return FAIL, "the feed tripwire arms on an all-zero game (or won't arm on a live one)"
+    if lw.ctrl_wards({"items": [{"itemID": 2055, "count": 2}, {"itemID": 3340, "count": 1}]}) != 2:
+        return FAIL, "control wards are counted by slot instead of by stack count"
+    # --- the counterpart is the same role or it is nothing: a wrong comparison is worse than
+    #     no comparison, so an ambiguous lobby must drop the segment rather than guess.
+    en = [{"position": "UTILITY", "scores": {"creepScore": 20}},
+          {"position": "JUNGLE", "scores": {"creepScore": 120}},
+          {"position": "MIDDLE", "scores": {"creepScore": 140}}]
+    if lw.counterpart({"position": "UTILITY"}, en) is not en[0]:
+        return FAIL, "counterpart didn't match support to support"
+    if lw.counterpart({"position": "JUNGLE"}, en) is not en[1]:
+        return FAIL, "counterpart didn't match jungler to jungler"
+    nop = [{"scores": {"creepScore": 15}}, {"scores": {"creepScore": 15}}]
+    if lw.counterpart({"position": "UTILITY"}, nop) is not None:
+        return FAIL, "counterpart guessed between two equally plausible players"
+    smite = [{"scores": {"creepScore": 90},
+              "summonerSpells": {"summonerSpellOne": {"displayName": "Smite"}}},
+             {"scores": {"creepScore": 90}}]
+    if lw.counterpart({"position": "JUNGLE"}, smite) is not smite[0]:
+        return FAIL, "counterpart ignored the smite fallback when positions are missing"
+    # --- the pit window is lollive's own flags, plus a tail; scuttle is not a pit.
+    if lw.pit_window([{"label": "Scuttle", "secs": 20, "urgent": True}]) is not None:
+        return FAIL, "scuttle read as a pit"
+    if lw.pit_window([{"label": "Drake", "secs": 60, "setup": True}]) is None:
+        return FAIL, "an open setup window didn't register as a pit"
+    if lw.pit_window([{"label": "Baron", "secs": -(lw.PIT_TAIL + 5), "up": True}]) is not None:
+        return FAIL, "a pit stayed open forever after the objective spawned"
+    # --- every verdict branch is reachable and lands where it should
+    want = {"row": "WARD", "under": "WARD", "pit": "PIT", "pitup": "PIT", "pitshort": "WARD",
+            "pitfight": "WARD", "dark": "DARK", "darkquiet": "WARD", "pink": "PINK",
+            "pinkquiet": "WARD", "jungle": "WARD", "adc": None, "mid": None,
+            "notarmed": None, "nofield": None, "early": None, "nocounterpart": "WARD"}
+    got = {k: (lw._verdict(lw.demo(k)) or {}).get("verdict") for k in want}
+    bad = [f"{k}: got {v}, want {want[k]}" for k, v in got.items() if v != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+    for k in ("pitfight", "pitshort", "darkquiet", "pinkquiet", "row", "under"):
+        if not (lw._verdict(lw.demo(k)) or {}).get("quiet"):
+            return FAIL, f"{k} took the directive card when it should be a quiet row"
+    if (lw._verdict(lw.demo("nocounterpart")) or {}).get("them") is not None:
+        return FAIL, "an unknown counterpart still produced a head-to-head number"
+    # --- the guard, driven through whole games. A support who wards on a normal cadence must
+    #     never be accused; one who stops must be caught; and neither must be billed for the
+    #     seconds he spent dead.
+    def game(vs_at, dead=lambda t: False, pinks=lambda t: 0, role="UTILITY", n=1500,
+             trink=3340, gold=300.0):
+        g, out = lw.Guard(), []
+        for t in range(n):
+            me = {"riotId": "M#1", "team": "ORDER", "position": role, "isDead": dead(t),
+                  "level": 9, "championName": "Nautilus",
+                  "items": ([{"itemID": 2055, "count": pinks(t)}] if pinks(t) else [])
+                           + [{"itemID": trink, "slot": 6}],
+                  "scores": {"creepScore": 10, "kills": 0, "assists": 3, "deaths": 0,
+                             "wardScore": vs_at(t)}}
+            foe = {"riotId": "E#1", "team": "CHAOS", "position": role, "level": 9,
+                   "scores": {"creepScore": 12, "wardScore": 0.02 * t}}
+            out.append((t, g.observe({}, {"activePlayer": {"riotId": "M#1",
+                                                            "currentGold": gold},
+                                          "allPlayers": [me, foe],
+                                          "gameData": {"gameTime": float(t)},
+                                          "events": {"Events": []}})))
+        return g, out
+    _g, warder = game(lambda t: 0.03 * t)                  # a ward alive basically always
+    if any(c and not c.get("quiet") for _t, c in warder):
+        return FAIL, "a support warding all game was still handed a card"
+    if not any(c for _t, c in warder):
+        return FAIL, "a normal support game produced no vision row at all"
+    _g, stops = game(lambda t: 0.03 * min(t, 400))         # ...who stops warding at 6:40
+    darks = [t for t, c in stops if c and c.get("verdict") == "DARK"]
+    if not darks or darks[0] < 400 + lw.DARK_SECS:
+        return FAIL, f"DARK fired at {darks[:1]} — before the score had actually been flat"
+    # dead time is FROZEN, not reset and not accrued: 200s on the grey screen must neither
+    # hand out a free window nor bill a death two other guards already own.
+    _g, dd_ = game(lambda t: 0.03 * min(t, 300), dead=lambda t: 320 <= t < 520)
+    if any(c for t, c in dd_ if 320 <= t < 520):
+        return FAIL, "the ward clock spoke while the player was dead"
+    # He went dark at 5:00 and died at 5:20, so 20s of dark is banked when he respawns at
+    # 8:40. FROZEN means the card is due exactly DARK_SECS-20 later; ACCRUED would fire the
+    # instant he stands up, RESET would cost him a full extra window.
+    dark_after = [t for t, c in dd_ if c and c.get("verdict") == "DARK"]
+    due = 520 + (lw.DARK_SECS - 20)
+    if not dark_after:
+        return FAIL, "a support who went dark before dying was never told after he respawned"
+    if dark_after[0] < due - 5:
+        return FAIL, f"DARK at {dark_after[0]}s, due {due:.0f} — dark time accrued while dead"
+    if dark_after[0] > due + 5:
+        return FAIL, f"DARK at {dark_after[0]}s, due {due:.0f} — the clock RESET on death"
+    # the arming tripwire: a whole game with no vision score reported anywhere is total silence
+    _g, quiet = game(lambda t: None)
+    if any(c for _t, c in quiet):
+        return FAIL, "spoke about vision in a game where :2999 reported no vision score"
+    # a carried control ward is said ONCE per stock — one card window (it holds the slot for
+    # CARD_SECS so it can be read), never a second one for the same ward.
+    pkg, pk = game(lambda t: 0.03 * t, pinks=lambda t: 1 if t > 200 else 0)
+    on = [t for t, c in pk if c and c.get("verdict") == "PINK"]
+    windows = sum(1 for a, b in zip([-99] + on, on) if b - a > 1)
+    if windows != 1:
+        return FAIL, f"the carried-control-ward card opened {windows} windows for one ward"
+    if not on or abs(len(on) - lw.CARD_SECS) > 1:
+        return FAIL, f"the PINK card held the slot for {len(on)}s, not {lw.CARD_SECS:.0f}s"
+    if max(c.get("calls") or 0 for _t, c in pk if c) != 1:
+        return FAIL, "calls counts frames instead of card windows (a voice line would stutter)"
+    # laners are never graded on vision here, exactly as lolprofile never grades them
+    for pos in ("TOP", "MIDDLE", "BOTTOM"):
+        if any(c for _t, c in game(lambda t: 0.0, role=pos, n=800)[1]):
+            return FAIL, f"the ward clock spoke to a {pos} laner"
+    # malformed payloads must never crash the widget's poll thread
+    g = lw.Guard()
+    for junk in (None, {}, {"allPlayers": []}, {"activePlayer": {}, "allPlayers": [{}]},
+                 {"activePlayer": {"riotId": "M#1"}, "allPlayers": [{"riotId": "M#1"}],
+                  "gameData": {"gameTime": "soon"}},
+                 {"activePlayer": {"riotId": "M#1"}, "allPlayers": [{"riotId": "M#1"}],
+                  "gameData": {"gameTime": float("nan")}},
+                 {"activePlayer": {"riotId": "M#1"},
+                  "allPlayers": [{"riotId": "M#1", "position": "UTILITY", "items": [{}],
+                                  "scores": {"wardScore": "?"}}],
+                  "gameData": {"gameTime": 600.0}}):
+        if g.observe({}, junk) is not None:
+            return FAIL, f"produced a card from a malformed payload: {junk!r}"
+    # --- v0.9.69: the trinket read, the deadline, the pink LEDGER and the recall buy prompt.
+    #     All four change what the card SAYS, so each is checked on the text and not just on
+    #     a verdict name.
+    for iid, want in ((3340, "yellow"), (3363, "farsight"), (3364, "sweeper")):
+        if lw.trinket({"items": [{"itemID": 2055}, {"itemID": iid, "slot": 6}]}) != want:
+            return FAIL, f"trinket {iid} read as something else"
+    if lw.trinket({"items": [{"itemID": 2055}]}) is not None:
+        return FAIL, "an empty trinket slot must read None, not a guess"
+    for junk in (None, {}, {"items": None}, {"items": [None]}, {"items": [{"itemID": "x"}]}):
+        if lw.trinket(junk) is not None or lw.ctrl_wards(junk):
+            return FAIL, f"the inventory read invented something from {junk!r}"
+    sw = lw._verdict(lw.demo("pitsweeper"))
+    if "sweep it before you place" not in sw["sub"]:
+        return FAIL, "a sweeper wasn't told to take theirs first"
+    fs = lw._verdict(lw.demo("pitfarsight"))
+    if "can't sweep" not in fs["sub"] or "sweep it before" in fs["sub"]:
+        return FAIL, "a farsight was told to sweep, which it cannot do"
+    if lw._HOW.get("yellow"):
+        return FAIL, "a plain yellow trinket adds a clause that says nothing"
+    # the DEADLINE: named while there is still one, and never once the fight has started
+    dl = lw._verdict(lw.demo("pitdeadline"))
+    if "in by" not in dl["line"]:
+        return FAIL, "the pit card lost its deadline"
+    import lollive as ll
+    want_by = lw._mmss(lw.demo("pitdeadline")["gt"] + 68 - ll.ALERT_LEAD)
+    if want_by not in dl["line"]:
+        return FAIL, f"the deadline isn't spawn minus lollive's own lead ({want_by})"
+    for k in ("pit", "pitup"):                       # inside the fight there is no deadline
+        if "in by" in (lw._verdict(lw.demo(k)) or {})["line"]:
+            return FAIL, f"{k} printed a deadline that has already passed"
+    # the LEDGER, and its absence when there is nothing to report
+    if "1 of 2 placed" not in lw._verdict(lw.demo("pink"))["sub"]:
+        return FAIL, "the PINK card lost the buy/place ledger"
+    if "control ward on you 42%" not in lw._verdict(lw.demo("dark"))["sub"]:
+        return FAIL, "the share-of-game control-ward number is gone"
+    if "%" in lw._verdict(lw.demo("noledger"))["sub"]:
+        return FAIL, "a percentage was printed before there was a sample for one"
+    for pct, lo, hi in ((-1.0, 0, 0), (5.0, 100, 100)):       # never out of range, ever
+        d = dict(lw.demo("pink"), have_pct=pct)
+        if not lo <= lw._verdict(d)["have_pct"] <= hi:
+            return FAIL, f"have_pct {pct} escaped 0-100"
+    # the buy prompt: only in a recall window, only if affordable, never while carrying
+    if f"+{lw.CTRL_GOLD}g" not in lw._verdict(lw.demo("base"))["row"]:
+        return FAIL, "a recall window is the one moment the buy must lead the row"
+    for k in ("basebroke", "basecarrying", "row"):
+        if f"+{lw.CTRL_GOLD}g" in lw._verdict(lw.demo(k))["row"]:
+            return FAIL, f"{k} was sold a control ward it doesn't need or can't afford"
+
+    # --- and the purchase ledger against the truth, over a whole game: two bought, one
+    #     placed, and the share-of-game number inside the possible.
+    lg, frames = game(lambda t: 0.03 * t,
+                      pinks=lambda t: 1 if (200 <= t < 500 or t >= 900) else 0)
+    if (lg.bought, lg.placed) != (2, 1):
+        return FAIL, f"the pink ledger says {lg.bought} bought / {lg.placed} placed, want 2/1"
+    pcts = [c["have_pct"] for _t, c in frames if c and c.get("have_pct") is not None]
+    if not pcts or min(pcts) < 0 or max(pcts) > 100:
+        return FAIL, f"share-of-game out of range: {min(pcts or [0])}..{max(pcts or [0])}"
+    if pcts[-1] > 60:                       # carried for 600 of 1500s -> can't read as most
+        return FAIL, f"share-of-game reads {pcts[-1]}% for a ward carried 40% of the game"
+    if any(c["have_pct"] is not None for t, c in frames if c and t < 60):
+        return FAIL, "a percentage was printed in the first minute of watching"
+
+    # --- the legend must actually CONTAIN the section: PIL draws past a canvas silently, so
+    #     an overrun vanishes off the bottom of the card instead of raising.
+    try:
+        import smitewidget as sw_
+        leg = sw_._render_legend()
+        band = leg.crop((0, leg.height - 30, leg.width, leg.height - 4))
+        if not any(sum(px) > 150 for px in list(band.getdata())):
+            return FAIL, "the legend's last WARD row fell off the bottom of its canvas"
+    except Exception:
+        pass                                # not on Windows / no Win32: skip the render
+    return OK, ("24 fixtures, arming tripwire, dead-time freeze, trinket + deadline + pink "
+                "ledger + 6 simulated games hold")
+
+
 def c_mute():
     """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
     that landed - so it claimed success for four releases while muting nobody. It now writes
@@ -966,6 +1258,8 @@ def main():
         ("Re-entry guard (90s window)", c_reentry),
         ("Bleed guard (first 14 min)", c_bleed),
         ("Closer (win conversion)", c_closer),
+        ("Gold clock (farm pace)", c_gold),
+        ("Ward clock (vision war)", c_ward),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),

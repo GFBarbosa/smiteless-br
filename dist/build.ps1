@@ -34,7 +34,7 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 
 Write-Host "==> freeze Python app (PyInstaller)" -ForegroundColor Cyan
 $hidden = @("smiteoverlay","smitewidget","smitedead","smiteload","smitequeue","smitesettings","smiteprofile","phasecheck","smiteupdate","smitestats","smitekeycheck","selftest",
-            "loldead","lolload","loltags","lolqueue","lolmute","lolreentry","lolbleed","lolclose","lolfit","lolrunes",
+            "loldead","lolload","loltags","lolqueue","lolmute","lolreentry","lolbleed","lolclose","lolgold","lolward","lolfit","lolrunes",
             "smitecard","smiteconfig","smitei18n","i18n_pt_BR","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
             "lollive","lolvision","lolprofile","lolaccounts","lolcreds","claudecli","codexcli","llmcli","llmprocess",
             "lolugg","lollocal",   # scout fallback (u.gg) + your history off the client (LCU)
