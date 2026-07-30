@@ -4,7 +4,7 @@ import re
 from i18n_pt_BR import MESSAGES as PT_BR_MESSAGES
 
 SUPPORTED = ("pt_BR", "en")
-DEFAULT_LANG = "pt_BR"
+DEFAULT_LANG = "en"
 _override = None
 
 
@@ -18,7 +18,7 @@ def _normalize(code):
 
 
 def lang():
-    """Return the active UI language, defaulting safely to Brazilian Portuguese."""
+    """Return the active UI language, defaulting safely to English."""
     if _override is not None:
         return _override
     try:

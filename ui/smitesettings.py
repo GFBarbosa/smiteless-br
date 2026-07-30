@@ -718,14 +718,14 @@ def main():
     _upd_flash()
 
     skin.section_rule(body, t("STARTUP")).pack(fill="x", padx=18, pady=(10, 2))
-    lang_var = tk.StringVar(value=s.get("ui_lang", "pt_BR") if s.get("ui_lang") in ("pt_BR", "en") else "pt_BR")
+    lang_var = tk.StringVar(value=s.get("ui_lang", "en") if s.get("ui_lang") in ("pt_BR", "en") else "en")
     langfr = tk.Frame(body, bg=VOID)
     langfr.pack(fill="x", padx=16, pady=(0, 2))
     tk.Label(langfr, text=t("LANGUAGE"), bg=VOID, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
-    tk.Radiobutton(langfr, text=t("Português (Brasil)"), variable=lang_var, value="pt_BR", bg=VOID,
+    tk.Radiobutton(langfr, text=t("English"), variable=lang_var, value="en", bg=VOID,
                    fg=TXT, selectcolor=SURFACE, activebackground=VOID, activeforeground=TXT,
                    font=skin.body(SMALL)).pack(side="left", padx=(14, 6))
-    tk.Radiobutton(langfr, text=t("English"), variable=lang_var, value="en", bg=VOID,
+    tk.Radiobutton(langfr, text=t("Português (Brasil)"), variable=lang_var, value="pt_BR", bg=VOID,
                    fg=TXT, selectcolor=SURFACE, activebackground=VOID, activeforeground=TXT,
                    font=skin.body(SMALL)).pack(side="left", padx=6)
     tk.Label(body, text=t("Language applies after Save. Reopen overlays and the tray menu to refresh all surfaces."),
@@ -919,7 +919,7 @@ def main():
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)
         flash_side.set(0)
-        lang_var.set("pt_BR")
+        lang_var.set("en")
         tip_provider.set(_tip_provider_labels[cfg.MATCHUP_TIP_PROVIDER_DEFAULT])
         _upd_flash()
         try:

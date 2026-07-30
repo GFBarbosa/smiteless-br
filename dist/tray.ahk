@@ -24,10 +24,10 @@ SETTINGS := EnvGet("USERPROFILE") "\.claude\smiteless_settings.json"   ; read to
 UiLang() {
     global SETTINGS
     try {
-        if RegExMatch(FileRead(SETTINGS, "UTF-8"), '"ui_lang"\s*:\s*"en"')
-            return "en"
+        if RegExMatch(FileRead(SETTINGS, "UTF-8"), '"ui_lang"\s*:\s*"pt_BR"')
+            return "pt_BR"
     }
-    return "pt_BR"
+    return "en"
 }
 Tr(en, pt) {
     return UiLang() = "en" ? en : pt

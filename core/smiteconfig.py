@@ -147,7 +147,7 @@ STRINGS = {"max_elo_main": "",      # MAX ELO: the one champion you play ('' = n
            "draft_db": "",
            "draft_page": "https://bobbyroylee.github.io/smiteless/draft/",
            "draft_msg": "",
-           "ui_lang": "pt_BR"}      # UI language: pt_BR (fork default) or en
+           "ui_lang": "en"}         # UI language: en (install default) or pt_BR
 
 
 def load():
