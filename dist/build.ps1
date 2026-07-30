@@ -34,10 +34,15 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 
 Write-Host "==> freeze Python app (PyInstaller)" -ForegroundColor Cyan
 $hidden = @("smiteoverlay","smitewidget","smitedead","smiteload","smitequeue","smitesettings","smiteprofile","phasecheck","smiteupdate","smitestats","smitekeycheck","selftest",
-            "loldead","lolload","loltags","lolqueue","lolmute","lolreentry","lolbleed","lolclose","lolgold","lolward","lolfix","lolfit","lolrunes",
+            "loldead","lolload","loltags","lolqueue","lolmute","lolreentry","lolbleed","lolclose","lolgold","lolward","lolfix","lolpool","lolfit","lolrunes",
             "smitecard","smiteconfig","lolbuild","lolgame","lolscout","lolmatchup","lolitems",
             "lollive","lolvision","lolprofile","lolaccounts","lolcreds","claudecli",
             "lolugg","lollocal",   # scout fallback (u.gg) + your history off the client (LCU)
+            # These five were reachable only through top-level imports of other modules, i.e. by
+            # luck. selftest now asserts every core/ and ui/ module is listed here, because a
+            # module PyInstaller misses ships an exe that crashes on import — a release missing
+            # the very feature it is named for.
+            "loldraft","lolimport","loltempo","smiteskin","smitenotes",
             "comtypes","comtypes.client","comtypes.gen","winsound","wave","PIL._tkinter_finder")
 $pyiArgs = @("--noconfirm","--onedir","--windowed","--name","SmitelessApp","--icon",$ico,
              "--paths",(Join-Path $repo "core"),"--paths",(Join-Path $repo "ui"),"--paths",(Join-Path $repo "tools"),

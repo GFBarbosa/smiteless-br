@@ -21,6 +21,7 @@ import lolmatchup as lm
 import lollive as ll
 import lolprofile as lp
 import lolfix as lf          # THE ONE FIX: the leak board's copy + pricing
+import lolpool as lpl       # THE POOL: your champions, priced in the same LP
 import phasecheck
 import smiteconfig as cfg
 import smiteskin as skin
@@ -864,9 +865,11 @@ def _sparkline(d, x0, y0, w, h, vals):
 
 
 def _draw_session_coach(d, p, y, W=None):
-    """Session band: W-L + LP swing + streak/tilt on the left, pool-coach advice on the right.
-    For ANOTHER player's profile the session half is meaningless (it's local history) - show
-    only their pool read."""
+    """Session band: W-L + LP swing + streak/tilt on the left, THE POOL's verdict on the right.
+
+    The right half used to carry three raw win-rate bullets ("play more Sett 58%"). It now
+    carries the same claim priced in the player's own LP, straight off core/lolpool, so this
+    strip and the champ-select recommender can no longer disagree about a champion."""
     W = int(W or PW)                              # profile surfaces render at the window's width
     f = font(11, 1)                                # body bits (sentences, riot id)
     nf = display_font(11, True)                    # header/numeral bits (SESSION, W-L, LP, streak)
@@ -894,20 +897,16 @@ def _draw_session_coach(d, p, y, W=None):
         x += d.textlength(txt, font=bf) + 12
     if sess.get("tilt"):
         d.text((x, y), "· take a breather, tilt risk", font=f, fill=REDWR)
-    coach = p.get("coach")
-    if coach:
+    pool = p.get("pool")
+    if pool and not p.get("other"):
         cx = W - 22
-        order = [k for k in ("more", "less", "slump") if coach.get(k)]
-        for k in order:                                   # right-anchored, first = rightmost
-            c = coach[k]
-            if k == "more":
-                txt, col = f"▸ play more {c['champ']} {c['wr']}% ({c.get('g','?')}g)", GREEN
-            elif k == "less":
-                txt, col = f"▸ ease off {c['champ']} {c['wr']}% ({c.get('g','?')}g)", REDWR
-            else:                                         # a slumping MAIN: variance, not the pick
-                txt, col = f"▸ rough patch on {c['champ']} — variance, not the pick", TAN
+        cols = {"queue": GREEN, "bench": REDWR, "spread": WARN, "slump": TAN, "quiet": MUTED}
+        # Right-anchored as a group, but drawn back-to-front so the strip READS in priority
+        # order left-to-right. Drawing forwards would put the lead note on the far right.
+        for kind, note in reversed(lpl.notes(pool)[:2]):
+            txt = f"▸ {note}"
             cf = font(11, 1, txt)                          # ▸ needs Segoe UI Symbol
-            d.text((cx, y), txt, font=cf, fill=col, anchor="ra")
+            d.text((cx, y), txt, font=cf, fill=cols.get(kind, MUTED), anchor="ra")
             cx -= d.textlength(txt, font=cf) + 16
 
 
@@ -1004,6 +1003,13 @@ def _profile_headline(p):
     if (s.get("streak") or 0) <= -2:
         return ("STOP RULE: 2 straight losses — break 30 min. Players who break win ~3% more "
                 "next game; tilted sessions bleed 10-15% (597k-game study). The climb resumes after.")
+    # THE POOL first, and only when it has an actual claim: a number out of YOUR OWN games
+    # outranks any study, so the 1M-game citation below is now the fallback rather than the
+    # lead. It is still the right thing to say when your own sample can't say anything yet.
+    pb = p.get("pool") or {}
+    if pb.get("ready") and (pb.get("queue") or pb.get("bench")
+                            or (pb.get("width") or {}).get("state") == "priced"):
+        return lpl.headline(pb)
     cl = p.get("climb") or {}
     if cl.get("sub12k"):
         return (f"CLIMB LEAK: {', '.join(cl['sub12k'][:2])} under 12k mastery — sub-12k picks win "
@@ -1430,11 +1436,24 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
         ry += 29
 
     # ============================ CHAMPION POOL ============================
-    ch_label = "CHAMPION POOL · THIS SEASON" if p.get("season_champs") else "CHAMPION POOL · RECENT"
+    ch_label = "THE POOL · THIS SEASON" if p.get("season_champs") else "THE POOL · RECENT"
     chf = display_font(13, True)
     d.text((20, pool_y), ch_label, font=chf, fill=GOLD)
-    d.line([34 + int(d.textlength(ch_label, font=chf)), pool_y + 8, W - 20, pool_y + 8],
-           fill=LINE_SOFT, width=1)
+    lx0 = 34 + int(d.textlength(ch_label, font=chf))
+    # The WIDTH verdict, right-anchored on the rule: the one claim here that is about the SHAPE
+    # of the pool rather than any champion in it, so it belongs on the section, not on a card.
+    pb = p.get("pool") if not p.get("other") else None
+    wv = (pb or {}).get("width") if (pb or {}).get("ready") else None
+    if wv:
+        wtxt = f"{lpl.width_note(wv)}  ·  {wv['evidence']}" if wv["evidence"] else lpl.width_note(wv)
+        wcol = REDWR if wv["state"] == "priced" else (GREEN if wv["state"] == "focused" else MUTED)
+        wf = font(10)
+        d.text((W - 20, pool_y + 1), wtxt, font=wf, fill=wcol, anchor="ra")
+        lx1 = W - 28 - int(d.textlength(wtxt, font=wf))
+    else:
+        lx1 = W - 20
+    if lx1 > lx0:
+        d.line([lx0, pool_y + 8, lx1, pool_y + 8], fill=LINE_SOFT, width=1)
     cards_y = pool_y + 26
     pool = p.get("champs", [])[:6]
     if pool:
@@ -1458,6 +1477,19 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
             _rrect(d, card_box, 12, fill=None, outline=PEDGE, width=1)
             nm = dd["id2name"].get(cid, c["champ"])
             d.text((x + 13, cards_y + pool_h - 58), nm[:13], font=display_font(13, True), fill=TEXT)
+            # THE POOL's price for this champion, in the LP that is actually at stake. A raw
+            # win rate can't tell you whether to queue it; this can, and it only ever appears
+            # on a champion the board is willing to defend (see core/lolpool's house rules).
+            st, _why = lpl.champ_note(pb, c["champ"]) if pb else (None, None)
+            if st in ("earner", "bench", "slump"):
+                row = next((r for r in pb["rows"] if lpl._norm(r["champ"]) == lpl._norm(c["champ"])), None)
+                ptxt = lpl.row_note(row) if row else ""
+                pcol = {"earner": GREEN, "bench": REDWR, "slump": WARN}[st]
+                pf = display_font(11, True)
+                pw_ = d.textlength(ptxt, font=pf)
+                _rrect(d, (x + 11, cards_y + 10, x + 17 + pw_ + 6, cards_y + 32), 11,
+                       fill=_dim(pcol, 0.22), outline=_dim(pcol, 0.55), width=1)
+                d.text((x + 17, cards_y + 14), ptxt, font=pf, fill=pcol)
             wcol = GREEN if c["wr"] >= 55 else (REDWR if c["wr"] < 45 else TAN)
             d.text((x + 13, cards_y + pool_h - 40), f"{c['wr']}%", font=display_font(19, True), fill=wcol)
             d.text((x + cw - 12, cards_y + pool_h - 36), f"{c['g']}g", font=display_font(11, True),
@@ -1782,6 +1814,22 @@ def _wrap(text, fnt, max_w):
     if cur:
         lines.append(cur)
     return lines
+
+
+def _ellipsize(d, text, fnt, max_w):
+    """`text` shortened until it fits max_w, with a trailing ellipsis when anything was cut.
+    A single-line slot that silently clips mid-word reads as a rendering bug; an explicit "…"
+    reads as "there is more, go look at the page" — which is true."""
+    if not text or d.textlength(text, font=fnt) <= max_w:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:                                 # longest prefix that still fits with the "…"
+        mid = (lo + hi + 1) // 2
+        if d.textlength(text[:mid] + "…", font=fnt) <= max_w:
+            lo = mid
+        else:
+            hi = mid - 1
+    return (text[:lo].rstrip() + "…") if lo else ""
 
 
 def draw_lane_panel(d, img, dd, x, y, w, my_cid, my_role, opp_cid, my_wr, opp_sc, tip_lines, ph):
@@ -2458,7 +2506,12 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         y += 34
     # runes + build card — quiet rail; the import button is THE primary action (ember pill)
     if build:
-        card_h = 214 + (20 if rune_note else 0)
+        # The note gets its OWN full-width line under the button row. It used to be squeezed
+        # into the ~148px left of the AUTO chip, where anything longer than about 28 characters
+        # was silently clipped mid-word — the team scout's roster line and the climb warning
+        # have both been losing their tails there, and THE POOL's receipt is the reason it
+        # finally showed up as a bug worth fixing.
+        card_h = 214 + (20 if rune_note else 0) + (15 if note else 0)
         _railed_card(d, (10, y, VW - 10, y + card_h), LINE, fill=SURFACE, outline=PEDGE, width=1)
         x = 24
         d.text((x, y + 10), "RUNES", font=display_font(9, True), fill=GOLD)
@@ -2504,9 +2557,16 @@ def render_cs_vertical(dd, my_cid, my_role, allies, build, suggestions=None, ban
         _rrect(d, (bx, by, bx + bw, by + bh), bh // 2, fill=GOLD)
         d.text((bx + bw // 2, by + bh // 2), "⇩ Import runes + summs", font=font(9, 1, "⇩"), fill=BG, anchor="mm")
         hits.append((bx, by, bx + bw, by + bh, "action:import_build"))
-        aw = _auto_chip(d, bx + bw + 8, by, auto_import, hits)
+        _auto_chip(d, bx + bw + 8, by, auto_import, hits)
         if note:
-            d.text((bx + bw + 8 + aw + 8, by + 5), note, font=font(9, text=note), fill=GREEN)
+            # Tone follows the note. This line was always drawn green, including for the
+            # sub-12k mastery WARNING — a caution in the "all good" color is a caution nobody
+            # reads, and THE POOL now routes real bad news through here.
+            ncol = (REDWR if note.startswith("⚠") else
+                    (GREEN if note.startswith("✔") else TAN))
+            nf = font(9, text=note)
+            ntxt = _ellipsize(d, note, nf, VW - 44)
+            d.text((x, by + bh + 5), ntxt, font=nf, fill=ncol)
         y += card_h + 10
     else:
         d.text((20, y + 6), "lock or hover a champ for runes + build", font=font(11), fill=MUTED)
@@ -3524,11 +3584,26 @@ def run(emit, count=None, wait=False, stop=None, monitor=False):
                             team_read["text"] = ""
                         team_read["state"] = "done"
                     threading.Thread(target=_team_scout, daemon=True).start()
-                # CLIMB check on the hovered pick: sub-12k mastery points is the single
-                # biggest self-inflicted WR leak (~44% vs 51%+, 1M-game study) — warn early,
-                # while there's still time to hover something you actually play.
+                # CLIMB check on the hovered pick. YOUR OWN RESULTS FIRST: if THE POOL can
+                # price this champion out of your own games, that beats any study — "-38 LP /
+                # 10 games on it, 2W-9L over 11" is a receipt, and "sub-12k wins ~44%" is a
+                # population average that might not be about you at all. The study is the
+                # fallback for a champion your history can't speak about, which is exactly the
+                # case it describes: one you've barely played.
                 climb_note = ""
                 if my_cid and not auto_note:
+                    try:
+                        _nm = (dd.get("id2name") or {}).get(my_cid, "")
+                        _st, _why = lpl.short_note(lpl.live_board(), _nm) if _nm else (None, None)
+                        if _st == "bench":
+                            climb_note = f"⚠ {_nm}: {_why}"
+                        elif _st == "earner":
+                            climb_note = f"✔ {_nm}: {_why}"
+                        elif _st == "slump":
+                            climb_note = f"{_nm}: {_why}"
+                    except Exception:
+                        climb_note = ""
+                if my_cid and not auto_note and not climb_note:
                     try:
                         # pooled across ALL your accounts — 100k on the main means the
                         # smurf pick is fine; only warn when NO account knows the champ

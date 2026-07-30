@@ -540,6 +540,154 @@ def c_onefix():
                 "ledger merge is idempotent and time-ordered")
 
 
+def c_pool():
+    """THE POOL (core/lolpool) — your champion pool priced in your own LP. The risk here is
+    specific and it is the one every "your best champion" stat in existence gets wrong: with
+    six or nine champions on the page, testing each one against your own baseline finds a
+    "proven" winner in pools that are pure noise. If that correction ever comes off, this
+    surface starts confidently telling people to abandon champions at random — so the guard
+    suite MEASURES the false-positive rate rather than trusting the arithmetic. The second risk
+    is divergence: the profile page and the champ-select recommender now share this read, and
+    they must never disagree about a champion again."""
+    import lolpool as lpl
+    import lolfit as fit
+    import lolprofile as lp
+    lpl.selftest()                     # 15 guard groups + a 1,200-pool fuzz
+
+    # ONE BRAIN: lolfit's veto IS lolpool's 'bench'. Checked in both directions on a record
+    # shaped like the real cache, because a one-way check would miss the recommender vetoing
+    # something the page calls fine (the exact bug this refactor exists to make impossible).
+    rec = {"baseline": 80, "recent": ["sett"],
+           "champs": {"sett": {"g": 24, "w": 14, "avg": 84}, "ornn": {"g": 16, "w": 9, "avg": 80},
+                      "darius": {"g": 14, "w": 2, "avg": 58}, "garen": {"g": 9, "w": 5, "avg": 74},
+                      "gwen": {"g": 3, "w": 0, "avg": 55}}}
+    bd = fit.pool_board(rec)
+    if not bd:
+        return FAIL, "lolfit could not build a pool board from a normal-looking record"
+    for name in rec["champs"]:
+        benched = lpl.champ_note(bd, name)[0] == "bench"
+        vetoed = fit.verdict(rec, name)[0] == "veto"
+        if benched != vetoed:
+            return FAIL, (f"{name}: the page says bench={benched} and the recommender says "
+                          f"veto={vetoed} — the two reads have diverged again")
+    if fit.verdict(rec, "darius")[0] != "veto":
+        return FAIL, "a 2W-12L champion must still be vetoed out of the recommendations"
+    if fit.verdict(rec, "gwen")[0] == "veto":
+        return FAIL, "0-3 is not a sample and must never veto a champion"
+    # ... and a MAIN is never vetoed, however bad the run. This is the old pool coach's one
+    # good idea and the recommender must inherit it, not just the profile page.
+    slumping = {"champs": {"sett": {"g": 30, "w": 7, "avg": 62},
+                           "ornn": {"g": 14, "w": 9, "avg": 84}}, "baseline": 78, "recent": []}
+    if fit.verdict(slumping, "sett")[0] == "veto":
+        return FAIL, "the recommender vetoed the account's main on a bad run"
+    if lpl.champ_note(fit.pool_board(slumping), "sett")[0] != "slump":
+        return FAIL, "a main on a bad run must read as a slump, not a verdict"
+
+    # The profile's entry point must produce a board off the FULL champion list. Handing it the
+    # six champions the page draws would delete the tail the width claim is about.
+    champs = [dict(c, wr=round(c["w"] / c["g"] * 100)) for c in lpl.demo("spread")]
+    b = lp.pool_board(champs)
+    if not b or not b.get("ready"):
+        return FAIL, "lolprofile.pool_board did not produce a ready board from a real pool"
+    if (b["width"] or {}).get("state") != "priced":
+        return FAIL, f"the spread pool lost its width claim through lolprofile: {b['width']}"
+    if b["pool_n"] != len(champs):
+        return FAIL, f"the board saw {b['pool_n']} of {len(champs)} champions — the tail was cut"
+    if len(lp.pool_board(champs[:3])["rows"]) != 3:
+        return FAIL, "a truncated pool must still build, just with less to say"
+    # Junk and empties can reach this from a half-written cache; none of it may raise.
+    for junk in (None, [], [{}], {"sett": None}, [{"champ": "Sett", "g": 0, "w": 0}]):
+        if lp.pool_board(junk) is None:
+            return FAIL, f"lolprofile.pool_board raised on {junk!r} instead of saying nothing"
+
+    # Every surface that draws this must be able to import it, and the renderer must reach the
+    # board through the key lolprofile actually writes.
+    import smitecard as sc
+    src = open(os.path.join(_ROOT, "core", "lolprofile.py"), encoding="utf-8").read()
+    if '"pool":' not in src or "def pool_board" not in src:
+        return FAIL, "lolprofile no longer writes the 'pool' key the profile card reads"
+    # ... and it must stay self-profile only: pricing another player's champions in YOUR LP,
+    # against YOUR baseline, is a number about nobody.
+    if 'None if other else pool_board' not in src:
+        return FAIL, "THE POOL is being built for other players' profiles too"
+    if "def _coach(" in src:
+        return FAIL, "the superseded pool coach is back — two brains for one champion again"
+    csrc = open(os.path.join(_ROOT, "core", "smitecard.py"), encoding="utf-8").read()
+    if 'p.get("coach")' in csrc:
+        return FAIL, "the profile card still draws the removed coach"
+    for fn in ("headline", "notes", "width_note", "row_note", "champ_note", "short_note"):
+        if not callable(getattr(lpl, fn, None)):
+            return FAIL, f"lolpool.{fn} is missing — a surface will crash drawing the board"
+    if not sc._profile_headline({"pool": b, "champs": [], "n": 57, "wr": 50, "session": {}}):
+        return FAIL, "the profile headline went empty with a priced pool board"
+    if "THE POOL" not in sc._profile_headline({"pool": b, "champs": [], "n": 57, "wr": 50,
+                                               "session": {}}):
+        return FAIL, "a priced pool board did not reach the profile headline"
+
+    # The champ-select note is drawn on ONE unwrapped line. It must be ellipsized to fit rather
+    # than clipped mid-word — the bug this feature surfaced, which the team scout's roster line
+    # had been quietly hitting for releases.
+    from PIL import Image, ImageDraw
+    dm = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    fnt = sc.font(9)
+    for txt in ("⚠ Darius: -93 LP / 10 on it (2W-12L)", "team: " + "  ".join(["Sett A·12"] * 4),
+                "short", "", "x" * 400):
+        for w in (40, 90, 148, 340):
+            cut = sc._ellipsize(dm, txt, fnt, w)
+            if dm.textlength(cut, font=fnt) > w:
+                return FAIL, f"_ellipsize returned {cut!r}, still wider than {w}px"
+            if txt and cut and cut != txt and not cut.endswith("…"):
+                return FAIL, f"_ellipsize cut {txt!r} to {cut!r} without saying so"
+    if sc._ellipsize(dm, "fits", fnt, 4000) != "fits":
+        return FAIL, "_ellipsize must leave a string that already fits completely alone"
+    # ... and the strip must read in priority order, not reversed by the right-anchored draw.
+    kinds = [k for k, _t in lpl.notes(b)]
+    if kinds and kinds[0] not in ("queue", "bench", "spread", "slump", "quiet"):
+        return FAIL, f"the session strip led with an unknown note kind: {kinds}"
+    return OK, ("15 guard groups + 1,200-pool fuzz; false positives measured, not assumed; "
+                "page and recommender share one read")
+
+
+def c_frozen():
+    """Every core/ and ui/ module must be in dist\\build.ps1's $hidden list. PyInstaller only
+    follows STATIC imports, and this app is full of deliberate lazy ones (`import lolfit` inside
+    a function, so champ select doesn't pay for it at startup). A module it misses ships an exe
+    that raises ImportError the first time the feature is used — i.e. a release named after a
+    feature that isn't in it. CLAUDE.md has carried this rule as a reminder for releases; this
+    makes it a tripwire instead of a habit."""
+    import re
+    ps1 = os.path.join(_ROOT, "dist", "build.ps1")
+    src = open(ps1, encoding="utf-8").read()
+    if "$hidden = @(" not in src:
+        return FAIL, "build.ps1 no longer declares a $hidden list — this guard has gone blind"
+    # Paren-depth scan with comments stripped. Splitting on the first ")" would stop inside a
+    # trailing comment — "# ...off the client (LCU)" ends a line with one — and a guard that
+    # reads half the list is worse than no guard, because it fails on modules that ARE there.
+    rest, blk, depth = src.split("$hidden = @(", 1)[1], [], 1
+    for line in rest.splitlines():
+        code = line.split("#", 1)[0]
+        depth += code.count("(") - code.count(")")
+        blk.append(code)
+        if depth <= 0:
+            break
+    hidden = set(re.findall(r'"([^"]+)"', "\n".join(blk)))
+    if len(hidden) < 30:
+        return FAIL, f"only parsed {len(hidden)} entries out of $hidden — the guard is blind"
+    mods = {f[:-3] for d in ("core", "ui")
+            for f in os.listdir(os.path.join(_ROOT, d))
+            if f.endswith(".py") and not f.startswith("_")}
+    missing = sorted(mods - hidden)
+    if missing:
+        return FAIL, (f"not in build.ps1 $hidden: {', '.join(missing)} — the frozen exe can "
+                      f"crash on import")
+    stale = sorted(h for h in hidden
+                   if h.startswith(("lol", "smite")) and h not in mods
+                   and not os.path.exists(os.path.join(_ROOT, "tools", f"{h}.py")))
+    if stale:
+        return FAIL, f"build.ps1 $hidden names modules that no longer exist: {', '.join(stale)}"
+    return OK, f"all {len(mods)} core/ + ui/ modules are frozen into the build"
+
+
 def c_mute():
     """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
     that landed - so it claimed success for four releases while muting nobody. It now writes
@@ -837,6 +985,8 @@ def main():
         ("Gold clock (farm pace)", c_gold),
         ("Ward clock (vision war)", c_ward),
         ("THE ONE FIX (leak board)", c_onefix),
+        ("THE POOL (champions in LP)", c_pool),
+        ("Frozen build (hidden imports)", c_frozen),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),

@@ -15,6 +15,7 @@ import urllib.request
 import lolscout as ls
 import lollocal as llc          # YOUR match history straight off the client (Riot-API-free)
 import lolfix as lf             # THE ONE FIX: the leak catalogue + the LP pricing engine
+import lolpool as lpl           # THE POOL: your champions, priced in the same LP
 import phasecheck
 
 _ctx = ssl._create_unverified_context()
@@ -116,7 +117,6 @@ def _wilson(w, n, z=1.96, upper=False):
 
 _PERF_PRIOR_N = 5          # pseudo-games that pull a thin performance sample toward par
 _PERF_PAR = 70.0           # a neutral per-game score to regress a small perf sample toward
-_COACH_MIN_G = 5           # a champ needs a real sample before it can drive pool advice
 
 
 def _champ_rating(g, w, avg=None):
@@ -132,39 +132,6 @@ def _champ_rating(g, w, avg=None):
     perf_adj = (float(avg) * g + _PERF_PAR * _PERF_PRIOR_N) / (g + _PERF_PRIOR_N)
     perf_norm = max(0.0, min(1.2, (perf_adj - 55.0) / 35.0))
     return 0.6 * wr_low + 0.4 * perf_norm
-
-
-def _coach(champs):
-    """{more, less, slump} pool advice chosen with SAMPLE-AWARE math, not raw win rate — a 3-0
-    flash-in-the-pan never outranks a proven 40-25 main. 'more' is the best confidence-adjusted
-    pick (Wilson win-rate floor + your performance on it) that clears a real sample AND is a
-    champ we're statistically confident is a WINNER for you; 'less' is one we're confident is a
-    LOSER you're not maining; a maining champ on a bad run is flagged as a slump (variance),
-    never 'ease off'. Each pick carries its games (g) so the advice shows the sample it rests on."""
-    pool = [c for c in champs if c.get("g", 0) >= _COACH_MIN_G]
-    if not pool:
-        return None
-    total = sum(c.get("g", 0) for c in champs)
-    second = sorted((c.get("g", 0) for c in champs), reverse=True)[1] if len(champs) > 1 else 0
-    def is_main(c):
-        return c.get("g", 0) >= max(_COACH_MIN_G, int(total * 0.4)) or (second and c.get("g", 0) >= 2 * second)
-    def rating(c):
-        return _champ_rating(c["g"], c["w"], c.get("avg"))
-    out = {}
-    # play MORE: the best-rated champ we're ~80% sure is a real winner for you (WR floor > 50%).
-    best = max(pool, key=rating)
-    if _wilson(best["w"], best["g"], z=1.28) >= 0.50:
-        out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
-    # worst-rated pick. A MAIN on a bad run gets a supportive SLUMP note (lenient — it's not "drop
-    # it", so raw low WR is enough). A non-main only gets EASE OFF when we're ~80% sure it's a real
-    # loser (strict — never tell someone to abandon a champ on thin data).
-    worst = min(pool, key=rating)
-    if worst["champ"] != (out.get("more") or {}).get("champ"):
-        if is_main(worst) and worst["wr"] <= 45:
-            out["slump"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
-        elif not is_main(worst) and _wilson(worst["w"], worst["g"], z=1.28, upper=True) <= 0.48:
-            out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
-    return out or None
 
 
 # The one thing the League client was ever needed for here is telling us WHO you are.
@@ -736,6 +703,16 @@ def leak_board():
         return None
 
 
+def pool_board(champs):
+    """THE POOL board — your champions priced in the same LP as your habits (core/lolpool).
+    Fed the FULL champion list, never the six the page draws: the pool-width read is a claim
+    about the tail, and handing it a truncated pool would delete the tail it measures."""
+    try:
+        return lpl.board(champs, lp=lf.lp_rates(_lp_snapshots()))
+    except Exception:
+        return None
+
+
 def _lp_snapshots():
     try:
         h = json.load(open(LP_HISTORY, encoding="utf-8"))
@@ -820,6 +797,7 @@ def _load_profile(rid):
         # re-price it rather than serve yesterday's board with the rest of the stale page.
         if not p.get("other"):
             p["fix"] = leak_board() or p.get("fix")
+            p["pool"] = pool_board(p.get("all_champs") or p.get("champs")) or p.get("pool")
         return p
     except Exception:
         return None
@@ -1009,9 +987,12 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
            "source": ("client" if local else "riot"),
            "wr": round(wins / n * 100) if n else 0,
            "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-           "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
-           "session": (None if other else _session(hist, games)),
-           "coach": _coach(champs), "lp_trend": trend, "climb": climb, "fix": fix,
+           "champs": champs[:6], "all_champs": champs, "games": games, "avgs": avgs,
+           "roles": roles, "session": (None if other else _session(hist, games)),
+           # Self-profile only: THE POOL prices champions in YOUR LP off YOUR baseline, so
+           # running it over somebody else's champions would be a number about nobody.
+           "pool": (None if other else pool_board(champs)),
+           "lp_trend": trend, "climb": climb, "fix": fix,
            "insights": _insights(games), "records": _records(games)}
     if not other:
         _save_profile(out)          # last-good copy, so the page still loads through an outage

@@ -1,5 +1,86 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.71 - THE POOL: your champions, priced in your own LP - and the stat that finally stops lying to you
+
+**New feature, and it is aimed at the single biggest lever there is. Smiteless has enforced
+champion-pool discipline since MAX ELO shipped. It has never once told you what your pool
+should BE. Now it does - in the same LP your habits are priced in.**
+
+Last version priced the five *habits* your profile grades and named the one worth fixing.
+The other half of the climb - and by every study, the bigger half - is which champions you
+press Find Match on. The old answer to that was three win-rate bullets on your profile
+("play more Sett 58%"). That's not an answer. 58% of what? Better than what? Worth what?
+
+    THE POOL - 9 champions over your last 57
+      Sett            +38 LP / 10 on it     14W-6L over 20    70% on it vs 45% otherwise
+      Ornn              +11pp lean           6W-3L over 9
+      Darius          -44 LP / 10 on it      2W-8L over 10    20% on it vs 58% otherwise
+      POOL WIDTH      -29 LP / 10 games     top 3: 20W-15L  ·  the other 6: 3W-13L
+
+- **What a champion is worth, in LP, per ten games on it.** Not a win rate - the ladder. Your
+  own measured LP (`+23 / -17`, read from your rank snapshots, not "about 20") against your
+  own baseline. `QUEUE Sett` and `BENCH Darius` now sit on your profile with the number and
+  the receipt attached, and the price appears right on the splash card for each champion.
+- **Compared against YOU, not against 50%.** A 47% champion is not a leak for a player who
+  wins 44% of everything else - it's their second-best pick, and every tool that flags it is
+  wrong. Every comparison here is *this champion vs your other games*.
+- **POOL WIDTH: what your whole pool costs you.** Your top 3 against everything else you
+  queued, priced per ten of your games - the actual cost of ranked tourism, measured on you
+  instead of quoted from a study. When your top 3 hold 80%+ of your games it says so and
+  tells you there's nothing to cut.
+- **Your main is never benched.** A main on an awful run is variance, and the card says
+  exactly that: *rough patch (6W-20L) - variance, not the pick. Keep queueing it.* The old
+  coach would tell you to ease off the champion you're best at, which is the worst advice
+  the app was capable of giving.
+- **It reaches you in champ select.** Hover a champion your own history has priced and the
+  panel says so while you can still change your mind - `⚠ Darius: -93 LP / 10 on it
+  (2W-12L)` - in red, on its own line. Your own receipt outranks a study, so the 1M-game
+  mastery warning is now the *fallback*, for champions your history can't speak about yet.
+- **One brain.** The recommender's veto IS this board's `bench`. The page that tells you to
+  bench a champion and the recommender that quietly stops suggesting it were two separate
+  pieces of math that could disagree about the same champion. They can't any more.
+
+**And the part that matters most: it corrects for the fact that it is looking at all of your
+champions at once.** This is the failure mode of every "your best champion" stat ever put in
+front of a League player, and it is not a rounding error - the guard suite *measures* it. On
+random histories where every champion is a true coin flip, testing each one at the ordinary
+bar declares a "proven" best or worst champion in **49% of them**. Half. So the bar every
+champion has to clear is divided among the champions being tested, in both directions - one
+eligible champion needs z>=1.63, three need z>=2.11, eight need z>=2.48 - which takes that
+same measured false-positive rate down to **7%**. Underneath that bar a row still shows you
+its numbers, labelled as what it is: a *lean*, never a price. A champion needs 6 games before
+it can say anything at all, the whole board needs 15, and a one-trick gets told honestly that
+there's nothing of yours to compare against. The pool-width test is a single question asked
+in advance, so it correctly takes no such correction - and it refuses to price a "top 3" when
+your games are spread evenly enough that which three is an alphabetical accident.
+
+**Tested:** 15 guard groups plus a **1,200-pool fuzz** that re-scores every random history
+twice - once corrected, once not - and *fails if the correction isn't measurably doing its
+job*, so this can never quietly rot into the stat it was built to replace. Also asserted, on
+every shape of history that can exist: no priced claim ever escapes below its bar or its
+sample; an earner is always positive and a bench row always negative; a main is never benched;
+the same champion can never be both the queue and the bench; a champion price is always
+quoted "per 10 on it" and a width price always "per 10 games", because mixing those two units
+would be a lie; the price is always strictly below the flattering arithmetic on the raw gap;
+and the profile page and the recommender are checked against each other champion by champion,
+in both directions. A pool of junk - null rows, a champion claiming more wins than games, a
+non-numeric average, an empty list - can't crash the board or fake up a sample. Every render
+state was drawn and looked at.
+
+**Two bugs found while building it, both fixed.** The champ-select note is drawn on one
+unwrapped line and had only ~148px of room, so anything longer than about 28 characters was
+being **silently clipped mid-word** - the team-scout roster line and the climb warning have
+both been losing their tails there for releases. It now gets its own full-width line, and
+truncates with an ellipsis when it has to, so a cut-off line reads as "go look at the page"
+instead of as a rendering bug. And that line was drawn in **green regardless of content** -
+including for the sub-12k mastery *warning*. A caution in the "all good" color is a caution
+nobody reads; it now takes its tone from what it's actually saying.
+
+**And a tripwire for the release process itself:** the self-test now asserts that every
+`core/` and `ui/` module is in the frozen build's hidden-import list. Five modules were only
+being included by luck. A module the packager misses ships an installer that crashes the
+moment you use the feature - which is the worst possible way to ship a release named after it.
+
 ## v0.9.70 - THE ONE FIX: your leaks, priced in LP, and the single one worth fixing
 
 **New feature, and it answers the question the app has been dodging since the leak ledger

@@ -102,7 +102,8 @@ into the enemies who've locked plus comp fit, falling through the list if the to
 Then it bans the champ that most threatens your team, auto-accepts, imports your runes and
 summoners, mutes the lobby, and switches on all 24 climb-focused reads at once. Champion-pool
 discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
-it. **STAND DOWN** releases the lock and leaves the reads on.
+it — and **THE POOL** (below) is what tells you *which* champions to hold yourself to, priced in
+your own LP. **STAND DOWN** releases the lock and leaves the reads on.
 
 ### 🧠 In champ select
 - **Scouts everyone live** — rank, form, player grades (S–F from how they actually *play*), duo detection, and a **dodge read** that flags tilted or struggling teammates *while you can still dodge*
@@ -110,7 +111,7 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 - **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
 - **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
 - **One-click (or automatic) runes + summoners import**, multiple rune sets
-- **Climb guards** — warns when you hover a champ you barely play (sub-12k-mastery picks win ~44%, per a 1M-game study), pooled across all your accounts so a smurf pick your main knows is fine
+- **Climb guards** — hover a champion **THE POOL** has priced out of your own games and it says so while you can still change your mind (*⚠ Darius: −93 LP / 10 on it (2W-12L)*). When your history can't speak about the pick yet — which is exactly the case it describes — it falls back to the mastery warning (sub-12k-mastery picks win ~44%, per a 1M-game study), pooled across all your accounts so a smurf pick your main knows is fine
 
 ### ⚡ In game
 - **The Tempo engine** — a live director for the ~90 seconds before every objective: your farm window, exact recall deadline, when to rotate, and a **TAKE / GIVE / 50-50 verdict** from death timers, levels and gold (fog-of-war aware). With spoken callouts: *"Base now"*, *"Rotate to dragon"*, *"Give it, trade elsewhere"*
@@ -130,8 +131,9 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 
 ### 📈 Between games
 - **THE ONE FIX** — the five habits your profile grades every game, **priced in LP**, ranked, and narrowed to one. The ledger holds both sides of every split — the games a habit fired in and the games it didn't — so each leak gets the number nobody has ever shown you: *`RE-ENTRY · −41 LP / 10 games · with it: 3W-7L · without: 9W-5L`*. The LP is **yours**, read from your own rank snapshots (`+22 / -17`, not "about 20"). It names **one** habit, as something you can hold yourself to for a single game, and says which in-game guard is watching it. Every row carries a form strip of the last six games it could have happened in, so you can watch a leak close — and it flags `improving` once it's real. Nothing is priced until its split beats the same significance test the QUEUE CALL uses, and even then the split is quoted shrunk toward your own baseline so a 3-vs-5 fluke can't become a headline; below that bar the row shows its numbers as a *lean*, never a price. Under ten graded games it doesn't guess — it says how many more it needs
+- **THE POOL** — the other half of the climb, in the same currency: **your champions, priced in your own LP.** Not a win rate — *`Sett +38 LP / 10 on it · 14W-6L over 20 · 70% on it vs 45% otherwise`* — measured against **your own baseline**, because a 47% champion is not a leak for a player who wins 44% of everything else. It names one champion to **QUEUE** and one to **BENCH**, prices your whole **POOL WIDTH** (your top 3 against everything else you queued, per ten of your games — the real cost of ranked tourism), and it **never benches your main**: a main on an awful run is variance, and the card says so. Then the number that makes the rest trustworthy: it **corrects for looking at every champion at once**, which is the failure mode of every "your best champion" stat ever shown to a League player. The guard suite measures it — at the ordinary bar, pools made of pure coin flips produce a "proven" best or worst champion **49%** of the time; corrected, **7%**. Below the bar a row still shows its numbers, labelled as a *lean*, never a price. And it's **one brain**: the champ-select recommender's veto IS this board's bench, so the two can never disagree about a champion again
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
-- **The climb system** — research-backed discipline: the 2-loss stop rule, champion-pool focus, and sample-aware "play more / ease off" coaching
+- **The climb system** — research-backed discipline: the 2-loss stop rule and champion-pool focus, with every claim sized to the sample behind it
 - **Click any player** to scout their full profile; right-click for u.gg / op.gg / Porofessor
 - **One-click Riot login, two ways** — *(a)* save each account's "Stay signed in" session and switch from the tray with no password stored, or *(b)* Profile → **⚡ Log in** to save a username+password (DPAPI-encrypted) and have Smiteless autofill the Riot login form for you. Both relaunch you straight into League; the password path survives logging out, the session path can't be captcha'd
 
@@ -146,9 +148,9 @@ python smiteless_main.py overlay      # or: widget / settings / profile
 ```
 
 `python tools\selftest.py` runs the health check and every engine guard — the verdict engines
-(tempo, gold clock, ward clock, bleed, re-entry, closer, queue call, the one fix) are pure functions with
-fixtures, so they're testable without a live game. Each also prints its own branches:
-`python core\lolward.py`, `python core\lolfix.py demo`.
+(tempo, gold clock, ward clock, bleed, re-entry, closer, queue call, the one fix, the pool) are pure
+functions with fixtures, so they're testable without a live game. Each also prints its own branches:
+`python core\lolward.py`, `python core\lolfix.py demo`, `python core\lolpool.py demo`.
 
 `dist\build.ps1` builds the frozen app and `dist\make-release.ps1 -Version X.Y.Z` cuts a release
 locally (PyInstaller + AHK-compiled tray/installer, Python 3.11+). Releases are normally cut in
