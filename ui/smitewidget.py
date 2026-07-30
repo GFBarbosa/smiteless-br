@@ -26,6 +26,7 @@ import lolbleed as lbl
 import lolclose as lcl
 import lolgold as lgd
 import lolward as lwd
+import lolout as lot
 import loltempo as lt
 import phasecheck
 import smiteconfig as cfg
@@ -461,6 +462,9 @@ def _chip(d, x, y, text, fg, bg, f):
 
 
 _TONE_C = {"go": C_ARC, "hold": C_BAD, "plan": C_EMBER}
+# gold gap at which the header chip stops being grey: the same 2k the CLOSER calls a lead
+# and THE OUT calls a deficit, so the chip's color and the guards agree by construction.
+_LEAD_CHIP = lcl.LEAD_MIN
 
 
 def _render_reentry(d, card, x, y, wrapw, W, label="RE-ENTRY", clock=None):
@@ -533,7 +537,7 @@ def _render_dead(d, img, dead, rec, x, y, wrapw, W):
 
 
 def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=None,
-                 bleed=None, closer=None, gold=None, ward=None):
+                 bleed=None, closer=None, gold=None, ward=None, out=None):
     """Draw the widget body as one image. NOW / NEXT / REFERENCE hierarchy: by default the
     body is ONE directive (the tempo card), ONE next deadline line, and at most one urgent
     safety line — decision pressure, minimized. Hovering the widget (ref=True) expands the
@@ -548,15 +552,21 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
     if dead:
         return _render_dead(d, img, dead, rec, x, y, wrapw, W)
 
-    # ---- champ + win chip ----
+    # ---- champ + the team gold chip ----
+    # This used to be a modelled win PERCENTAGE ("BEHIND ~34%"). It was the one number on the
+    # widget that changed no decision you were about to make, and the one most likely to make
+    # a player stop playing a game they could still win. It now shows the MEASURED thing the
+    # guards beside it are reasoning about — the same lollive.team_lead gap the CLOSER calls a
+    # lead and THE OUT calls a deficit — and THE OUT is what says the rest.
     name = (rec.get("champ") or "?").split("·")[0].strip()
     d.text((x, y + 2), name, font=_wfont(15, 1), fill=C_TXT)
-    wp = pulse.get("winprob")
-    if wp:
-        t = f"{'WIN' if wp['ahead'] else 'BEHIND'} ~{wp['pct']}%"   # estimated, and it says so
-        f = _dfont(12, bold=True)                 # a number (win%) - display face, +1pt
+    lead = pulse.get("lead")
+    if lead is not None:
+        t = f"TEAM {lead / 1000:+.1f}k"
+        f = _dfont(12, bold=True)                 # a number - display face, +1pt
         cw = int(d.textlength(t, font=f)) + 14
-        _chip(d, W - x - cw, y + 2, t, C_GOOD if wp["ahead"] else C_BAD, C_SURFACE, f)
+        col = (C_GOOD if lead >= _LEAD_CHIP else (C_BAD if lead <= -_LEAD_CHIP else C_MUTED))
+        _chip(d, W - x - cw, y + 2, t, col, C_SURFACE, f)
     y += 26
 
     # ---- RE-ENTRY: the 90s after you respawn (lolreentry) ----
@@ -581,6 +591,13 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         # than take the card off the tempo engine.
         hold = True
         y = _render_reentry(d, closer, x, y, wrapw, W, label="CLOSER")
+    elif out and not out.get("quiet"):
+        # THE OUT (lolout) is the CLOSER's mirror and owns the directive slot from 15:00 in a
+        # game you are LOSING — the two can never collide (one needs +2k, the other -2k). It
+        # takes the card only for a live objective window, at a surrender-vote moment, or for
+        # the write-off itself; every other second it is the quiet row below.
+        hold = True
+        y = _render_reentry(d, out, x, y, wrapw, W, label="THE OUT")
     elif gold and not gold.get("quiet"):
         # GOLD CLOCK (lolgold) takes the directive slot only at the moment a wave went by,
         # or a few seconds before a cannon lands — never as a running state. It sits BELOW
@@ -620,6 +637,24 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
             txt = txt[:-2] + "…"
         d.text((x + 2, y), "CLOSER", font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf, fill=C_WARN if gv else C_GOOD)
+        y += 18
+
+    # ---- THE OUT quiet row: the deficit you're playing out of, the path you're playing
+    # toward, and — the number nothing else has ever shown a losing team — how much of the
+    # hole you have already climbed back out of, in the same measured gold.
+    if out and out.get("quiet"):
+        qf = _dfont(11, bold=True)
+        avail = W - x - 62 - 8                 # one row, never a wrap
+        bits = list(out.get("bits") or [(out.get("line") or "").split("—", 1)[-1].strip()])
+        while len(bits) > 1 and d.textlength(" · ".join(bits), font=qf) > avail:
+            bits.pop()
+        txt = " · ".join(bits)
+        while txt and d.textlength(txt, font=qf) > avail:
+            txt = txt[:-2] + "…"
+        d.text((x + 2, y), "THE OUT", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 62, y - 1), txt, font=qf,
+               fill=C_GOOD if out.get("won_txt") else
+               (C_BAD if out.get("verdict") == "CALL IT" else C_ARC))
         y += 18
 
     # ---- GOLD CLOCK quiet row: your lane, counted against the minions that actually
@@ -840,6 +875,12 @@ _LEGEND_WARD = (
     ("PINK", C_EMBER, "a bought control ward has sat in your bag for two minutes"),
     ("WARD", C_GOOD,  "the quiet row: you vs their support/jungler, live"),
 )
+# THE OUT verdicts (lolout) — the CLOSER's mirror: only ever shown in a game you're LOSING.
+_LEGEND_OUT = (
+    ("OUT",     C_ARC,   "a named live path: baron, elder/soul, ace math, scaling, structure"),
+    ("SURVIVE", C_EMBER, "behind with no free path yet — and no way for them to end it either"),
+    ("CALL IT", C_BAD,   "20:00+, 8k down, they're in your base and the 5v5 is gone"),
+)
 _LEGEND_GLYPHS = (
     ("⌖", C_ARC, "enemy jungler tracker — seen / no sign / dead"),
     ("◎", C_GOOD,  "gank window — a lane is killable right now"),
@@ -962,6 +1003,18 @@ def _render_legend(W=330):
     y += 4
     for vd, col, txt in _LEGEND_WARD:
         row(vd, col, txt, 46, dfont=True)
+
+    section("THE OUT — THE GAME YOU'RE LOSING")
+    for ln in _wwrap(d, "the CLOSER's mirror, from 15:00 and only while you're 2k+ down: is "
+                        "there still a mechanism in this game, and what is it? Every out is a "
+                        "fact with a clock on it. The row also carries what you've WON BACK "
+                        "off your worst — the comeback, in measured gold, before it's felt.",
+                     _wfont(10), wrapw - 4):
+        d.text((x + 2, y), ln, font=_wfont(10), fill=C_MUTED)
+        y += 14
+    y += 4
+    for vd, col, txt in _LEGEND_OUT:
+        row(vd, col, txt, 56, dfont=True)
     return img.crop((0, 0, W, y + 10))
 
 
@@ -1098,7 +1151,7 @@ def main():
     shot = tk.Label(outer, bg=VOID, bd=0)
 
     def render(rec, pulse=None, recall=None, dead=None, ref=False, reentry=None,
-               bleed=None, closer=None, gold=None, ward=None):
+               bleed=None, closer=None, gold=None, ward=None, out=None):
         st["ingame"] = bool(rec)                         # drives the click-through guard
         live_dot.config(fg=ARC if rec else FAINT)        # §5.3: ARC while a live game is read
         if not rec:
@@ -1124,12 +1177,13 @@ def main():
                          or (closer and not closer.get("quiet"))
                          or (gold and not gold.get("quiet"))
                          or (ward and not ward.get("quiet"))
+                         or (out and not out.get("quiet"))
                          or (tempo and (tempo.get("urgent") or tempo.get("phase")
                                         in ("FREE", "TAKE", "GIVE", "EVEN", "FORCE", "PUSH")))
                          or (pulse or {}).get("gank") or (pulse or {}).get("spike"))
         try:
             im = _render_body(dd, rec, pulse, recall, dead, ref=ref, reentry=reentry,
-                              bleed=bleed, closer=closer, gold=gold, ward=ward)
+                              bleed=bleed, closer=closer, gold=gold, ward=ward, out=out)
         except Exception:
             return                                       # keep the last good frame
         s = _wscale(root)                                # adapt to the screen's live resolution
@@ -1268,11 +1322,13 @@ def main():
         closer_on = _cfg.get("closer", True)
         gold_on = _cfg.get("gold_clock", True)
         ward_on = _cfg.get("ward_clock", True)
+        out_on = _cfg.get("the_out", True)
         guard90 = lre.Guard()                             # RE-ENTRY: the 90s-after-respawn window
         guard14 = lbl.Guard()                             # BLEED: the first-14-minutes health guard
         closer = lcl.Guard()                              # CLOSER: the post-20:00 win-conversion read
         goldclock = lgd.Guard()                           # GOLD CLOCK: first-ten farm pace vs the wave schedule
         wardclock = lwd.Guard()                           # WARD CLOCK: the vision war (jungle/support)
+        outread = lot.Guard()                             # THE OUT: the losing game, from 15:00
         bled = {"said": 0}                                # BLEED windows already announced aloud
         warded = {"said": 0}                              # ...and WARD CLOCK card windows
         dvol = int(st.get("vol", 30))                    # startup volume (live value = st["vol"])
@@ -1402,6 +1458,13 @@ def main():
                     gold = goldclock.observe(dd, raw, (pulse or {}).get("tempo"))
                 except Exception:
                     gold = None
+            out = None
+            if out_on and raw is not None:               # THE OUT: is this losing game still live?
+                try:                                     # tempo + the objective clocks ride along
+                    out = outread.observe(dd, raw, (pulse or {}).get("tempo"),
+                                          (pulse or {}).get("objectives"))
+                except Exception:
+                    out = None
             ward = None
             if ward_on and raw is not None:              # WARD CLOCK: the live vision war
                 try:                                     # the whole tick's reads ride along:
@@ -1450,7 +1513,7 @@ def main():
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,
                        "dead": dead, "reentry": reentry, "bleed": bleed,
-                       "closer": close, "gold": gold, "ward": ward})
+                       "closer": close, "gold": gold, "ward": ward, "out": out})
             elif ph in INGAME_PHASES:
                 # :2999 hiccup while the game is definitely alive (teamfight load, lag). HOLD
                 # THE LAST FRAME - pushing an empty one here is what made the tracker/intel
@@ -1508,7 +1571,7 @@ def main():
                                msg.get("dead"), ref=st.get("ref_view", False),
                                reentry=msg.get("reentry"), bleed=msg.get("bleed"),
                                closer=msg.get("closer"), gold=msg.get("gold"),
-                               ward=msg.get("ward"))
+                               ward=msg.get("ward"), out=msg.get("out"))
                     else:
                         render(msg)                      # backward-compatible: bare rec
                 except Exception:
@@ -1577,7 +1640,7 @@ def main():
                         render(m["rec"], m.get("pulse"), m.get("recall"),
                                m.get("dead"), ref=inside, reentry=m.get("reentry"),
                                bleed=m.get("bleed"), closer=m.get("closer"),
-                               gold=m.get("gold"), ward=m.get("ward"))
+                               gold=m.get("gold"), ward=m.get("ward"), out=m.get("out"))
                     except Exception:
                         pass
             mode = ("hint" if st.get("ct") else "vol") if inside else None

@@ -2016,7 +2016,9 @@ def _ally_comp_bonus(dd, cid, ally_ids):
 
 
 # power-curve weight by champ class (modeling): who gets scarier as the game goes long.
-_SCALE_W = {"Marksman": 3.0, "Mage": 2.4, "Fighter": 2.0, "Assassin": 1.7, "Tank": 1.6, "Support": 1.4}
+# ONE BRAIN — the table lives in lollive so THE OUT (core/lolout) grades the same two comps
+# by the same curve in game as this does in the lobby. See lollive.SCALE_W.
+_SCALE_W = ll.SCALE_W
 
 
 def game_plan(dd, ally_ids, enemy_ids):
@@ -2034,17 +2036,18 @@ def game_plan(dd, ally_ids, enemy_ids):
             "ap": sum(1 for s in rows if "Mage" in s),
             "front": sum(1 for s in rows if "Tank" in s),
             "engage": sum(1 for s in rows if ("Tank" in s) or ("Fighter" in s)),
-            "scale": (sum(max((_SCALE_W.get(t, 1.8) for t in s), default=1.8) for s in rows)
-                      / max(1, len(rows))),
+            "scale": (sum(max((_SCALE_W.get(t, ll.SCALE_DEF) for t in s), default=ll.SCALE_DEF)
+                          for s in rows) / max(1, len(rows))),
         }
     them, me = prof(enemy_ids), prof(ally_ids)
     out = []
-    # headline: the scaling verdict = WHEN you win. Meaningful gap only (0.25+ on the avg curve).
+    # headline: the scaling verdict = WHEN you win. Meaningful gap only (ll.SCALE_GAP on the
+    # avg curve) — the same bar THE OUT uses in game, so the two can't disagree.
     if me["n"] >= 4 and them["n"] >= 4:
         d = me["scale"] - them["scale"]
-        if d >= 0.25:
+        if d >= ll.SCALE_GAP:
             out.append("YOU OUTSCALE — don't coinflip early: play clean, hit 3 items, win the late game.")
-        elif d <= -0.25:
+        elif d <= -ll.SCALE_GAP:
             out.append("THEY OUTSCALE — your win is EARLY: snowball, force objectives, end before 3 items.")
     if them["n"] >= 3:
         if them["ad"] >= 3 and them["ad"] >= them["ap"] * 2:

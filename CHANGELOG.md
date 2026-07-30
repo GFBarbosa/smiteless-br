@@ -1,5 +1,78 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.72 - THE OUT: the game you're LOSING, and the fourteen minutes nobody counts
+
+**New feature, and it is the first one aimed at the half of the climb this app has never
+touched. Every surface here so far attacks the same number: win the game you're in. None of
+them have ever touched the DENOMINATOR - and a climb is LP per HOUR.**
+
+Half of that hour is spent inside games that were decided ten minutes ago. A 38-minute loss
+and a 24-minute loss cost you exactly the same LP; the difference is fourteen minutes you
+will never queue with. And the mirror of it costs even more: the game your team throws away
+at the 15:00 vote that was never actually lost.
+
+THE CLOSER owns the game you're winning and says nothing at all when you're behind - that
+was always deliberate, and it left half the map dark. **THE OUT is that other half**, and it
+answers one question at the only moment anybody asks it:
+
+    THE OUT     -4.2k · out: baron 0:35 · won back 3.7k of 7.9k
+
+- **An out is a fact with a clock on it, never a mood.** Baron in range *and actually
+  contestable*. Elder, or a soul point that's yours to take. Death timers long enough that
+  one won fight is the whole map - *"their deaths cost 52s"*, computed off their own levels
+  on the live clock. A comp that **out-scales** theirs. Or a base they still haven't opened,
+  which means they're up gold and have to come through you to spend it.
+- **Because the most expensive thing in a losing game is a team that stops playing one it
+  could still win.** From 15:00 - the first surrender window; there's no such thing as a
+  "decided" game before one exists - and only while you're 2k+ down, which is the exact bar
+  THE CLOSER calls *ahead*, mirrored. The two are one read of one map and can never both be
+  talking.
+- **The number nobody has ever shown a losing team: what you've WON BACK.** THE CLOSER
+  tracks the peak of a lead because a lead being given back is a game being thrown in slow
+  motion. This is the mirror - your worst deficit against where you are now, in the same
+  measured gold - and it is the comeback happening *before anyone on your team can feel it*.
+- **CALL IT, and it is deliberately the hardest verdict in the app to reach.** Four things
+  have to be true at once, all measured off the game, none of them modelled: past 20:00, 8k
+  down, an inhibitor of yours open (or a nexus turret gone), a 5v5 you lose by a mile - and
+  no live objective out on the board. That isn't "you're losing", that's a game with no
+  remaining mechanism. Then it says the true thing: **the LP is already spent, and the
+  minutes are not.**
+- **It reaches you on the death screen too**, where you're actually sitting when you decide
+  whether to keep playing. HOW YOU WIN on the Death Brief is now this read, in the same
+  words the widget is showing.
+- **It never speaks aloud, and it never votes for you.** 100% read-only, like everything
+  else in here.
+
+**The win% chip is gone, and good riddance.** It was the one number on the widget that
+changed no decision you were about to make, it was modelled rather than measured, and
+"BEHIND ~34%" is the single most likely pixel in this app to make somebody stop playing a
+game they could still win. In its place is the **measured** thing the guards beside it are
+actually reasoning about - `TEAM -4.2k`, the same gold gap THE CLOSER calls a lead and THE
+OUT calls a deficit - and THE OUT is what says the rest.
+
+**Tested, and the tests are mostly about what it must NOT do.** 19 verdict fixtures, then
+**10,000 fuzzed game states** asserting that CALL IT never fires without all four of its
+facts, never hides in a quiet row, and never appears while a live objective out is on the
+board - plus that every quiet row is genuinely one line so nothing gets clipped. Then the
+number that actually matters: **600 simulated games**, gold as a random walk with a per-game
+drift so some teams recover, structures falling out of a sustained deficit the way they
+really do - and **0% of the games it wrote off ever came back to even.** That check is a
+tripwire, not a trophy: loosen any bar and the retraction rate climbs, which is the only way
+this verdict could ever rot without anybody noticing. Every bar was mutation-tested to prove
+the suite fails when it's moved.
+
+**And one bug caught by the test that tests the wiring rather than the math.** The first cut
+read the *enemy's* fallen turrets when asking "how deep are they into you", so a team whose
+own base was already open would have been told nothing of theirs was - the exact frame where
+being wrong matters most. No fixture can catch that, so there's now an end-to-end check that
+drives the whole guard off a real-shaped live payload, and it fails the build if that ever
+comes back.
+
+**One brain, again.** The power curve that decides "you out-scale them" in game is the same
+table champ select graded the draft with, and the team gold gap is now one function shared
+by THE CLOSER, THE OUT and the widget's chip - so nothing on your screen can quote a
+different number than the guard sitting next to it.
+
 ## v0.9.71 - THE POOL: your champions, priced in your own LP - and the stat that finally stops lying to you
 
 **New feature, and it is aimed at the single biggest lever there is. Smiteless has enforced

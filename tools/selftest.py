@@ -464,16 +464,248 @@ def c_ward():
 
     # --- the legend must actually CONTAIN the section: PIL draws past a canvas silently, so
     #     an overrun vanishes off the bottom of the card instead of raising.
+    return OK, ("24 fixtures, arming tripwire, dead-time freeze, trinket + deadline + pink "
+                "ledger + 6 simulated games hold")
+
+
+def c_out():
+    """THE OUT (core/lolout) — the losing game. This is the highest-consequence verdict in
+    the whole app: CALL IT tells a player their game is over, and a CALL IT on a winnable
+    game is the single worst thing Smiteless could ever put on screen. So the guards here
+    are mostly about what it must NOT do — plus the structural promise that it and the
+    CLOSER are one read of the same map and can never both be talking."""
+    import lolout as lo, lolclose as lc, lollive as ll
+    import random
+
+    # --- 1. every branch is reachable and lands where it should
+    want = {"baron": "OUT", "baron_lost": "SURVIVE", "elder": "OUT", "soul": "OUT",
+            "ace": "OUT", "scale": "OUT", "structure": "OUT", "survive": "SURVIVE",
+            "survive_vote": "SURVIVE", "call": "CALL IT", "call_nexus": "CALL IT",
+            "call_blocked": "OUT", "call_early": "SURVIVE", "call_thin": "SURVIVE",
+            "clawback": "OUT", "ahead": None, "even": None, "early": None, "tempo": "OUT"}
+    if set(want) != set(lo.DEMOS):
+        return FAIL, f"fixture list drifted: {sorted(set(want) ^ set(lo.DEMOS))}"
+    cards = {k: lo._verdict(lo.demo(k)) for k in want}
+    bad = [f"{k}: got {(cards[k] or {}).get('verdict')}, want {want[k]}"
+           for k in want if (cards[k] or {}).get("verdict") != want[k]]
+    if bad:
+        return FAIL, "; ".join(bad)
+
+    # --- 2. ONE MAP: the bar it calls "behind" is the bar the CLOSER calls "ahead", and the
+    #        two can never speak on the same frame. Two coaches arguing about one game is
+    #        the failure this whole mirror design exists to make impossible.
+    if lo.BEHIND_MIN != lc.LEAD_MIN:
+        return FAIL, f"behind bar {lo.BEHIND_MIN} != the CLOSER's lead bar {lc.LEAD_MIN}"
+    rnd = random.Random(90071)
+    for _ in range(4000):
+        gt = rnd.uniform(0.0, 45 * 60.0)
+        lead = rnd.uniform(-15000.0, 15000.0)
+        oc = lo.demo("structure"); oc.update(gt=gt, lead=lead, trough=lead)
+        cc = lc.demo("bank"); cc.update(gt=gt, lead=lead, peak=lead)
+        if lo._verdict(oc) is not None and lc._verdict(cc) is not None:
+            return FAIL, f"both guards speak at {gt:.0f}s / {lead:+.0f}g"
+    for lead in (-1999.0, -500.0, 0.0, 8000.0):          # inside the bar = not behind, ever
+        c = lo.demo("call"); c.update(lead=lead, trough=lead)
+        if lo._verdict(c) is not None:
+            return FAIL, f"speaks at {lead:+.0f}g, which is not behind"
+
+    # --- 3. CALL IT is the one that has to be hard. Fuzz the whole state space and assert
+    #        the four preconditions hold on EVERY firing, and that it stays rare.
+    calls = total = 0
+    for _ in range(6000):
+        ctx = {"gt": rnd.uniform(0.0, 45 * 60.0), "lead": rnd.uniform(-16000.0, 4000.0),
+               "e": rnd.uniform(-9000.0, 4000.0), "bodies": rnd.choice([-2.0, -1.0, 0.0, 1.0]),
+               "our_open_inhibs": rnd.choice([[], [("C", 120.0)], [("C", 90.0), ("L", 200.0)]]),
+               "nexus_turret": rnd.random() < 0.15, "their_deepest": rnd.randint(0, 3),
+               "baron_secs": rnd.choice([None, -5.0, 30.0, 200.0]),
+               "drake_secs": rnd.choice([None, 10.0, 80.0, 240.0]),
+               "elder": rnd.random() < 0.2, "my_drakes": rnd.randint(0, 4),
+               "their_death_cost": rnd.uniform(20.0, 60.0),
+               "scale_gap": rnd.uniform(-0.8, 0.8), "my_items": rnd.randint(0, 6),
+               "dead_enemies": rnd.randint(0, 5), "role": rnd.choice(list(lo._HOLD)),
+               "tempo_urgent": rnd.random() < 0.3, "vote_now": rnd.random() < 0.3}
+        ctx["trough"] = min(ctx["lead"], ctx["lead"] - rnd.uniform(0.0, 6000.0))
+        card = lo._verdict(ctx)
+        if card is None:
+            continue
+        total += 1
+        # the row is ONE line in the widget and must never carry a wrapped sentence
+        row = " · ".join(lo.row_bits(card))
+        if len(row) > 64 or "—" in row:
+            return FAIL, f"quiet row is not a row: {row!r}"
+        if not card.get("line") or not card.get("sub"):
+            return FAIL, f"a {card['verdict']} card with no instruction on it"
+        if card["verdict"] != "CALL IT":
+            continue
+        calls += 1
+        if ctx["gt"] < lo.CALL_FROM:
+            return FAIL, f"CALL IT at {ctx['gt']:.0f}s — before the 20:00 bar"
+        if ctx["lead"] > -lo.CALL_GOLD:
+            return FAIL, f"CALL IT at {ctx['lead']:+.0f}g — above the write-off deficit"
+        if not (ctx["our_open_inhibs"] or ctx["nexus_turret"]):
+            return FAIL, "CALL IT while nothing of yours is even open"
+        if lo._immediate(ctx) is not None:
+            return FAIL, "CALL IT while a live objective out is on the board"
+        if card.get("quiet"):
+            return FAIL, "CALL IT hid itself in a quiet row"
+    if not total or not calls:
+        return FAIL, "the fuzz never reached a verdict / a write-off — the bars are wrong"
+
+    # --- 3b. THE NUMBER THAT MATTERS: how often a write-off is WRONG. The fuzz above says
+    #         the four facts always hold; it cannot say whether a game with those four facts
+    #         still comes back. So: simulate whole games as a gold random walk with a
+    #         per-game drift (some teams recover, most don't), let structures fall out of a
+    #         sustained deficit the way they actually do, and count the CALL ITs that were
+    #         later contradicted by the game returning to even. A change that loosens the
+    #         bars shows up here as a jump in retractions, which is the only way this
+    #         verdict can rot without anybody noticing.
+    fired = retracted = games = 0
+    for g in range(600):
+        drift, lead, deep, inhib_at = rnd.gauss(-70.0, 110.0), 0.0, 0, None
+        walk, said = [], []
+        for t in range(90):                      # 45 minutes at one tick every 30s
+            lead += drift + rnd.gauss(0.0, 430.0)
+            walk.append(lead)
+            if lead <= -3000.0 and deep < 3 and rnd.random() < 0.15:
+                deep += 1
+            if deep >= 3 and lead <= -6000.0 and inhib_at is None and rnd.random() < 0.20:
+                inhib_at = t
+            open_inhib = ([("C", 300.0 - (t - inhib_at) * 30.0)]
+                          if inhib_at is not None and t - inhib_at < 10 else [])
+            v = lo._verdict({
+                "gt": 30.0 * t, "lead": lead, "trough": min(walk), "their_deepest": deep,
+                "e": lead * 0.55 + rnd.gauss(0.0, 800.0), "bodies": 0.0,
+                "our_open_inhibs": open_inhib, "nexus_turret": False,
+                "baron_secs": (30.0 if (t > 40 and rnd.random() < 0.12) else None),
+                "drake_secs": None, "elder": False, "my_drakes": 0,
+                "their_death_cost": 25.0 + t * 0.35, "scale_gap": 0.0, "my_items": 0,
+                "dead_enemies": 0, "role": "mid", "tempo_urgent": False, "vote_now": False})
+            if v and v.get("verdict") == "CALL IT":
+                said.append(t)
+        games += 1
+        if said:
+            fired += 1
+            # "came back" = the same bar the app itself uses to stop calling you behind
+            if max(walk[said[0] + 1:] or [walk[-1]]) >= -lo.BEHIND_MIN:
+                retracted += 1
+    if not fired:
+        return FAIL, "600 simulated games and the write-off never fired — it is unreachable"
+    if fired / float(games) > 0.45:
+        return FAIL, (f"the write-off fires in {fired / games:.0%} of simulated games — it is "
+                      f"supposed to be the rare call, not the default one")
+    wrong = retracted / float(fired)
+    if wrong > 0.05:
+        return FAIL, (f"{wrong:.0%} of write-offs were contradicted by the game coming back "
+                      f"— the bars are too loose to tell a player their game is over")
+
+    # --- 4. the promises the copy makes. A write-off always shows the deficit that justified
+    #        it; an OUT always names something; nothing ever claims a comeback it can't show.
+    call = cards["call"]
+    if "-9.2k" not in call["sub"] or "inhib" not in call["sub"]:
+        return FAIL, f"the write-off doesn't show its receipt: {call['sub']}"
+    for k in ("baron", "elder", "soul", "ace", "scale", "structure"):
+        if not (cards[k].get("tag") or "").strip():
+            return FAIL, f"the {k} out has no row tag"
+    for k, c in cards.items():
+        if c and c.get("won_txt") and c["won"] < lo.WON_MIN:
+            return FAIL, f"{k} claims a comeback under the {lo.WON_MIN:.0f}g bar"
+    if cards["clawback"].get("evidence") is None or cards["structure"].get("evidence"):
+        return FAIL, "the clawed-back receipt is attached to the wrong cards"
+
+    # --- 5. ONE BRAIN with champ select: the same power-curve table and the same bar grade
+    #        the comps in the lobby ("YOU OUTSCALE") and in game ("time is on your side").
+    if lo._scale_gap() != ll.SCALE_GAP:
+        return FAIL, "THE OUT's scaling bar has drifted from lollive.SCALE_GAP"
+    try:
+        import smitecard as sc
+        if sc._SCALE_W is not ll.SCALE_W:
+            return FAIL, "champ select grades scaling off a second, private curve table"
+    except Exception:
+        pass                                 # no Pillow here: the table check is enough
+    if ll.comp_scale({}, [{"championName": "NotAChampion"}]) is not None:
+        return FAIL, "comp_scale invents a curve for champions it cannot resolve"
+    if ll.team_lead([], [], 600.0) != 0.0:
+        return FAIL, "an empty team is not an even game"
+    a = [{"scores": {"creepScore": 90, "kills": 3}}]
+    b = [{"scores": {"creepScore": 40}}]
+    if abs(ll.team_lead(a, b, 900.0) + ll.team_lead(b, a, 900.0)) > 1e-6:
+        return FAIL, "the team lead is not symmetric — one side is being read differently"
+
+    # --- 6. junk in the context can't crash the board or fake a verdict
+    for junk in ({}, {"gt": None, "lead": None}, {"gt": "x"}, {"gt": 1500.0, "lead": -5000.0,
+                 "our_open_inhibs": None, "their_deepest": None, "scale_gap": None,
+                 "my_items": None, "role": "not-a-role", "baron_secs": None}):
+        try:
+            lo._verdict(junk)
+        except (TypeError, ValueError):
+            if junk.get("gt") == "x":
+                continue                     # a non-numeric clock is the caller's bug
+            return FAIL, f"a junk context crashed the board: {junk}"
+    g = lo.Guard()                           # no data must not arm anything
+    if g.observe(None, None) is not None or g.trough != 0.0:
+        return FAIL, "guard armed itself with no game data"
+
+    # --- 7. END TO END, off a real-shaped :2999 payload. Everything above tests the math;
+    #        this tests the WIRING, which is where the bug actually was — the first cut read
+    #        the ENEMY's fallen turrets for "how deep are they into you", so a team whose own
+    #        base was already open got told nothing of theirs was. No fixture can catch that.
+    def _p(i, team, champ, cs, pos=""):
+        return {"riotId": f"P{i}#NA1", "summonerName": f"P{i}", "team": team, "level": 13,
+                "championName": champ, "isDead": False, "respawnTimer": 0, "position": pos,
+                "items": [], "scores": {"creepScore": cs, "kills": 2, "deaths": 3,
+                                        "assists": 3, "wardScore": 10.0}}
+
+    def _payload(gt, events):
+        allies = [_p(i, "ORDER", c, 90, "MIDDLE" if i == 1 else "") for i, c in
+                  enumerate(["Aatrox", "Elise", "Ahri", "Jinx", "Thresh"], 1)]
+        enemies = [_p(i, "CHAOS", c, 190) for i, c in
+                   enumerate(["Darius", "Nidalee", "Syndra", "Caitlyn", "Nautilus"], 6)]
+        return {"activePlayer": {"riotId": "P1#NA1", "championStats": {"moveSpeed": 380}},
+                "allPlayers": allies + enemies, "gameData": {"gameTime": gt},
+                "events": {"Events": [e for e in events if e["EventTime"] <= gt]}}
+
+    dd = {"name2id": {"aatrox": 266, "jinx": 222, "darius": 122, "caitlyn": 51},
+          "norm": lambda s: (s or "").lower().replace(" ", ""), "id2name": {}, "item_data": {},
+          "id2tags": {266: ["Fighter"], 222: ["Marksman"], 122: ["Fighter"], 51: ["Marksman"]}}
+    # ORDER (us) loses all three mid turrets, then the inhibitor behind them
+    evs = [{"EventName": "TurretKilled", "EventTime": 600.0 + i,
+            "TurretKilled": f"Turret_T1_C_{5 - i:02d}_A"} for i in range(3)]
+    evs.append({"EventName": "InhibKilled", "EventTime": 1250.0, "InhibKilled": "Barracks_T1_C1"})
+    gd = lo.Guard()
+    seen = {}
+    for gt in (600.0, 900.0, 1000.0, 1300.0):
+        c = gd.observe(dd, _payload(gt, evs))
+        seen[gt] = None if not c else c["verdict"]
+        if c and "nothing of yours is open" in c.get("line", ""):
+            return FAIL, f"at {gt:.0f}s it read OUR fallen turrets as theirs — base is open"
+    if seen[600.0] is not None:
+        return FAIL, "it spoke before 15:00 off a live payload"
+    if seen[900.0] != "SURVIVE" or seen[1000.0] != "SURVIVE":
+        return FAIL, f"live payload before the inhibitor fell: {seen}"
+    if seen[1300.0] != "CALL IT":
+        return FAIL, f"20:00+, 10k down, mid inhibitor open -> {seen[1300.0]}, not CALL IT"
+    if gd.trough > -9000.0:
+        return FAIL, f"the trough never tracked the deficit: {gd.trough:.0f}"
+    dead = _payload(1300.0, evs)
+    dead["allPlayers"][0]["isDead"] = True
+    if gd.observe(dd, dead) is not None:
+        return FAIL, "the widget guard talked over the death screen"
+    if (lo.read(dd, dead, while_dead=True) or {}).get("verdict") != "CALL IT":
+        return FAIL, "the death brief's own read went silent exactly when it is needed"
+
+    # --- 8. the legend is drawn into a fixed canvas that is then cropped to its own last
+    #        line, so a new section that overruns it vanishes off the bottom instead of
+    #        raising. THE OUT is now the last section — check its rows actually landed.
     try:
         import smitewidget as sw_
         leg = sw_._render_legend()
         band = leg.crop((0, leg.height - 30, leg.width, leg.height - 4))
         if not any(sum(px) > 150 for px in list(band.getdata())):
-            return FAIL, "the legend's last WARD row fell off the bottom of its canvas"
+            return FAIL, "the legend's last THE OUT row fell off the bottom of its canvas"
     except Exception:
-        pass                                # not on Windows / no Win32: skip the render
-    return OK, ("24 fixtures, arming tripwire, dead-time freeze, trinket + deadline + pink "
-                "ledger + 6 simulated games hold")
+        pass                                 # not on Windows / no Win32: skip the render
+    return OK, (f"19 fixtures + 10k fuzzed states + 600 simulated games + a live payload "
+                f"end to end: {wrong:.0%} of write-offs come back, mirrors the CLOSER exactly")
 
 
 def c_onefix():
@@ -984,6 +1216,7 @@ def main():
         ("Closer (win conversion)", c_closer),
         ("Gold clock (farm pace)", c_gold),
         ("Ward clock (vision war)", c_ward),
+        ("THE OUT (the losing game)", c_out),
         ("THE ONE FIX (leak board)", c_onefix),
         ("THE POOL (champions in LP)", c_pool),
         ("Frozen build (hidden imports)", c_frozen),

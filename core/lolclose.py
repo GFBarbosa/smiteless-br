@@ -319,8 +319,7 @@ class Guard:
         # on. Deliberately not player_power: that one prefers VISIBLE item gold when it's
         # higher, which your own team always has and a farming enemy in fog does not — an
         # asymmetry worth nothing here and worth a false "you're ahead" every game.
-        lead = (sum(ll.est_gold(p, gt) for p in allies)
-                - sum(ll.est_gold(p, gt) for p in enemies))
+        lead = ll.team_lead(allies, enemies, gt)
         self.peak = max(self.peak, lead)
         if gt < CLOSE_FROM or lead < LEAD_MIN:
             self._firing = False
