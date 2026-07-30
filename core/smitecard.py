@@ -20,6 +20,7 @@ import lolscout as ls
 import lolmatchup as lm
 import lollive as ll
 import lolprofile as lp
+import lolfix as lf          # THE ONE FIX: the leak board's copy + pricing
 import phasecheck
 import smiteconfig as cfg
 import smiteskin as skin
@@ -910,6 +911,91 @@ def _draw_session_coach(d, p, y, W=None):
             cx -= d.textlength(txt, font=cf) + 16
 
 
+_FIX_TONE = {"priced": RED, "rate": WARN, "lean": WARN, "thin": FAINT, "clean": GREEN}
+
+
+def _draw_one_fix(d, b, x0, y, x1, h):
+    """THE ONE FIX band: the single leak worth working on, priced in the player's own LP,
+    with the other four ranked beside it.
+
+    Left = the commitment (what it is, what it costs, the imperative, the receipt); right =
+    the board, so the pick is visibly the top of a ranking rather than an opinion. Every
+    number here is drawn from lolfix, which refuses to assert one it can't defend — this
+    renderer's job is to never make a row look louder than the claim it carries, so tone
+    comes straight off the row's state."""
+    _rrect(d, (x0, y, x1, y + h), 10, fill=PCARD, outline=PEDGE, width=1)
+    hf = display_font(11, True)
+    d.text((x0 + 16, y + 12), "THE ONE FIX", font=hf, fill=GOLD)
+    d.text((x0 + 16 + d.textlength("THE ONE FIX", font=hf) + 10, y + 14),
+           "your leaks, priced in your own LP", font=font(9), fill=FAINT)
+    if not b:
+        d.text((x0 + 16, y + 46), "Your leak board opens once a few graded games are in.",
+               font=font(11), fill=MUTED)
+        d.text((x0 + 16, y + 68),
+               "Smiteless already grades five habits per game — first-ten economy, early "
+               "deaths, chained deaths,", font=font(10), fill=FAINT)
+        d.text((x0 + 16, y + 84),
+               "throwing a lead, and vision. This board splits your wins by each one and "
+               "names the costliest.", font=font(10), fill=FAINT)
+        return
+    pick = b.get("pick")
+    # ---- left: the commitment ----
+    cw = min(470, (x1 - x0) // 2 - 10)
+    cx0, cy0, cx1, cy1 = x0 + 14, y + 34, x0 + 14 + cw, y + h - 32
+    rail = _FIX_TONE.get((pick or {}).get("state"), FAINT) if pick else GREEN
+    _railed_card(d, (cx0, cy0, cx1, cy1), rail, fill=PCARD2, outline=PEDGE, width=1, r=10)
+    tx = cx0 + 16
+    if pick:
+        note = lf.row_note(pick)
+        nf = display_font(15, True)
+        d.text((cx1 - 14, cy0 + 12), note, font=nf, fill=rail, anchor="ra")
+        d.text((tx, cy0 + 9), pick["short"], font=display_font(17, True), fill=TEXT)
+        d.text((tx, cy0 + 31), pick["label"], font=font(10), fill=MUTED)
+        for i, ln in enumerate(_wrap(pick["fix"], font(11), cw - 34)[:2]):
+            d.text((tx, cy0 + 49 + i * 16), ln, font=font(11), fill=GOLD)
+        # the pick's own reps, drawn big: this is the thing you watch empty out.
+        bx = tx
+        for hit in pick["recent"]:
+            _rrect(d, (bx, cy1 - 44, bx + 16, cy1 - 34), 2, fill=(rail if hit else SUNKEN))
+            bx += 19
+        if pick["recent"]:
+            d.text((bx + 8, cy1 - 45), "last " + str(len(pick["recent"])) + " it could happen in"
+                   + (f"  ·  {pick['trend']}" if pick["trend"] else ""), font=font(9), fill=FAINT)
+        d.text((tx, cy1 - 20), pick["evidence"] or "", font=font(9), fill=FAINT)
+        d.text((cx1 - 14, cy1 - 20), f"in game: {pick['guard']}", font=font(9),
+               fill=ARC, anchor="ra")
+    else:
+        d.text((tx, cy0 + 12), lf.headline(b), font=font(12), fill=TEXT)
+        d.text((tx, cy0 + 40), ("Nothing to work on is the best board there is — keep the "
+                                "reps coming." if b.get("ready") else
+                                "Open your profile after each game and it fills itself in."),
+               font=font(10), fill=FAINT)
+    # ---- right: the board ----
+    rx = cx1 + 18
+    rows = b.get("rows") or []
+    ry = y + 38
+    step = max(18, (h - 76) // max(1, len(rows)))
+    for r in rows:
+        col = _FIX_TONE[r["state"]]
+        d.text((rx, ry), r["short"], font=display_font(10, True),
+               fill=TEXT if r is pick else MUTED)
+        d.text((rx + 160, ry), lf.row_note(r), font=display_font(10, True), fill=col,
+               anchor="ra")
+        # form strip: the last few games this leak was gradable in, newest on the LEFT — so
+        # a leak you are actually closing visibly empties out from the front.
+        bx = rx + 174
+        for hit in r["recent"]:
+            _rrect(d, (bx, ry + 2, bx + 8, ry + 10), 2, fill=(col if hit else SUNKEN))
+            bx += 11
+        note = r["evidence"] or ("not graded yet" if r["state"] == "thin" else "")
+        if r["trend"]:
+            note = (note + "  ·  " if note else "") + r["trend"]
+        if note:
+            d.text((rx + 262, ry), note, font=font(9), fill=FAINT)
+        ry += step
+    d.text((x0 + 16, y + h - 22), lf.receipt(b), font=font(9), fill=FAINT)
+
+
 def _profile_headline(p):
     """One line about how you've been doing — CLIMB discipline first (the research-backed
     fast-climb rules outrank pleasantries): the 2-loss stop rule, sub-12k-mastery leaks,
@@ -1182,7 +1268,9 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
     sess_y = HERO + 12                            # session/coach strip
     tiles_y = sess_y + 30                         # five stat tiles
     tile_h = 100
-    panels_y = tiles_y + tile_h + 16              # PATTERNS + PERSONAL BESTS
+    fix_y = tiles_y + tile_h + 16                 # THE ONE FIX (the leak board)
+    fix_h = 176
+    panels_y = fix_y + fix_h + 16                 # PATTERNS + PERSONAL BESTS
     panel_h = 186
     pool_y = panels_y + panel_h + 18              # champion pool rule
     pool_h = 168
@@ -1297,6 +1385,9 @@ def render_profile(dd, p, expanded=None, details=None, width=None):
         if len(series) >= 2:
             _area_spark(d, tx + 14, tiles_y + tile_h - 32, tw - 28, 22, series, ARC)
         tx += tw + 10
+
+    # ============================ THE ONE FIX ============================
+    _draw_one_fix(d, p.get("fix"), 14, fix_y, W - 14, fix_h)
 
     # ============================ PATTERNS + PERSONAL BESTS ============================
     lx0, lx1 = 14, 714

@@ -476,6 +476,70 @@ def c_ward():
                 "ledger + 6 simulated games hold")
 
 
+def c_onefix():
+    """THE ONE FIX (core/lolfix) — the leak board that prices your habits in your own LP and
+    names the single one to work on. Two risks, neither visible without weeks of real games:
+    the pricing could assert a number off a sample that can't carry it (the app's whole
+    credibility rests on the opposite), and the ledger it reads from is written by a merge
+    that has to stay idempotent and in time order or the splits quietly rot."""
+    import json
+    import tempfile
+    import lolfix as lf
+    import lolprofile as lp
+    lf.selftest()                                # 12 invariants, every render state
+
+    # The board and the review page must name the leaks identically — one catalogue.
+    if {t: m["label"] for t, m in lf.LEAKS.items()} != lp._BEHAVIOR_TAGS:
+        return FAIL, "the leak catalogue and the review page's tag labels have diverged"
+    # ... and every leak's live guard must be a surface that actually ships.
+    have = {"THE GOLD CLOCK": "lolgold", "BLEED": "lolbleed", "RE-ENTRY": "lolreentry",
+            "THE CLOSER": "lolclose", "THE WARD CLOCK": "lolward"}
+    for t, m in lf.LEAKS.items():
+        if m["guard"] not in have:
+            return FAIL, f"{t} points at '{m['guard']}', which is not a shipped guard"
+        __import__(have[m["guard"]])
+    # ... and the tags it prices are exactly the ones behavior_read can emit.
+    src = open(os.path.join(_ROOT, "core", "lolprofile.py"), encoding="utf-8").read()
+    body = src.split("def behavior_read", 1)[-1].split("\ndef ", 1)[0]
+    emitted = {t for t in lf.LEAKS if f'"{t}"' in body}
+    if emitted != set(lf.LEAKS):
+        return FAIL, f"behavior_read never emits {sorted(set(lf.LEAKS) - emitted)}"
+
+    # The ledger writer, against a temp file: out-of-order backfill, re-recording, and cap.
+    real = lp._BEHAVIOR_FILE
+    tmp = os.path.join(tempfile.mkdtemp(), "ledger.json")
+    try:
+        lp._BEHAVIOR_FILE = tmp
+        rows = [{"mid": f"M{i}", "ts": i * 1000, "hits": [], "ev": ["early_bleeding"],
+                 "win": True} for i in range(6)]
+        lp._ledger_put(list(reversed(rows[3:])))        # backfill arrives NEWEST-first
+        lp._ledger_put(rows[:3])
+        got = [g["mid"] for g in json.load(open(tmp, encoding="utf-8"))["games"]]
+        if got != [r["mid"] for r in rows]:
+            return FAIL, f"ledger not in time order after an out-of-order backfill: {got}"
+        lp._ledger_put([{"mid": "M2", "ts": 2000, "hits": ["early_bleeding"],
+                         "ev": ["early_bleeding"], "win": False}])
+        led = json.load(open(tmp, encoding="utf-8"))["games"]
+        if len(led) != 6 or led[2]["hits"] != []:
+            return FAIL, "re-recording a game must be a no-op, not a second row"
+        lp._ledger_put([{"mid": f"B{i}", "ts": 10_000 + i, "hits": [], "ev": [], "win": True}
+                        for i in range(lp.LEDGER_KEEP + 40)])
+        led = json.load(open(tmp, encoding="utf-8"))["games"]
+        if len(led) != lp.LEDGER_KEEP or led != sorted(led, key=lambda g: g["ts"]):
+            return FAIL, f"ledger cap/order broke at {len(led)} rows"
+    finally:
+        lp._BEHAVIOR_FILE = real
+
+    # A priced pick must survive being read through the profile's own board entry point.
+    b = lf.board(lf.demo("priced"), lp=(20, 20, True))
+    if not b["pick"] or b["pick"]["state"] != "priced" or not lf.commitment(b):
+        return FAIL, "the priced fixture lost its pick through the public board()"
+    if lf.board(lf.demo("thin"))["pick"] is not None:
+        return FAIL, "a board under the sample bar must never name a fix"
+    return OK, ("12 board guards, catalogue matches the review page + five live guards, "
+                "ledger merge is idempotent and time-ordered")
+
+
 def c_mute():
     """AUTO-MUTE. It used to TYPE `/fullmute all` into the game and could never tell whether
     that landed - so it claimed success for four releases while muting nobody. It now writes
@@ -772,6 +836,7 @@ def main():
         ("Closer (win conversion)", c_closer),
         ("Gold clock (farm pace)", c_gold),
         ("Ward clock (vision war)", c_ward),
+        ("THE ONE FIX (leak board)", c_onefix),
         ("Auto-mute (chat + settings)", c_mute),
         ("Auto-mute input guard", c_muteguard),
         ("Personal fit (your results)", c_fit),

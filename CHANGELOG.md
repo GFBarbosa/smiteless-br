@@ -1,5 +1,72 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.70 - THE ONE FIX: your leaks, priced in LP, and the single one worth fixing
+
+**New feature, and it answers the question the app has been dodging since the leak ledger
+existed: you have five habits being graded every game - which ONE is actually costing you
+the ladder, and what is fixing it worth?**
+
+Smiteless has spent five releases building a live guard for every leak your profile can
+find. That work is done. What it never did was *rank* them. Your profile would hand you
+three PATTERN bullets about the game you just played and leave you to guess which mattered.
+Five things to fix is the same as no things to fix.
+
+So the ledger it has been quietly writing all along - which habits were gradable each game,
+which ones fired, and whether you won - is now read the other way round. **Both sides of
+every split are in there**, so each leak can be priced:
+
+    RE-ENTRY      -41 LP / 10       with it: 3W-7L  ·  without: 9W-5L
+    FIRST TEN      7 of 24          with it: 4W-3L  ·  without: 8W-9L
+    BLEEDING       clean
+    CLOSING        clean
+    VISION         clean
+
+- **A number nobody has ever put in front of you: what a habit costs you in LP.** Not a
+  win-rate curiosity - the actual ladder. It fires in 4 of every 10 of your games; in those
+  games you win 25 points less; a flipped game is worth what a win and a loss are worth *to
+  you*. That is LP per ten games, and it is arithmetic on your own history, not a study.
+- **Your LP, measured, not assumed.** Smiteless already snapshots your rank every time your
+  profile builds, so it knows what a win and a loss are actually worth at your MMR - it
+  reads `+22 / -17`, not "about 20". Only if it can't measure yours does it assume, and
+  then it says so on the card.
+- **One fix. Not five.** The board names exactly one habit, writes it as something you can
+  actually hold yourself to for a single game - *"after you respawn, 90 seconds of farm
+  before you look for a fight"* - and tells you which in-game guard is watching it for you.
+  The other four sit underneath it, ranked, so you can see it was chosen and not asserted.
+- **And it meets you in the lobby.** The QUEUE CALL card now carries a **THIS GAME** line:
+  one habit, in the four seconds before you press Find Match, which is the only moment
+  you're in a position to decide anything. It never appears under a **STOP** or a **WAIT** -
+  handing you homework in the same breath as "log off with the LP" is how a stop rule gets
+  ignored.
+- **Watch a leak close.** Every row carries a form strip - the last six games that habit
+  could have happened in - and flags `improving` or `slipping` once there's enough on both
+  sides to mean it. A leak you are actually fixing visibly empties out.
+- **It fills itself in.** The ledger used to learn exactly one game per profile open -
+  forty opens before it could say anything. It now grades the games already on your profile
+  page, so the board is live almost immediately, and it remembers 120 games instead of 60.
+
+**It refuses to overstate itself, which is the whole point.** A leak is only priced in LP
+once its split beats the same significance test the QUEUE CALL uses before it will tell you
+to stop playing - and even then the split is quoted *shrunk toward your own baseline*, so a
+3-games-versus-5 fluke can't become a 200-LP headline while a 40-game pattern is barely
+touched. Below that bar the row still shows you its numbers, labelled as what it is: a lean,
+not a price. A habit that fires in nearly every game can still be picked - on the *count*,
+which needs no test at all - and then it quotes the count and never an LP figure. Under ten
+graded games the board doesn't guess; it tells you how many more it needs. And it says out
+loud, on the card, that this is a correlation from your own games.
+
+**Tested:** 14 guard groups, including a **3,000-ledger fuzz** that asserts - on every
+random history it can build - that no LP price is ever attached to a claim that didn't clear
+the test, that a priced row always carries a real price (a `-0 LP` row is a broken claim, so
+it's demoted to a lean), that the headline, the board and the lobby line can never name
+different leaks, and that no shape of garbage in the ledger can crash the page. Also
+checked: a proven leak always outranks a merely frequent one; unfinished games are holes,
+never evidence, and can't move a price; the ledger merge is idempotent and stays in time
+order even when the backfill arrives newest-first; the LP reader rejects an MMR reset as
+"not a game"; and the leak catalogue is verified against both the review page's wording and
+the five shipped in-game guards, so nothing on the board can ever point at a surface that
+doesn't exist. Every render state was drawn and looked at.
+
 ## v0.9.69 - THE WARD CLOCK grows up: the deadline, your trinket, and the 75 gold you keep forgetting
 
 **A big upgrade to the guard that shipped last version, in the four places it was still

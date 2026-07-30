@@ -60,8 +60,12 @@ the difference between grinding a rank and arriving at it.
 
 That's the whole ledger — **every tag your profile can give you now has a surface that fires
 while the mistake is still preventable.** Plus the **Tempo engine**, which owns the ~90 seconds
-before every objective. Here is the whole
-in-game HUD, one panel per guard:
+before every objective.
+
+And because five things to fix is the same as no things to fix, **THE ONE FIX** prices each of
+those habits in *your own LP* — off both sides of the split in your own history — and names the
+single one worth working on, then hands it to you in the lobby as one line right before you press
+Find Match. Here is the whole in-game HUD, one panel per guard:
 
 ![The in-game widget](docs/widget.png)
 
@@ -122,9 +126,10 @@ it. **STAND DOWN** releases the lock and leaves the reads on.
 - **The Loading-Screen Scout** — while the game loads, ten tall portrait cards (Riot's own loading art, laid out like the real loading screen) read every ACCOUNT in the lobby: rank + LP + season record, last-10 form bars, KDA, mastery, record on the locked champ, a performance grade, and profile tags mined from their real history — `duo`, `SMURF READ`, `OTP · 612k pts`, `4L streak · tilt risk`, `first-time?`, `off-role`, `carries games`, `hardstuck`. Gone the instant the game starts
 
 ### 🚦 Before you queue
-- **The Queue Call** — the lobby answers the only question left before Find Match: *is this one worth playing?* One verdict — **GO / LAST ONE / WAIT / STOP** — computed from your own ranked history (riding 2+ losses, deep into a sitting, straight back in under 10 minutes, the hour you're playing). It only calls a stop when that split beats a two-proportion significance test against the rest of your games, so it isn't superstition: every line carries its receipt — *"game 4+ of a sitting · 33% over 36 (vs 63% otherwise)"*. Docks beside the client, never takes focus, and closes itself the moment you queue
+- **The Queue Call** — the lobby answers the only question left before Find Match: *is this one worth playing?* One verdict — **GO / LAST ONE / WAIT / STOP** — computed from your own ranked history (riding 2+ losses, deep into a sitting, straight back in under 10 minutes, the hour you're playing). It only calls a stop when that split beats a two-proportion significance test against the rest of your games, so it isn't superstition: every line carries its receipt — *"game 4+ of a sitting · 33% over 36 (vs 63% otherwise)"*. When the call is **GO** or **LAST ONE**, it also carries **THIS GAME** — the one habit from THE ONE FIX to hold yourself to, in the seconds before you press the button (never under a STOP: homework and a stop rule in the same breath is how the stop rule gets ignored). Docks beside the client, never takes focus, and closes itself the moment you queue
 
 ### 📈 Between games
+- **THE ONE FIX** — the five habits your profile grades every game, **priced in LP**, ranked, and narrowed to one. The ledger holds both sides of every split — the games a habit fired in and the games it didn't — so each leak gets the number nobody has ever shown you: *`RE-ENTRY · −41 LP / 10 games · with it: 3W-7L · without: 9W-5L`*. The LP is **yours**, read from your own rank snapshots (`+22 / -17`, not "about 20"). It names **one** habit, as something you can hold yourself to for a single game, and says which in-game guard is watching it. Every row carries a form strip of the last six games it could have happened in, so you can watch a leak close — and it flags `improving` once it's real. Nothing is priced until its split beats the same significance test the QUEUE CALL uses, and even then the split is quoted shrunk toward your own baseline so a 3-vs-5 fluke can't become a headline; below that bar the row shows its numbers as a *lean*, never a price. Under ten graded games it doesn't guess — it says how many more it needs
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
 - **The climb system** — research-backed discipline: the 2-loss stop rule, champion-pool focus, and sample-aware "play more / ease off" coaching
 - **Click any player** to scout their full profile; right-click for u.gg / op.gg / Porofessor
@@ -141,9 +146,9 @@ python smiteless_main.py overlay      # or: widget / settings / profile
 ```
 
 `python tools\selftest.py` runs the health check and every engine guard — the verdict engines
-(tempo, gold clock, ward clock, bleed, re-entry, closer, queue call) are pure functions with
+(tempo, gold clock, ward clock, bleed, re-entry, closer, queue call, the one fix) are pure functions with
 fixtures, so they're testable without a live game. Each also prints its own branches:
-`python core\lolward.py`.
+`python core\lolward.py`, `python core\lolfix.py demo`.
 
 `dist\build.ps1` builds the frozen app and `dist\make-release.ps1 -Version X.Y.Z` cuts a release
 locally (PyInstaller + AHK-compiled tray/installer, Python 3.11+). Releases are normally cut in

@@ -31,6 +31,7 @@ for _s in ("stdout", "stderr"):                 # pythonw / bundled exe: no cons
 import smiteskin as skin
 import smiteconfig as cfg
 import lolqueue as lq
+import lolfix as lf                              # THE ONE FIX — the leak worth this game
 import smiteoverlay as ov                        # win32 window helpers (the canonical copy)
 import phasecheck
 
@@ -153,6 +154,14 @@ def main():
         for ln in r["lines"]:
             _row(content, "· " + ln["text"], skin.body(skin.SMALL),
                  TONE.get(ln["tone"], MUTED), pad=(0, 1), wrap=W - 44)
+        # THIS GAME — one habit to hold yourself to, from THE ONE FIX. Only ever under a
+        # verdict that's telling you to play; lolfix.lobby_card enforces that, not this.
+        fx = lf.lobby_card(r.get("fix"), r["verdict"])
+        if fx:
+            tk.Frame(content, bg=LINE_SOFT, height=1).pack(fill="x", padx=14, pady=(7, 6))
+            _row(content, "THIS GAME", skin.display(skin.SMALL, bold=True), EMBER, pad=(0, 2))
+            _row(content, fx["line"], skin.body(skin.BODY), TXT, pad=(0, 2), wrap=W - 40)
+            _row(content, fx["sub"], skin.body(8), FAINT, pad=(0, 2), wrap=W - 40)
         if r["n"]:
             _row(content, f"from your last {r['n']} ranked games", skin.body(8), FAINT,
                  pad=(4, 0))
@@ -172,6 +181,11 @@ def main():
             r = {"verdict": "GO", "headline": "QUEUE IT", "n": 0, "lines": [],
                  "sub": "couldn't read your match history — no call this time.",
                  "session": {}, "base": 0}
+        try:                                     # the leak board is a bonus on this card —
+            r["fix"] = lf.board(lf.demo("priced") if test else None)
+        except Exception as e:                   # ... never a reason the verdict doesn't show
+            lq.log(f"leak board failed: {type(e).__name__}: {e}")
+            r["fix"] = None
         if st["alive"]:
             root.after(0, lambda: render(r))
     threading.Thread(target=work, daemon=True).start()
