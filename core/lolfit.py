@@ -17,10 +17,17 @@ Two problems, one answer.
 So this module answers, per champion: is this a proven LOSER for me, a proven WINNER, and how
 long since I played it. The recommender then vetoes the first, promotes the last.
 
-HOUSE RULE (docs/TAGS.md): a claim carries its evidence, and thin samples make no claim. A veto
-needs VETO_MIN games AND ~80% statistical confidence that the champion is genuinely below the
-bar for you — the same Wilson bound lolprofile._coach already uses to say "ease off". Losing
+HOUSE RULE (docs/TAGS.md): a claim carries its evidence, and thin samples make no claim. Losing
 three in a row is not proof and will not veto anything.
+
+ONE BRAIN (v0.9.71): the veto is no longer this module's own arithmetic. It IS core/lolpool's
+`bench` state — the same read the profile page draws and prices in LP — so the page that tells
+you to bench a champion and the recommender that refuses to suggest it can never disagree again.
+That also upgrades the veto in two ways worth knowing about: it is measured against YOUR OWN
+baseline rather than a flat 48% (a 46% champion is not a leak for a player who wins 43% of
+everything else, it is their second-best pick), and it is corrected for the fact that every
+champion in your pool is being tested at once. Your most-played champion can no longer be
+vetoed at all — lolpool reads a main on a bad run as variance, which is what it usually is.
 """
 import json
 import os
@@ -32,8 +39,6 @@ from smitei18n import t, tf
 CACHE = os.path.expanduser("~/.claude/cache/lol_fit.json")
 TTL = 6 * 3600             # rebuild the season read at most this often (it's ~60 match fetches)
 
-VETO_MIN = 4               # games before a champion may be vetoed at all
-VETO_WR_UPPER = 0.48       # ...and we must be ~80% sure its true win rate is under this
 PERF_MIN = 3               # games before your average PERFORMANCE on a champ may speak
 PERF_GAP = 12              # ...and it must sit this far under your own overall average
 FRESH_AFTER = 10           # not played in this many recent games = "fresh"
@@ -134,10 +139,22 @@ def games_since(rec, name):
     return None
 
 
+def pool_board(rec):
+    """THE POOL board for this record (core/lolpool), memoized on the record itself. This is the
+    shared read behind the veto — one brain, so the profile page and the recommender agree."""
+    if rec.get("_pool") is None:
+        try:
+            import lolpool as _lpl
+            rec["_pool"] = _lpl.board(rec.get("champs") or {})
+        except Exception:
+            rec["_pool"] = False
+    return rec["_pool"] or None
+
+
 def verdict(rec, name):
     """(kind, reason) for one champion, or (None, None) when your history has nothing to say.
 
-      'veto'  - proven loser for you; the recommender drops it entirely
+      'veto'  - proven loser for you (core/lolpool's 'bench'); the recommender drops it
       'cold'  - you play it measurably below your own standard; demoted, not dropped
       'fresh' - you're good on it and haven't touched it in a while; promoted (the boredom fix)
     """
@@ -146,9 +163,13 @@ def verdict(rec, name):
         return None, None
     g, w, avg = c["g"], c["w"], c.get("avg")
     wr = round(w / g * 100)
-    if g >= VETO_MIN and lp._wilson(w, g, z=1.28, upper=True) <= VETO_WR_UPPER:
-        return "veto", tf("{wins}W-{losses}L ({winrate}%) over {games} — your worst results",
-                          wins=w, losses=g - w, winrate=wr, games=g)
+    try:
+        import lolpool as _lpl
+        st, why = _lpl.champ_note(pool_board(rec), name)
+        if st == "bench":
+            return "veto", why
+    except Exception:
+        pass
     base = rec.get("baseline")
     if avg is not None and base and g >= PERF_MIN and avg <= base - PERF_GAP:
         return "cold", tf("you average {average} on it vs {baseline} overall, over {games} games",

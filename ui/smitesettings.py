@@ -323,6 +323,7 @@ def main():
     closerv = tk.BooleanVar(value=s.get("closer", True))
     goldv = tk.BooleanVar(value=s.get("gold_clock", True))
     wardv = tk.BooleanVar(value=s.get("ward_clock", True))
+    outv = tk.BooleanVar(value=s.get("the_out", True))
     deadbrief = tk.BooleanVar(value=s.get("death_brief", True))
     loadbrief = tk.BooleanVar(value=s.get("loading_scout", True))
     dodge = tk.BooleanVar(value=s.get("dodge_alerts", True))
@@ -342,7 +343,7 @@ def main():
                     (automute, "auto_mute"), (widget, "item_widget"), (intel, "game_intel"),
                     (tempo, "tempo_coach"), (freev, "free_alarm"), (reentryv, "re_entry"),
                     (bleedv, "bleed_guard"), (closerv, "closer"), (goldv, "gold_clock"),
-                    (wardv, "ward_clock"),
+                    (wardv, "ward_clock"), (outv, "the_out"),
                     (respawnv, "respawn_plan"), (deadbrief, "death_brief"),
                     (loadbrief, "loading_scout"), (queuecall, "queue_call"),
                     (dodge, "dodge_alerts"), (tips, "matchup_tips"),
@@ -391,6 +392,7 @@ def main():
         ("Closer (win-conversion, from 20:00)", closerv),
         ("Gold clock (farm pace, first 10 min)", goldv),
         ("Ward clock (the vision war, jg / sup)", wardv),
+        ("The Out (the losing game, from 15:00)", outv),
     ])
     tk.Label(body, text=t("GOLD CLOCK counts your CS against the minions that actually "
              "arrived in your lane — one wave every 30s from 1:05, every third with a cannon "
@@ -424,6 +426,17 @@ def main():
              "what you have GIVEN BACK of your peak lead, and HOLDs you off a fight you would "
              "lose, priced in the seconds your death actually costs. Behind or even, it says "
              "nothing at all."),
+             bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
+    tk.Label(body, text="THE OUT is that same read, mirrored, for the game you are LOSING — "
+             "the half of the map nothing has ever covered. From 15:00, and only while you "
+             "are 2k+ down, it looks for a mechanism: baron in range and contestable, elder "
+             "or soul point, death timers long enough that one won fight is the map, a comp "
+             "that out-scales theirs, or a base they still have not opened. It shows what you "
+             "have WON BACK off your worst deficit — the comeback in measured gold, before "
+             "anyone can feel it. And when the game truly has nothing left (20:00+, 8k down, "
+             "an inhibitor of yours open and the 5v5 gone) it says CALL IT: the LP is already "
+             "spent, and the minutes are not. It never speaks aloud and it never votes for you.",
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [
@@ -883,6 +896,7 @@ def main():
                   "respawn_plan": respawnv.get(), "re_entry": reentryv.get(),
                   "bleed_guard": bleedv.get(), "closer": closerv.get(),
                   "gold_clock": goldv.get(), "ward_clock": wardv.get(),
+                  "the_out": outv.get(),
                   "death_brief": deadbrief.get(),
                   "loading_scout": loadbrief.get(),
                   "dodge_alerts": dodge.get(), "dock_champ_select": dock.get(),
@@ -912,7 +926,7 @@ def main():
         dvol.set(cfg.DEFAULTS["dragon_volume"])
         bsize.set(cfg.DEFAULTS["board_size"])
         for v in (tips, widget, intel, tempo, freev, tempov, dragon, queuecall,
-                  respawnv, reentryv, bleedv, closerv, goldv, wardv, deadbrief, loadbrief, dodge, dock,
+                  respawnv, reentryv, bleedv, closerv, goldv, wardv, outv, deadbrief, loadbrief, dodge, dock,
                   auto, homeonstart,
                   solocoach, draftlink, draftopen, automute, boardtop):
             v.set(True)

@@ -19,6 +19,7 @@ import lollive as ll
 import lolitems as li
 import lolgame as lg
 import loltags as ltag
+import lolout as lo
 
 FEED_WINDOW = 40          # seconds of history for "what you missed"
 _DEAD_LOG = os.path.expanduser("~/.claude/smiteless_dead.log")
@@ -383,4 +384,17 @@ def brief(dd, data):
             out["threat"] = _threat(dd, out["board"])
         except Exception:
             out["threat"] = None
+    # THE OUT: in a game you are LOSING, the strategic sentence above is outranked by the
+    # live read — is there still a mechanism in this game, and what is it. This is the one
+    # screen where a player is actually deciding whether to keep playing, so it lands here
+    # too, with the same words the widget is showing (ONE BRAIN).
+    try:
+        o = lo.read(dd, data, None, out.get("objectives") or None, while_dead=True)
+    except Exception:
+        o = None
+    if o and o.get("line"):
+        out["out"] = o
+        out["wincon"] = o["line"]
+        out["wincon_sub"] = o.get("sub")
+        out["wincon_title"] = "THE CALL" if o.get("verdict") == "CALL IT" else "HOW YOU WIN"
     return out

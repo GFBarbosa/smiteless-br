@@ -97,6 +97,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
          "closer": True,          # widget: CLOSER — the post-20:00 win-conversion director (core/lolclose)
          "gold_clock": True,      # widget: GOLD CLOCK — first-ten farm pace vs the real wave schedule (core/lolgold)
          "ward_clock": True,      # widget: WARD CLOCK — the live vision war, jungle/support only (core/lolward)
+         "the_out": True,         # widget: THE OUT — the losing game from 15:00: is there a path? (core/lolout)
          "death_brief": True,     # fullscreen see-through DEATH BRIEF overlay while you're dead
          "loading_scout": True,     # fullscreen LOADING SCOUT: ten splash cards (rank, form, KDA,
                                     #   profile-read tags, damage lean) while the game loads. FRESH
@@ -129,7 +130,7 @@ BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-
 # all, and `board_topmost` is taste.
 MAX_ELO_ON = ("auto_accept", "auto_ban", "auto_import", "auto_mute",
               "item_widget", "game_intel", "tempo_coach", "free_alarm", "re_entry",
-              "bleed_guard", "closer", "gold_clock", "ward_clock", "respawn_plan", "death_brief", "loading_scout",
+              "bleed_guard", "closer", "gold_clock", "ward_clock", "the_out", "respawn_plan", "death_brief", "loading_scout",
               "queue_call",
               "dodge_alerts", "matchup_tips", "dock_champ_select",
               "draft_link", "draft_autoopen", "solo_coaching", "gank_kit")
