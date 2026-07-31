@@ -161,7 +161,7 @@ def main():
         fx = lf.lobby_card(r.get("fix"), r["verdict"])
         if fx:
             tk.Frame(content, bg=LINE_SOFT, height=1).pack(fill="x", padx=14, pady=(7, 6))
-            _row(content, "THIS GAME", skin.display(skin.SMALL, bold=True), EMBER, pad=(0, 2))
+            _row(content, t("THIS GAME"), skin.display(skin.SMALL, bold=True), EMBER, pad=(0, 2))
             _row(content, fx["line"], skin.body(skin.BODY), TXT, pad=(0, 2), wrap=W - 40)
             _row(content, fx["sub"], skin.body(8), FAINT, pad=(0, 2), wrap=W - 40)
         if r["n"]:

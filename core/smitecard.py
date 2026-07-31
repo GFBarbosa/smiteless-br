@@ -931,18 +931,17 @@ def _draw_one_fix(d, b, x0, y, x1, h):
     comes straight off the row's state."""
     _rrect(d, (x0, y, x1, y + h), 10, fill=PCARD, outline=PEDGE, width=1)
     hf = display_font(11, True)
-    d.text((x0 + 16, y + 12), "THE ONE FIX", font=hf, fill=GOLD)
-    d.text((x0 + 16 + d.textlength("THE ONE FIX", font=hf) + 10, y + 14),
-           "your leaks, priced in your own LP", font=font(9), fill=FAINT)
+    fix_title = t("THE ONE FIX")
+    d.text((x0 + 16, y + 12), fix_title, font=hf, fill=GOLD)
+    d.text((x0 + 16 + d.textlength(fix_title, font=hf) + 10, y + 14),
+           t("your leaks, priced in your own LP"), font=font(9), fill=FAINT)
     if not b:
-        d.text((x0 + 16, y + 46), "Your leak board opens once a few graded games are in.",
+        d.text((x0 + 16, y + 46), t("Your leak board opens once a few graded games are in."),
                font=font(11), fill=MUTED)
         d.text((x0 + 16, y + 68),
-               "Smiteless already grades five habits per game — first-ten economy, early "
-               "deaths, chained deaths,", font=font(10), fill=FAINT)
+               t("Smiteless already grades five habits per game — first-ten economy, early deaths, chained deaths,"), font=font(10), fill=FAINT)
         d.text((x0 + 16, y + 84),
-               "throwing a lead, and vision. This board splits your wins by each one and "
-               "names the costliest.", font=font(10), fill=FAINT)
+               t("throwing a lead, and vision. This board splits your wins by each one and names the costliest."), font=font(10), fill=FAINT)
         return
     pick = b.get("pick")
     # ---- left: the commitment ----
@@ -965,16 +964,18 @@ def _draw_one_fix(d, b, x0, y, x1, h):
             _rrect(d, (bx, cy1 - 44, bx + 16, cy1 - 34), 2, fill=(rail if hit else SUNKEN))
             bx += 19
         if pick["recent"]:
-            d.text((bx + 8, cy1 - 45), "last " + str(len(pick["recent"])) + " it could happen in"
-                   + (f"  ·  {pick['trend']}" if pick["trend"] else ""), font=font(9), fill=FAINT)
+            trend = t(pick["trend"]) if pick["trend"] else ""
+            d.text((bx + 8, cy1 - 45),
+                   tf("last {games} it could happen in", games=len(pick["recent"]))
+                   + (f"  ·  {trend}" if trend else ""), font=font(9), fill=FAINT)
         d.text((tx, cy1 - 20), pick["evidence"] or "", font=font(9), fill=FAINT)
-        d.text((cx1 - 14, cy1 - 20), f"in game: {pick['guard']}", font=font(9),
+        d.text((cx1 - 14, cy1 - 20), tf("in game: {guard}", guard=pick["guard"]), font=font(9),
                fill=ARC, anchor="ra")
     else:
         d.text((tx, cy0 + 12), lf.headline(b), font=font(12), fill=TEXT)
-        d.text((tx, cy0 + 40), ("Nothing to work on is the best board there is — keep the "
-                                "reps coming." if b.get("ready") else
-                                "Open your profile after each game and it fills itself in."),
+        d.text((tx, cy0 + 40), (t("Nothing to work on is the best board there is — keep the reps coming.")
+                                if b.get("ready") else
+                                t("Open your profile after each game and it fills itself in.")),
                font=font(10), fill=FAINT)
     # ---- right: the board ----
     rx = cx1 + 18
@@ -993,9 +994,9 @@ def _draw_one_fix(d, b, x0, y, x1, h):
         for hit in r["recent"]:
             _rrect(d, (bx, ry + 2, bx + 8, ry + 10), 2, fill=(col if hit else SUNKEN))
             bx += 11
-        note = r["evidence"] or ("not graded yet" if r["state"] == "thin" else "")
+        note = r["evidence"] or (t("not graded yet") if r["state"] == "thin" else "")
         if r["trend"]:
-            note = (note + "  ·  " if note else "") + r["trend"]
+            note = (note + "  ·  " if note else "") + t(r["trend"])
         if note:
             d.text((rx + 262, ry), note, font=font(9), fill=FAINT)
         ry += step

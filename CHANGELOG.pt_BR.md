@@ -4,6 +4,101 @@
 
 - Interface, boards e coaching respeitam o idioma selecionado.
 
+## v0.9.72 — THE OUT: a partida que vocês estão PERDENDO e os quatorze minutos que ninguém conta
+
+**Novo recurso, o primeiro voltado para a metade da subida que o aplicativo nunca havia
+atacado: o denominador de PDL por hora.** Uma derrota de 38 minutos e uma de 24 custam o
+mesmo PDL; a diferença são quatorze minutos que não podem virar outra fila. O espelho também
+custa: a partida ainda vencível que um time abandona no voto dos 15:00.
+
+THE CLOSER cobre a partida vencida e fica em silêncio quando o time está atrás. THE OUT cobre
+a outra metade e responde, no momento do voto, se ainda existe um caminho e qual é:
+
+    THE OUT     -4,2 mil · saída: barão 0:35 · recuperaram 3,7 mil de 7,9 mil
+
+- **Uma saída é um fato com relógio, nunca um estado de espírito:** Barão próximo e
+  realmente disputável; Ancião ou ponto de alma; tempos de morte longos o bastante para uma
+  luta vencer o mapa; composição que escala melhor; ou uma base ainda fechada.
+- A leitura começa aos **15:00**, somente com **2 mil ou mais de desvantagem**, o mesmo limite
+  que THE CLOSER usa para reconhecer vantagem. As duas leituras nunca falam ao mesmo tempo.
+- A linha mostra quanto o time **RECUPEROU** desde a pior desvantagem, em ouro medido. É a
+  virada aparecendo antes de ser sentida.
+- **CALL IT** é deliberadamente o veredito mais difícil do aplicativo: depois de **20:00**,
+  com **8 mil ou mais de desvantagem**, um inibidor aliado aberto ou torre do nexus perdida,
+  um 5v5 perdido por larga margem e nenhuma saída de objetivo ainda viva. O PDL já foi
+  gasto; os minutos, não.
+- A mesma leitura chega ao **Resumo de Morte**, nas mesmas palavras do widget. Ela nunca usa
+  voz e nunca vota pelo jogador: é 100% somente leitura.
+
+O chip de porcentagem de vitória modelada foi removido. Em seu lugar aparece o gap de ouro
+**medido** (`TIME -4,2 mil`), compartilhado por THE CLOSER, THE OUT e o widget.
+
+**Testes:** 19 fixtures de veredito, **10.000 estados fuzzados** e **600 partidas simuladas**.
+Os guards asseguram que CALL IT exige todos os fatos, nunca fica oculto em linha discreta e
+nunca aparece quando existe uma saída de objetivo. Nenhuma partida descartada na simulação
+voltou ao empate; cada limite foi testado por mutação. Um teste ponta a ponta também detectou
+e corrigiu a leitura invertida das torres caídas ao medir quão fundo o inimigo entrou na base.
+
+## v0.9.71 — THE POOL: seus campeões, precificados no seu próprio PDL
+
+**Novo recurso para o maior multiplicador da subida: quais campeões entram na fila.** O
+perfil deixou de oferecer apenas bullets de taxa de vitória e passou a ligar cada decisão ao
+seu próprio PDL medido.
+
+    O POOL — 9 campeões nas últimas 57
+      Sett            +38 PDL / 10 com ele     14V-6D em 20
+      Ornn              tendência +11 pp        6V-3D em 9
+      Darius          -44 PDL / 10 com ele      2V-8D em 10
+      LARGURA DO POOL -29 PDL / 10 partidas    top 3: 20V-15D · demais: 3V-13D
+
+- O preço de um campeão é informado em PDL **por dez partidas com ele**, usando ganho e
+  perda de PDL do próprio jogador e comparando-o às demais partidas do mesmo jogador.
+- **LARGURA DO POOL** compara o top 3 a tudo que ficou fora dele e usa PDL **por dez partidas
+  totais**. Quando o top 3 concentra 80% ou mais das partidas, não há corte recomendado.
+- O campeão principal nunca vai para o banco. Uma sequência ruim é tratada como variância.
+- A leitura aparece na seleção de campeão, enquanto ainda é possível mudar a escolha. O
+  recibo pessoal tem precedência sobre o aviso geral de maestria.
+- O veto do recomendador é exatamente o estado `bench` deste painel; perfil e recomendador
+  não mantêm mais contas separadas.
+
+As comparações corrigem a busca simultânea por todos os campeões, nas duas direções. Em
+históricos aleatórios de moedas justas, o teste comum produzia um falso melhor ou pior em
+**49%** dos pools. A correção reduz a medição para **7%**: um campeão elegível precisa de
+z>=1,63; três, z>=2,11; oito, z>=2,48. Abaixo do limite, a linha é uma tendência, nunca um
+preço. Cada campeão precisa de 6 partidas e o painel inteiro de 15.
+
+**Testes:** 15 grupos de guards e **1.200 pools fuzzados**, recalculados com e sem correção.
+Também foram corrigidos o clipping silencioso da nota da seleção de campeão e sua cor fixa
+verde. O self-test agora exige todos os módulos de `core/` e `ui/` nos hidden imports do build.
+
+## v0.9.70 — THE ONE FIX: seus vazamentos em PDL e a única correção que importa agora
+
+**Novo recurso para responder qual dos cinco hábitos avaliados está realmente custando a
+subida e quanto corrigi-lo vale.** O ledger já registrava em quais partidas cada hábito podia
+ser avaliado, quando apareceu e se houve vitória. Agora os dois lados de cada divisão são
+comparados e ranqueados.
+
+    RETORNO       -41 PDL / 10       com isso: 3V-7D · sem isso: 9V-5D
+    DEZ INICIAIS    7 de 24          com isso: 4V-3D · sem isso: 8V-9D
+    SANGRIA         limpo
+    FECHAMENTO      limpo
+    VISÃO           limpo
+
+- O custo usa o PDL real do jogador, lido do histórico de ranque. Sem histórico, a hipótese
+  de 20 PDL é declarada explicitamente.
+- Nada recebe preço sem ultrapassar o mesmo teste unilateral da CHAMADA DE FILA. Amostras
+  abaixo do limite continuam visíveis como tendência, sem PDL.
+- O preço usa uma estimativa conservadora, puxando amostras pequenas para a taxa-base do
+  próprio jogador. Uma frequência observada pode escolher a correção, mas nunca fingir preço.
+- O painel nomeia **uma** correção e leva o compromisso para a CHAMADA DE FILA como
+  **NESTA PARTIDA**, somente sob `GO` ou `LAST ONE`; `STOP` e `WAIT` nunca entregam tarefa.
+- São necessárias 10 partidas concluídas para abrir o painel e 8 ocorrências avaliáveis por
+  hábito para ranqueá-lo. Tendências usam as cinco ocorrências avaliáveis mais recentes.
+
+**Testes:** fixtures determinísticos de todos os estados, medição de PDL, significância,
+shrinkage, ordenação e supressão na fila, além de **3.000 ledgers fuzzados**. Nenhum claim
+precificado escapa sem amostra e evidência, e a localização não altera a decisão do engine.
+
 ## v0.9.69 — THE WARD CLOCK amadurece: o prazo, seu amuleto e os 75 de ouro esquecidos
 
 **Uma grande evolução do guard lançado na versão anterior, nos quatro pontos em que ainda

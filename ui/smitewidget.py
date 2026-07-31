@@ -600,7 +600,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         # takes the card only for a live objective window, at a surrender-vote moment, or for
         # the write-off itself; every other second it is the quiet row below.
         hold = True
-        y = _render_reentry(d, out, x, y, wrapw, W, label="THE OUT")
+        y = _render_reentry(d, out, x, y, wrapw, W, label=t("THE OUT"))
     elif gold and not gold.get("quiet"):
         # GOLD CLOCK (lolgold) takes the directive slot only at the moment a wave went by,
         # or a few seconds before a cannon lands — never as a running state. It sits BELOW
@@ -654,7 +654,7 @@ def _render_body(dd, rec, pulse, recall, dead=None, W=318, ref=False, reentry=No
         txt = " · ".join(bits)
         while txt and d.textlength(txt, font=qf) > avail:
             txt = txt[:-2] + "…"
-        d.text((x + 2, y), "THE OUT", font=_wfont(9, 1), fill=C_MUTED)
+        d.text((x + 2, y), t("THE OUT"), font=_wfont(9, 1), fill=C_MUTED)
         d.text((x + 62, y - 1), txt, font=qf,
                fill=C_GOOD if out.get("won_txt") else
                (C_BAD if out.get("verdict") == "CALL IT" else C_ARC))

@@ -4,22 +4,6 @@ WARNING:  I frequently update Smiteless and sometimes the updates just aren't go
 
 **A League of Legends companion built for one thing: climbing as fast as it is possible to climb.** It watches champ select and your live game and tells you the one thing that matters right now — what to ban, when to back, whether that drake fight is winnable, and when to stop queuing — because the fastest climb is a string of decisions made correctly, and almost none of them are made with the information in front of you.
 
-## Contributing from the Brazilian fork
-
-This repository is the `GFBarbosa/smiteless-br` fork of the [original Smiteless project](https://github.com/bobbyroylee/smiteless). Keep the fork's `main` branch synchronized with the original and use feature branches for changes intended for contribution:
-
-```powershell
-git remote rename origin upstream
-git remote add origin git@github.com:GFBarbosa/smiteless-br.git
-git fetch upstream
-git switch main
-git merge upstream/main
-git push origin main
-git switch -c feat/my-change
-```
-
-After testing, push the feature branch to this fork and open a Pull Request to `GFBarbosa/smiteless-br` on `main`. Include the user-visible outcome, tests run, and screenshots for UI changes. Keep `main` as the synchronized base; isolate each contribution in its own branch.
-
 ![The in-game scoreboard](docs/board.png)
 
 ## What it lives for: SPEED
@@ -125,7 +109,7 @@ your own LP. **STAND DOWN** releases the lock and leaves the reads on.
 ### 🧠 In champ select
 - **Scouts everyone live** — rank, form, player grades (S–F from how they actually *play*), duo detection, and a **dodge read** that flags tilted or struggling teammates *while you can still dodge*
 - **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, with optional **auto-ban** that waits until the last seconds for maximum hover intel
-- **Real matchup tips first** — written by actual guide authors for your exact matchup. When no written tip or valid cache exists, an optional local Claude or Codex CLI—selected in Settings—provides the fallback; provider failures stay recoverable and never silently switch to the other CLI
+- **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
 - **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
 - **One-click (or automatic) runes + summoners import**, multiple rune sets
 - **Climb guards** — hover a champion **THE POOL** has priced out of your own games and it says so while you can still change your mind (*⚠ Darius: −93 LP / 10 on it (2W-12L)*). When your history can't speak about the pick yet — which is exactly the case it describes — it falls back to the mastery warning (sub-12k-mastery picks win ~44%, per a 1M-game study), pooled across all your accounts so a smurf pick your main knows is fine
@@ -141,7 +125,7 @@ your own LP. **STAND DOWN** releases the lock and leaves the reads on.
 - **THE OUT — the game you're LOSING, and the fourteen minutes nobody counts.** THE CLOSER owns the game you're winning and says nothing at all when you're behind. This is the other half of that map, and it exists because a climb is **LP per hour** and half the hour is spent inside games that were decided ten minutes ago — a 38-minute loss and a 24-minute loss cost the same LP. From 15:00 (the first surrender window; there is no such thing as a decided game before one exists) and only while you're 2k+ down — the exact bar the CLOSER calls *ahead*, mirrored — it looks for an **OUT**, and an out is always a fact with a clock on it: **baron** in range and actually contestable, **elder or soul point**, **death timers** long enough that one won fight is the map (*their deaths cost 52s*), a comp that **out-scales** theirs (the same power-curve table champ select graded the draft with), or a **base they still haven't opened**. Because the most expensive thing in a losing game is a team that stops playing one it could still win. It also carries the number nobody has ever shown a losing team: **what you've won back off your worst** — *`-4.2k · won back 3.7k of 7.9k`* — the comeback in measured gold, before anyone can feel it. And when a game genuinely has nothing left — 20:00+, 8k down, an inhibitor of yours open and the 5v5 gone, with no live objective out — it says **CALL IT**: the LP is already spent, the minutes are not. It's deliberately the hardest verdict in the app to reach; in 600 simulated games, **0%** of the games it wrote off ever came back to even. It never speaks aloud and it never votes for you
 - **Objective timers with audio, power-spike alerts, item coaching, and the measured team gold gap** — one compact draggable HUD that fades when nothing needs you, and is fully click-through during a live game so it can never eat a click (hold **Ctrl+Alt** to touch it)
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
-- **Auto-mute** — a few seconds into the game Smiteless types Riot's own `/fullmute all` for you: chat *and* ping markers from every player, gone for that game. Your own pings still work. The whole command is resolved first using the keyboard layout owned by the focused League window, including layouts where `/` needs Ctrl+Alt/AltGr, so it is never typed into another app or partially sent on an incompatible layout. Underneath that it also sets League's own options (ally chat off, all-chat off, ping audio off) and verifies them by reading them back — those persist until you turn them off and remain active even if the typed layer must stay off for a session. On by default; **Settings → In-game quiet**
+- **Auto-mute** — a few seconds into the game Smiteless types Riot's own `/fullmute all` for you: chat *and* ping markers from every player, gone for that game. Your own pings still work, and it waits for the game window to be focused so the command is never typed anywhere else. Underneath that it also sets League's own options (ally chat off, all-chat off, ping audio off) and verifies them by reading them back — those persist until you turn them off. On by default; **Settings → In-game quiet**
 - **The Loading-Screen Scout** — while the game loads, ten tall portrait cards (Riot's own loading art, laid out like the real loading screen) read every ACCOUNT in the lobby: rank + LP + season record, last-10 form bars, KDA, mastery, record on the locked champ, a performance grade, and profile tags mined from their real history — `duo`, `SMURF READ`, `OTP · 612k pts`, `4L streak · tilt risk`, `first-time?`, `off-role`, `carries games`, `hardstuck`. Gone the instant the game starts
 
 ### 🚦 Before you queue

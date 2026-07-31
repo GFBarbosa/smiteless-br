@@ -428,7 +428,7 @@ def main():
              "nothing at all."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
-    tk.Label(body, text="THE OUT is that same read, mirrored, for the game you are LOSING — "
+    tk.Label(body, text=t("THE OUT is that same read, mirrored, for the game you are LOSING — "
              "the half of the map nothing has ever covered. From 15:00, and only while you "
              "are 2k+ down, it looks for a mechanism: baron in range and contestable, elder "
              "or soul point, death timers long enough that one won fight is the map, a comp "
@@ -436,7 +436,7 @@ def main():
              "have WON BACK off your worst deficit — the comeback in measured gold, before "
              "anyone can feel it. And when the game truly has nothing left (20:00+, 8k down, "
              "an inhibitor of yours open and the 5v5 gone) it says CALL IT: the LP is already "
-             "spent, and the minutes are not. It never speaks aloud and it never votes for you.",
+             "spent, and the minutes are not. It never speaks aloud and it never votes for you."),
              bg=VOID, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=430).pack(fill="x", padx=18, pady=(0, 2))
     _feat_group("OVERLAYS & BOARDS", [

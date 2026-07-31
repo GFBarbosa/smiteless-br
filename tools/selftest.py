@@ -878,7 +878,7 @@ def c_out():
     # --- 4. the promises the copy makes. A write-off always shows the deficit that justified
     #        it; an OUT always names something; nothing ever claims a comeback it can't show.
     call = cards["call"]
-    if "-9.2k" not in call["sub"] or "inhib" not in call["sub"]:
+    if "-9.2k" not in call["sub"] or not any(word in call["sub"] for word in ("inhib", "inib")):
         return FAIL, f"the write-off doesn't show its receipt: {call['sub']}"
     for k in ("baron", "elder", "soul", "ace", "scale", "structure"):
         if not (cards[k].get("tag") or "").strip():
@@ -1500,6 +1500,7 @@ def c_new_i18n():
 
     import loldraft as draft
     import lolbleed as bleed, lolclose as close, lolfit as fit, lolrunes as runes
+    import lolfix as fix, lolpool as pool, lolout as out
     import lolgold as gold, lolward as ward
     import smitei18n as i18n
 
@@ -1558,8 +1559,15 @@ def c_new_i18n():
         close_en = close._verdict(close.demo("end"))
         gold_en, ward_en = localized_guards()
         rec = {"baseline": 83, "recent": [],
-               "champs": {"loser": {"g": 10, "w": 1, "avg": 60}}}
+               "champs": {"main": {"g": 24, "w": 15, "avg": 86},
+                          "loser": {"g": 10, "w": 1, "avg": 60}}}
         fit_en = fit.verdict(rec, "loser")
+        fix_en = fix.board(fix.demo("priced"), lp=(20, 20, True))
+        fix_head_en = fix.headline(fix_en)
+        pool_en = pool.board(pool.demo("spread"), lp=(20, 20, True))
+        pool_head_en, pool_width_en = pool.headline(pool_en), pool.width_note(pool_en["width"])
+        out_en = {kind: out._verdict(out.demo(kind))
+                  for kind in ("baron", "scale", "survive_vote", "call", "clawback")}
         dd, opts, enemies = runes.demo("tank")
         rune_en = runes.choose(dd, opts, enemies)
         demo_names = ("Sett", "Kha'Zix", "Ahri", "Jinx", "Thresh",
@@ -1577,7 +1585,14 @@ def c_new_i18n():
         bleed_pt = bleed._verdict(bleed.demo("bleed"))
         close_pt = close._verdict(close.demo("end"))
         gold_pt, ward_pt = localized_guards()
+        rec.pop("_pool", None)  # cached presentation belongs to the locale that built it
         fit_pt = fit.verdict(rec, "loser")
+        fix_pt = fix.board(fix.demo("priced"), lp=(20, 20, True))
+        fix_head_pt = fix.headline(fix_pt)
+        pool_pt = pool.board(pool.demo("spread"), lp=(20, 20, True))
+        pool_head_pt, pool_width_pt = pool.headline(pool_pt), pool.width_note(pool_pt["width"])
+        out_pt = {kind: out._verdict(out.demo(kind))
+                  for kind in ("baron", "scale", "survive_vote", "call", "clawback")}
         rune_pt = runes.choose(dd, opts, enemies)
         draft_pt = draft._demo_scout(demo_dd)
         bad = []
@@ -1618,6 +1633,38 @@ def c_new_i18n():
         if fit_en[0] != "veto" or fit_pt[0] != "veto" \
                 or "W-" not in fit_en[1] or "V-" not in fit_pt[1]:
             bad.append("personal-fit evidence did not switch EN/PT")
+        fix_contract = lambda b: (
+            b["n"], b["ready"], b["pick"]["tag"], b["pick"]["state"], b["pick"]["lp10"],
+            [(r["tag"], r["state"], r["n_ev"], r["n_hit"], r["lp10"], r["recent"])
+             for r in b["rows"]])
+        if fix_contract(fix_en) != fix_contract(fix_pt):
+            bad.append("THE ONE FIX contract changed with locale")
+        elif fix_head_en == fix_head_pt \
+                or "PDL" not in fix_head_pt \
+                or fix_en["pick"]["fix"] == fix_pt["pick"]["fix"]:
+            bad.append("THE ONE FIX copy did not switch EN/PT")
+        pool_contract = lambda b: (
+            b["n"], b["pool_n"], b["ready"], b["verdict"], b["bar"],
+            (b.get("queue") or {}).get("champ"), (b.get("bench") or {}).get("champ"),
+            [(r["champ"], r["state"], r["g"], r["w"], r["lp10"]) for r in b["rows"]],
+            ((b.get("width") or {}).get("state"), (b.get("width") or {}).get("lp10")))
+        if pool_contract(pool_en) != pool_contract(pool_pt):
+            bad.append("THE POOL contract changed with locale")
+        elif pool_head_en == pool_head_pt \
+                or "PDL / 10 partidas" not in pool_width_pt \
+                or "LP / 10 games" not in pool_width_en:
+            bad.append("THE POOL copy/units did not switch EN/PT")
+        out_contract = lambda card: None if card is None else {
+            key: card.get(key) for key in ("verdict", "tone", "quiet", "lead", "won")}
+        for kind in out_en:
+            if out_contract(out_en[kind]) != out_contract(out_pt[kind]):
+                bad.append(f"THE OUT {kind} contract changed with locale")
+                break
+        if out_en["baron"]["line"] == out_pt["baron"]["line"] \
+                or not out_pt["baron"]["line"].startswith("SAÍDA") \
+                or not out_pt["call"]["line"].startswith("ENCERRE") \
+                or "recup." not in out_pt["clawback"]["won_txt"]:
+            bad.append("THE OUT cards/receipts did not switch EN/PT")
         if rune_en[0] != 1 or rune_pt[0] != 1 or "frontline locked" not in rune_en[1] \
                 or "linha de frente" not in rune_pt[1]:
             bad.append("adaptive-rune evidence did not switch EN/PT")
@@ -1654,8 +1701,8 @@ def c_new_i18n():
             bad.append("DraftBoard demo tags/plan did not switch EN/PT")
         if bad:
             return FAIL, "; ".join(bad)
-        return OK, ("catalog unique/placeholders valid; BLEED, CLOSER, GOLD, WARD, fit, "
-                    "runes, DraftBoard demo and Settings/TTS switch PT/EN")
+        return OK, ("catalog unique/placeholders valid; BLEED, CLOSER, GOLD, WARD, ONE FIX, "
+                    "POOL, OUT, fit, runes, DraftBoard demo and Settings/TTS switch PT/EN")
     finally:
         i18n.set_lang(previous)
 
