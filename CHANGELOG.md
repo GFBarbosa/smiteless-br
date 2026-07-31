@@ -1,5 +1,226 @@
 ﻿# Smiteless â€” Patch Notes
 
+## v0.9.72 - THE OUT: the game you're LOSING, and the fourteen minutes nobody counts
+
+**New feature, and it is the first one aimed at the half of the climb this app has never
+touched. Every surface here so far attacks the same number: win the game you're in. None of
+them have ever touched the DENOMINATOR - and a climb is LP per HOUR.**
+
+Half of that hour is spent inside games that were decided ten minutes ago. A 38-minute loss
+and a 24-minute loss cost you exactly the same LP; the difference is fourteen minutes you
+will never queue with. And the mirror of it costs even more: the game your team throws away
+at the 15:00 vote that was never actually lost.
+
+THE CLOSER owns the game you're winning and says nothing at all when you're behind - that
+was always deliberate, and it left half the map dark. **THE OUT is that other half**, and it
+answers one question at the only moment anybody asks it:
+
+    THE OUT     -4.2k · out: baron 0:35 · won back 3.7k of 7.9k
+
+- **An out is a fact with a clock on it, never a mood.** Baron in range *and actually
+  contestable*. Elder, or a soul point that's yours to take. Death timers long enough that
+  one won fight is the whole map - *"their deaths cost 52s"*, computed off their own levels
+  on the live clock. A comp that **out-scales** theirs. Or a base they still haven't opened,
+  which means they're up gold and have to come through you to spend it.
+- **Because the most expensive thing in a losing game is a team that stops playing one it
+  could still win.** From 15:00 - the first surrender window; there's no such thing as a
+  "decided" game before one exists - and only while you're 2k+ down, which is the exact bar
+  THE CLOSER calls *ahead*, mirrored. The two are one read of one map and can never both be
+  talking.
+- **The number nobody has ever shown a losing team: what you've WON BACK.** THE CLOSER
+  tracks the peak of a lead because a lead being given back is a game being thrown in slow
+  motion. This is the mirror - your worst deficit against where you are now, in the same
+  measured gold - and it is the comeback happening *before anyone on your team can feel it*.
+- **CALL IT, and it is deliberately the hardest verdict in the app to reach.** Four things
+  have to be true at once, all measured off the game, none of them modelled: past 20:00, 8k
+  down, an inhibitor of yours open (or a nexus turret gone), a 5v5 you lose by a mile - and
+  no live objective out on the board. That isn't "you're losing", that's a game with no
+  remaining mechanism. Then it says the true thing: **the LP is already spent, and the
+  minutes are not.**
+- **It reaches you on the death screen too**, where you're actually sitting when you decide
+  whether to keep playing. HOW YOU WIN on the Death Brief is now this read, in the same
+  words the widget is showing.
+- **It never speaks aloud, and it never votes for you.** 100% read-only, like everything
+  else in here.
+
+**The win% chip is gone, and good riddance.** It was the one number on the widget that
+changed no decision you were about to make, it was modelled rather than measured, and
+"BEHIND ~34%" is the single most likely pixel in this app to make somebody stop playing a
+game they could still win. In its place is the **measured** thing the guards beside it are
+actually reasoning about - `TEAM -4.2k`, the same gold gap THE CLOSER calls a lead and THE
+OUT calls a deficit - and THE OUT is what says the rest.
+
+**Tested, and the tests are mostly about what it must NOT do.** 19 verdict fixtures, then
+**10,000 fuzzed game states** asserting that CALL IT never fires without all four of its
+facts, never hides in a quiet row, and never appears while a live objective out is on the
+board - plus that every quiet row is genuinely one line so nothing gets clipped. Then the
+number that actually matters: **600 simulated games**, gold as a random walk with a per-game
+drift so some teams recover, structures falling out of a sustained deficit the way they
+really do - and **0% of the games it wrote off ever came back to even.** That check is a
+tripwire, not a trophy: loosen any bar and the retraction rate climbs, which is the only way
+this verdict could ever rot without anybody noticing. Every bar was mutation-tested to prove
+the suite fails when it's moved.
+
+**And one bug caught by the test that tests the wiring rather than the math.** The first cut
+read the *enemy's* fallen turrets when asking "how deep are they into you", so a team whose
+own base was already open would have been told nothing of theirs was - the exact frame where
+being wrong matters most. No fixture can catch that, so there's now an end-to-end check that
+drives the whole guard off a real-shaped live payload, and it fails the build if that ever
+comes back.
+
+**One brain, again.** The power curve that decides "you out-scale them" in game is the same
+table champ select graded the draft with, and the team gold gap is now one function shared
+by THE CLOSER, THE OUT and the widget's chip - so nothing on your screen can quote a
+different number than the guard sitting next to it.
+
+## v0.9.71 - THE POOL: your champions, priced in your own LP - and the stat that finally stops lying to you
+
+**New feature, and it is aimed at the single biggest lever there is. Smiteless has enforced
+champion-pool discipline since MAX ELO shipped. It has never once told you what your pool
+should BE. Now it does - in the same LP your habits are priced in.**
+
+Last version priced the five *habits* your profile grades and named the one worth fixing.
+The other half of the climb - and by every study, the bigger half - is which champions you
+press Find Match on. The old answer to that was three win-rate bullets on your profile
+("play more Sett 58%"). That's not an answer. 58% of what? Better than what? Worth what?
+
+    THE POOL - 9 champions over your last 57
+      Sett            +38 LP / 10 on it     14W-6L over 20    70% on it vs 45% otherwise
+      Ornn              +11pp lean           6W-3L over 9
+      Darius          -44 LP / 10 on it      2W-8L over 10    20% on it vs 58% otherwise
+      POOL WIDTH      -29 LP / 10 games     top 3: 20W-15L  ·  the other 6: 3W-13L
+
+- **What a champion is worth, in LP, per ten games on it.** Not a win rate - the ladder. Your
+  own measured LP (`+23 / -17`, read from your rank snapshots, not "about 20") against your
+  own baseline. `QUEUE Sett` and `BENCH Darius` now sit on your profile with the number and
+  the receipt attached, and the price appears right on the splash card for each champion.
+- **Compared against YOU, not against 50%.** A 47% champion is not a leak for a player who
+  wins 44% of everything else - it's their second-best pick, and every tool that flags it is
+  wrong. Every comparison here is *this champion vs your other games*.
+- **POOL WIDTH: what your whole pool costs you.** Your top 3 against everything else you
+  queued, priced per ten of your games - the actual cost of ranked tourism, measured on you
+  instead of quoted from a study. When your top 3 hold 80%+ of your games it says so and
+  tells you there's nothing to cut.
+- **Your main is never benched.** A main on an awful run is variance, and the card says
+  exactly that: *rough patch (6W-20L) - variance, not the pick. Keep queueing it.* The old
+  coach would tell you to ease off the champion you're best at, which is the worst advice
+  the app was capable of giving.
+- **It reaches you in champ select.** Hover a champion your own history has priced and the
+  panel says so while you can still change your mind - `⚠ Darius: -93 LP / 10 on it
+  (2W-12L)` - in red, on its own line. Your own receipt outranks a study, so the 1M-game
+  mastery warning is now the *fallback*, for champions your history can't speak about yet.
+- **One brain.** The recommender's veto IS this board's `bench`. The page that tells you to
+  bench a champion and the recommender that quietly stops suggesting it were two separate
+  pieces of math that could disagree about the same champion. They can't any more.
+
+**And the part that matters most: it corrects for the fact that it is looking at all of your
+champions at once.** This is the failure mode of every "your best champion" stat ever put in
+front of a League player, and it is not a rounding error - the guard suite *measures* it. On
+random histories where every champion is a true coin flip, testing each one at the ordinary
+bar declares a "proven" best or worst champion in **49% of them**. Half. So the bar every
+champion has to clear is divided among the champions being tested, in both directions - one
+eligible champion needs z>=1.63, three need z>=2.11, eight need z>=2.48 - which takes that
+same measured false-positive rate down to **7%**. Underneath that bar a row still shows you
+its numbers, labelled as what it is: a *lean*, never a price. A champion needs 6 games before
+it can say anything at all, the whole board needs 15, and a one-trick gets told honestly that
+there's nothing of yours to compare against. The pool-width test is a single question asked
+in advance, so it correctly takes no such correction - and it refuses to price a "top 3" when
+your games are spread evenly enough that which three is an alphabetical accident.
+
+**Tested:** 15 guard groups plus a **1,200-pool fuzz** that re-scores every random history
+twice - once corrected, once not - and *fails if the correction isn't measurably doing its
+job*, so this can never quietly rot into the stat it was built to replace. Also asserted, on
+every shape of history that can exist: no priced claim ever escapes below its bar or its
+sample; an earner is always positive and a bench row always negative; a main is never benched;
+the same champion can never be both the queue and the bench; a champion price is always
+quoted "per 10 on it" and a width price always "per 10 games", because mixing those two units
+would be a lie; the price is always strictly below the flattering arithmetic on the raw gap;
+and the profile page and the recommender are checked against each other champion by champion,
+in both directions. A pool of junk - null rows, a champion claiming more wins than games, a
+non-numeric average, an empty list - can't crash the board or fake up a sample. Every render
+state was drawn and looked at.
+
+**Two bugs found while building it, both fixed.** The champ-select note is drawn on one
+unwrapped line and had only ~148px of room, so anything longer than about 28 characters was
+being **silently clipped mid-word** - the team-scout roster line and the climb warning have
+both been losing their tails there for releases. It now gets its own full-width line, and
+truncates with an ellipsis when it has to, so a cut-off line reads as "go look at the page"
+instead of as a rendering bug. And that line was drawn in **green regardless of content** -
+including for the sub-12k mastery *warning*. A caution in the "all good" color is a caution
+nobody reads; it now takes its tone from what it's actually saying.
+
+**And a tripwire for the release process itself:** the self-test now asserts that every
+`core/` and `ui/` module is in the frozen build's hidden-import list. Five modules were only
+being included by luck. A module the packager misses ships an installer that crashes the
+moment you use the feature - which is the worst possible way to ship a release named after it.
+
+## v0.9.70 - THE ONE FIX: your leaks, priced in LP, and the single one worth fixing
+
+**New feature, and it answers the question the app has been dodging since the leak ledger
+existed: you have five habits being graded every game - which ONE is actually costing you
+the ladder, and what is fixing it worth?**
+
+Smiteless has spent five releases building a live guard for every leak your profile can
+find. That work is done. What it never did was *rank* them. Your profile would hand you
+three PATTERN bullets about the game you just played and leave you to guess which mattered.
+Five things to fix is the same as no things to fix.
+
+So the ledger it has been quietly writing all along - which habits were gradable each game,
+which ones fired, and whether you won - is now read the other way round. **Both sides of
+every split are in there**, so each leak can be priced:
+
+    RE-ENTRY      -41 LP / 10       with it: 3W-7L  ·  without: 9W-5L
+    FIRST TEN      7 of 24          with it: 4W-3L  ·  without: 8W-9L
+    BLEEDING       clean
+    CLOSING        clean
+    VISION         clean
+
+- **A number nobody has ever put in front of you: what a habit costs you in LP.** Not a
+  win-rate curiosity - the actual ladder. It fires in 4 of every 10 of your games; in those
+  games you win 25 points less; a flipped game is worth what a win and a loss are worth *to
+  you*. That is LP per ten games, and it is arithmetic on your own history, not a study.
+- **Your LP, measured, not assumed.** Smiteless already snapshots your rank every time your
+  profile builds, so it knows what a win and a loss are actually worth at your MMR - it
+  reads `+22 / -17`, not "about 20". Only if it can't measure yours does it assume, and
+  then it says so on the card.
+- **One fix. Not five.** The board names exactly one habit, writes it as something you can
+  actually hold yourself to for a single game - *"after you respawn, 90 seconds of farm
+  before you look for a fight"* - and tells you which in-game guard is watching it for you.
+  The other four sit underneath it, ranked, so you can see it was chosen and not asserted.
+- **And it meets you in the lobby.** The QUEUE CALL card now carries a **THIS GAME** line:
+  one habit, in the four seconds before you press Find Match, which is the only moment
+  you're in a position to decide anything. It never appears under a **STOP** or a **WAIT** -
+  handing you homework in the same breath as "log off with the LP" is how a stop rule gets
+  ignored.
+- **Watch a leak close.** Every row carries a form strip - the last six games that habit
+  could have happened in - and flags `improving` or `slipping` once there's enough on both
+  sides to mean it. A leak you are actually fixing visibly empties out.
+- **It fills itself in.** The ledger used to learn exactly one game per profile open -
+  forty opens before it could say anything. It now grades the games already on your profile
+  page, so the board is live almost immediately, and it remembers 120 games instead of 60.
+
+**It refuses to overstate itself, which is the whole point.** A leak is only priced in LP
+once its split beats the same significance test the QUEUE CALL uses before it will tell you
+to stop playing - and even then the split is quoted *shrunk toward your own baseline*, so a
+3-games-versus-5 fluke can't become a 200-LP headline while a 40-game pattern is barely
+touched. Below that bar the row still shows you its numbers, labelled as what it is: a lean,
+not a price. A habit that fires in nearly every game can still be picked - on the *count*,
+which needs no test at all - and then it quotes the count and never an LP figure. Under ten
+graded games the board doesn't guess; it tells you how many more it needs. And it says out
+loud, on the card, that this is a correlation from your own games.
+
+**Tested:** 14 guard groups, including a **3,000-ledger fuzz** that asserts - on every
+random history it can build - that no LP price is ever attached to a claim that didn't clear
+the test, that a priced row always carries a real price (a `-0 LP` row is a broken claim, so
+it's demoted to a lean), that the headline, the board and the lobby line can never name
+different leaks, and that no shape of garbage in the ledger can crash the page. Also
+checked: a proven leak always outranks a merely frequent one; unfinished games are holes,
+never evidence, and can't move a price; the ledger merge is idempotent and stays in time
+order even when the backfill arrives newest-first; the LP reader rejects an MMR reset as
+"not a game"; and the leak catalogue is verified against both the review page's wording and
+the five shipped in-game guards, so nothing on the board can ever point at a surface that
+doesn't exist. Every render state was drawn and looked at.
+
 ## v0.9.69 - THE WARD CLOCK grows up: the deadline, your trinket, and the 75 gold you keep forgetting
 
 **A big upgrade to the guard that shipped last version, in the four places it was still

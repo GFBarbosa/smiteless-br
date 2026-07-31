@@ -40,6 +40,39 @@ GOLD_SCALE = 3400.0       # gold-equivalent lead at which the read is ~68% - big
                           # old finished-items-only scale)
 
 
+# ---- comp power curves (modeling): who gets scarier the longer a game runs. ONE BRAIN —
+#      the champ-select game plan (smitecard.game_plan, "YOU OUTSCALE") and the live
+#      comeback read (lolout, "time is on your side") grade the same two comps off the same
+#      table, so the lobby and the game can never tell you opposite stories about them.
+SCALE_W = {"Marksman": 3.0, "Mage": 2.4, "Fighter": 2.0, "Assassin": 1.7, "Tank": 1.6,
+           "Support": 1.4}
+SCALE_DEF = 1.8           # a champ whose class isn't in the table
+SCALE_GAP = 0.25          # average-curve gap that counts as "one comp out-scales the other"
+
+
+def comp_scale_ids(dd, ids):
+    """Average power-curve weight of a comp, from champion IDS (champ select). None when
+    there aren't any."""
+    rows = [set((dd.get("id2tags") or {}).get(i) or []) for i in ids if i]
+    if not rows:
+        return None
+    return sum(max((SCALE_W.get(t, SCALE_DEF) for t in s), default=SCALE_DEF)
+               for s in rows) / float(len(rows))
+
+
+def comp_scale(dd, players):
+    """Same curve, from LIVE players (`championName` off :2999) rather than champ-select
+    ids. None when no champion in the list resolves — never a fake 0.0, which would read
+    as 'they out-scale you' on a data miss."""
+    ids = []
+    norm = dd.get("norm")
+    for p in players or []:
+        cid = (dd.get("name2id") or {}).get(norm(p.get("championName") or "")) if norm else None
+        if cid:
+            ids.append(cid)
+    return comp_scale_ids(dd, ids)
+
+
 def _read():
     try:
         return lb.http("https://127.0.0.1:2999/liveclientdata/allgamedata", timeout=3, insecure=True)
@@ -167,6 +200,16 @@ def est_gold(p, gt):
     g += float(sc.get("creepScore") or 0) * 20.5
     g += float(sc.get("kills") or 0) * 300.0 + float(sc.get("assists") or 0) * 155.0
     return g
+
+
+def team_lead(allies, enemies, gt):
+    """THE lead/deficit number: the team gold gap on the fog-proof score-based estimate.
+    ONE BRAIN — the CLOSER's lead, THE OUT's deficit and the widget's chip are all this one
+    function, so nothing on screen can quote a different gap than the guard beside it.
+    Deliberately NOT player_power: that one prefers VISIBLE item gold when it is higher,
+    which your own team always has and an enemy farming in fog does not."""
+    return (sum(est_gold(p, gt) for p in allies or ())
+            - sum(est_gold(p, gt) for p in enemies or ()))
 
 
 def player_power(dd, p, gt):
@@ -550,9 +593,17 @@ def pulse(dd, data=_UNSET):
         gank = gank_window(dd, data)
     except Exception:
         gank = None
-    if not (objs or spike or wp or jg or gank):
+    lead = None
+    try:                                 # the measured team gold gap the widget's chip shows
+        sp = team_split(data)
+        if sp:
+            lead = team_lead(sp[1], sp[2], float((data.get("gameData") or {}).get("gameTime") or 0.0))
+    except Exception:
+        lead = None
+    if not (objs or spike or wp or jg or gank or lead is not None):
         return None
-    return {"objectives": objs, "spike": spike, "winprob": wp, "jungle": jg, "gank": gank}
+    return {"objectives": objs, "spike": spike, "winprob": wp, "jungle": jg, "gank": gank,
+            "lead": lead}
 
 
 def _fmt(secs):

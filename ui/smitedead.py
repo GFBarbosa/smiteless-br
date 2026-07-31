@@ -234,10 +234,20 @@ def render_frame(dd, b, W, H):
     def _block(x, y, title, title_col, line, sub, rail, big=False, ymax=None):
         """A coaching card: bold headline + wrapped takeaway. Returns the new y-cursor.
         With ymax set, a card that would cross its lane boundary is skipped whole."""
+        def _cap(lines, n):
+            """Two lines is the card's budget. Anything longer used to just STOP mid-word,
+            which reads as a rendering bug rather than as 'there is more' — so the cut is
+            marked."""
+            if len(lines) <= n:
+                return lines
+            lines = lines[:n]
+            lines[-1] = (lines[-1].rstrip()[:-1].rstrip(" ,;·—-") or lines[-1]) + "…"
+            return lines
+
         subf = _wfont(S(13))
-        sublines = _wrap(d, coach(sub or ""), subf, colw - S(44))[:2] if sub else []
+        sublines = _cap(_wrap(d, coach(sub or ""), subf, colw - S(44)), 2) if sub else []
         lf = _wfont(S(17 if big else 16), True)
-        headlines = _wrap(d, coach(line or ""), lf, colw - S(44))[:2] if line else []
+        headlines = _cap(_wrap(d, coach(line or ""), lf, colw - S(44)), 2) if line else []
         h = S(34) + S(23) * len(headlines) + S(20) * len(sublines)
         if ymax is not None and y + h > ymax:
             return y
@@ -302,8 +312,11 @@ def render_frame(dd, b, W, H):
     # ========== RIGHT LANE: the strategic anchor + the climb lever ==========
     ry = RY0
     if b.get("wincon"):
-        ry = _block(rx, ry, t("HOW YOU WIN"), C_EMBER, b["wincon"], None, C_EMBER, big=True,
-                    ymax=RY1)
+        # THE OUT (core/lolout) owns this block in a game you're losing: the grey screen is
+        # where a player decides whether to keep playing one, so the block carries its
+        # instruction underneath rather than a generic strategic sentence.
+        ry = _block(rx, ry, t(b.get("wincon_title") or "HOW YOU WIN"), C_EMBER, b["wincon"],
+                    b.get("wincon_sub"), C_EMBER, big=True, ymax=RY1)
     # your recurring PATTERN from the behavior ledger — surfaced at the exact moment you
     # may have just repeated it
     pat = b.get("pattern")

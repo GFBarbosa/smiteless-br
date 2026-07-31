@@ -354,7 +354,7 @@ def main():
         _fill_season(prof)
 
     def _fill_season(prof):
-        """Upgrade TOP CHAMPIONS (and the coach) to season-wide numbers in the background."""
+        """Upgrade TOP CHAMPIONS (and THE POOL) to season-wide numbers in the background."""
         pu = prof.get("puuid")
         if not pu or prof.get("season_champs"):
             return
@@ -372,7 +372,11 @@ def main():
                 if cur.get("puuid") != pu:            # user navigated away meanwhile
                     return
                 cur["champs"] = champs[:6]
-                cur["coach"] = lp._coach(champs)
+                # THE POOL is re-priced off the FULL season list, not the six drawn on the
+                # page: the deeper read is exactly where a champion first crosses MIN_G, and
+                # the pool-width claim is about the tail this truncation would have deleted.
+                cur["all_champs"] = champs
+                cur["pool"] = lp.pool_board(champs)
                 cur["season_champs"] = True
                 _render()
             root.after(0, apply)

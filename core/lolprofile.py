@@ -14,6 +14,8 @@ import urllib.request
 
 import lolscout as ls
 import lollocal as llc          # YOUR match history straight off the client (Riot-API-free)
+import lolfix as lf             # THE ONE FIX: the leak catalogue + the LP pricing engine
+import lolpool as lpl           # THE POOL: your champions, priced in the same LP
 import phasecheck
 from smitei18n import coach
 
@@ -114,7 +116,6 @@ def _wilson(w, n, z=1.96, upper=False):
 
 _PERF_PRIOR_N = 5          # pseudo-games that pull a thin performance sample toward par
 _PERF_PAR = 70.0           # a neutral per-game score to regress a small perf sample toward
-_COACH_MIN_G = 5           # a champ needs a real sample before it can drive pool advice
 
 
 def _champ_rating(g, w, avg=None):
@@ -130,39 +131,6 @@ def _champ_rating(g, w, avg=None):
     perf_adj = (float(avg) * g + _PERF_PAR * _PERF_PRIOR_N) / (g + _PERF_PRIOR_N)
     perf_norm = max(0.0, min(1.2, (perf_adj - 55.0) / 35.0))
     return 0.6 * wr_low + 0.4 * perf_norm
-
-
-def _coach(champs):
-    """{more, less, slump} pool advice chosen with SAMPLE-AWARE math, not raw win rate — a 3-0
-    flash-in-the-pan never outranks a proven 40-25 main. 'more' is the best confidence-adjusted
-    pick (Wilson win-rate floor + your performance on it) that clears a real sample AND is a
-    champ we're statistically confident is a WINNER for you; 'less' is one we're confident is a
-    LOSER you're not maining; a maining champ on a bad run is flagged as a slump (variance),
-    never 'ease off'. Each pick carries its games (g) so the advice shows the sample it rests on."""
-    pool = [c for c in champs if c.get("g", 0) >= _COACH_MIN_G]
-    if not pool:
-        return None
-    total = sum(c.get("g", 0) for c in champs)
-    second = sorted((c.get("g", 0) for c in champs), reverse=True)[1] if len(champs) > 1 else 0
-    def is_main(c):
-        return c.get("g", 0) >= max(_COACH_MIN_G, int(total * 0.4)) or (second and c.get("g", 0) >= 2 * second)
-    def rating(c):
-        return _champ_rating(c["g"], c["w"], c.get("avg"))
-    out = {}
-    # play MORE: the best-rated champ we're ~80% sure is a real winner for you (WR floor > 50%).
-    best = max(pool, key=rating)
-    if _wilson(best["w"], best["g"], z=1.28) >= 0.50:
-        out["more"] = {"champ": best["champ"], "wr": best["wr"], "g": best["g"]}
-    # worst-rated pick. A MAIN on a bad run gets a supportive SLUMP note (lenient — it's not "drop
-    # it", so raw low WR is enough). A non-main only gets EASE OFF when we're ~80% sure it's a real
-    # loser (strict — never tell someone to abandon a champ on thin data).
-    worst = min(pool, key=rating)
-    if worst["champ"] != (out.get("more") or {}).get("champ"):
-        if is_main(worst) and worst["wr"] <= 45:
-            out["slump"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
-        elif not is_main(worst) and _wilson(worst["w"], worst["g"], z=1.28, upper=True) <= 0.48:
-            out["less"] = {"champ": worst["champ"], "wr": worst["wr"], "g": worst["g"]}
-    return out or None
 
 
 # The one thing the League client was ever needed for here is telling us WHO you are.
@@ -563,13 +531,12 @@ def timeline_review(dd, mid, my_puuid, key, parts):
 
 # ---------- BEHAVIORAL review: root-cause tags with next-rep tracking ----------
 _BEHAVIOR_FILE = os.path.join(ls.CACHE, "behavior_ledger.json")
-_BEHAVIOR_TAGS = {
-    "weak_first_ten": "weak first-ten economy",
-    "early_bleeding": "early bleeding (3+ deaths pre-14)",
-    "death_cluster": "chained deaths (2+ inside 90s)",
-    "threw_ahead": "coin-flip death while ahead (post-25)",
-    "low_vision": "no vision setup",
-}
+# ONE BRAIN for leak identity: the labels come from lolfix's catalogue, which also owns each
+# leak's imperative fix and the live guard that answers it. A habit can never be called one
+# thing in this game's review and another on THE ONE FIX board.
+_BEHAVIOR_TAGS = {t: m["label"] for t, m in lf.LEAKS.items()}
+LEDGER_KEEP = 120            # ledger games retained — the leak board's sample lives here, and
+                             # a 60-game window couldn't carry both sides of five splits
 
 # Vision score per minute the `low_vision` tag holds each role to. ONE BRAIN: the live WARD
 # CLOCK (core/lolward) reads its bar from here rather than re-typing it, so the review page
@@ -658,25 +625,108 @@ def pattern_evidence(tag, gs=None):
     return None
 
 
-def _behavior_track(mid, ts, hits, ev, win=None):
-    """Persist this game's tag outcomes (+ result); return PATTERN bullets — with YOUR
-    OWN win-rate split per habit once the ledger has the sample to prove it."""
+def _ledger_put(rows):
+    """Merge behavior rows into the ledger — keyed by match id, kept in TIME order — and
+    return the merged list. Order matters and used to be free: rows only ever arrived one
+    at a time, newest last. The backfill walks your history newest-FIRST, so appending
+    blind would leave "the game before this one" pointing at the wrong game. Keying by mid
+    also makes recording idempotent: re-opening your profile can never double-count a game
+    into both sides of a split."""
     try:
         led = json.load(open(_BEHAVIOR_FILE, encoding="utf-8"))
     except Exception:
         led = {"games": []}
-    gs = led.get("games") or []
-    if any(g.get("mid") == mid for g in gs):       # re-opened profile: don't double-record
-        prev = next((g for g in reversed(gs) if g.get("mid") != mid), None)
-    else:
-        prev = gs[-1] if gs else None
-        gs.append({"mid": mid, "ts": ts, "hits": sorted(hits), "ev": sorted(ev), "win": win})
-        led["games"] = gs[-60:]
+    by = {}
+    for g in (led.get("games") or []):
+        if g.get("mid"):
+            by[g["mid"]] = g
+    for r in rows:
+        by.setdefault(r["mid"], r)                 # first write wins; never rewrite history
+    gs = sorted(by.values(), key=lambda g: g.get("ts") or 0)[-LEDGER_KEEP:]
+    led["games"] = gs
+    try:
+        os.makedirs(os.path.dirname(_BEHAVIOR_FILE), exist_ok=True)
+        json.dump(led, open(_BEHAVIOR_FILE, "w", encoding="utf-8"))
+    except Exception:
+        pass
+    return gs
+
+
+BACKFILL_FETCHES = 12        # uncached timelines a single profile build may spend on backfill.
+                             # Sized so the FIRST build clears lolfix.MIN_GAMES on its own —
+                             # a leak board that needs four profile opens to say anything is
+                             # a leak board nobody ever sees. Cached timelines are free, so
+                             # this only costs on the first open.
+
+
+def backfill_ledger(dd, cand, puuid, key, budget=BACKFILL_FETCHES):
+    """Teach the ledger the games it already has on screen but has never graded.
+
+    THE ONE FIX board needs both sides of a split, and the ledger used to grow by exactly
+    one game per profile open — forty opens before it could say anything. Every game in
+    your recent history is gradable the same way, so this walks the ones the ledger has
+    never seen and records them. Timelines are cached forever, so games already on disk
+    cost nothing; only `budget` fresh Riot fetches are spent per build, which keeps the
+    page fast and stays polite to the rate limiter. Returns how many games were added."""
+    try:
+        seen = {g.get("mid") for g in (json.load(open(_BEHAVIOR_FILE, encoding="utf-8"))
+                                       .get("games") or [])}
+    except Exception:
+        seen = set()
+    rows, spent = [], 0
+    for c in cand:
+        if c["mid"] in seen:
+            continue
+        if not os.path.exists(ls._cache_path("timeline", c["mid"])):
+            if spent >= budget:
+                continue
+            spent += 1
         try:
-            os.makedirs(os.path.dirname(_BEHAVIOR_FILE), exist_ok=True)
-            json.dump(led, open(_BEHAVIOR_FILE, "w", encoding="utf-8"))
+            hits, ev = behavior_read(dd, c["mid"], puuid, key, c["parts"], c["dur"])
         except Exception:
-            pass
+            continue
+        if not ev:                                 # no timeline -> nothing was gradable
+            continue
+        rows.append({"mid": c["mid"], "ts": c["ts"], "hits": sorted(hits),
+                     "ev": sorted(ev), "win": c["win"]})
+    if rows:
+        _ledger_put(rows)
+    return len(rows)
+
+
+def leak_board():
+    """THE ONE FIX board, priced off the ledger and YOUR LP (see core/lolfix)."""
+    try:
+        return lf.board(_behavior_ledger(), lp=lf.lp_rates(_lp_snapshots()))
+    except Exception:
+        return None
+
+
+def pool_board(champs):
+    """THE POOL board — your champions priced in the same LP as your habits (core/lolpool).
+    Fed the FULL champion list, never the six the page draws: the pool-width read is a claim
+    about the tail, and handing it a truncated pool would delete the tail it measures."""
+    try:
+        return lpl.board(champs, lp=lf.lp_rates(_lp_snapshots()))
+    except Exception:
+        return None
+
+
+def _lp_snapshots():
+    try:
+        h = json.load(open(LP_HISTORY, encoding="utf-8"))
+        return h if isinstance(h, list) else []
+    except Exception:
+        return []
+
+
+def _behavior_track(mid, ts, hits, ev, win=None):
+    """Persist this game's tag outcomes (+ result); return PATTERN bullets — with YOUR
+    OWN win-rate split per habit once the ledger has the sample to prove it."""
+    gs = _ledger_put([{"mid": mid, "ts": ts, "hits": sorted(hits), "ev": sorted(ev),
+                       "win": win}])
+    idx = next((i for i, g in enumerate(gs) if g.get("mid") == mid), None)
+    prev = gs[idx - 1] if idx else None             # the game immediately BEFORE this one
 
     def streak(tag):
         n = 0
@@ -742,6 +792,11 @@ def _load_profile(rid):
         p["stale_note"] = ("cached " + (f"{age // 3600}h ago" if age >= 3600
                                         else f"{max(1, age // 60)}m ago")
                            + " — live match history is unreachable right now")
+        # THE ONE FIX is priced off the ledger on YOUR disk, so it needs nothing from Riot:
+        # re-price it rather than serve yesterday's board with the rest of the stale page.
+        if not p.get("other"):
+            p["fix"] = leak_board() or p.get("fix")
+            p["pool"] = pool_board(p.get("all_champs") or p.get("champs")) or p.get("pool")
         return p
     except Exception:
         return None
@@ -818,6 +873,7 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
                                           "open the League client and it'll load from there")}
     games, champ = [], {}
     wins = 0
+    ledger_cand = []                               # games THE ONE FIX board may still grade
     tl_done = False                                # timeline review only on the newest game (1 fetch)
     for mid in ids:
         d = llc.game_detail(dd, mid) if local else match_detail(mid, key)
@@ -849,6 +905,9 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
                         tips = pat + list(tips)
                 except Exception:
                     pass
+        if not other and not local:                # gradable for the leak board (needs a timeline)
+            ledger_cand.append({"mid": mid, "parts": d["parts"], "dur": d.get("dur", 0),
+                                "ts": d.get("ts", 0), "win": bool(mine["win"])})
         team = int(mine.get("team") or 0)
         team_k = sum(int(p.get("k") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
         team_dmg = sum(float(p.get("dmg") or 0) for p in d["parts"] if int(p.get("team") or 0) == team)
@@ -868,6 +927,17 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
         cs["g"] += 1
         cs["w"] += 1 if mine["win"] else 0
         cs["score"] += score
+    # THE ONE FIX: grade whatever the ledger hasn't seen yet, then price the board. Bounded
+    # fetches, and every failure mode here is silent — a leak board is a bonus on the page,
+    # never a reason your profile doesn't load.
+    fix = None
+    if ledger_cand:
+        try:
+            backfill_ledger(dd, ledger_cand, puuid, key)
+        except Exception:
+            pass
+    if not other:
+        fix = leak_board()
     n = len(games)
     champs = sorted(
         ({"champ": c, "g": v["g"], "w": v["w"], "wr": round(v["w"] / v["g"] * 100),
@@ -916,9 +986,12 @@ def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False)
            "source": ("client" if local else "riot"),
            "wr": round(wins / n * 100) if n else 0,
            "avg_score": round(sum(g["score"] for g in games) / n) if n else 0,
-           "champs": champs[:6], "games": games, "avgs": avgs, "roles": roles,
-           "session": (None if other else _session(hist, games)),
-           "coach": _coach(champs), "lp_trend": trend, "climb": climb,
+           "champs": champs[:6], "all_champs": champs, "games": games, "avgs": avgs,
+           "roles": roles, "session": (None if other else _session(hist, games)),
+           # Self-profile only: THE POOL prices champions in YOUR LP off YOUR baseline, so
+           # running it over somebody else's champions would be a number about nobody.
+           "pool": (None if other else pool_board(champs)),
+           "lp_trend": trend, "climb": climb, "fix": fix,
            "insights": _insights(games), "records": _records(games)}
     if not other:
         _save_profile(out)          # last-good copy, so the page still loads through an outage
