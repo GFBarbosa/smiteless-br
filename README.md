@@ -97,21 +97,21 @@ It lives in your tray (gold **S**), opens itself at champ select and in-game, an
 ## What it does
 
 ### 🔥 MAX ELO — the one button
-Hit **ARM** and the app goes on rails for the climb. Name a champion and a backup to be held
-to one pick, or **leave them empty and it locks the best champion for that draft** — counters
-into the enemies who've locked plus comp fit, falling through the list if the top one is gone.
-Then it bans the champ that most threatens your team, auto-accepts, imports your runes and
-summoners, mutes the lobby, and switches on all 25 climb-focused reads at once. Champion-pool
-discipline is the highest-confidence lever in ranked and this enforces it rather than suggesting
-it — and **THE POOL** (below) is what tells you *which* champions to hold yourself to, priced in
-your own LP. **STAND DOWN** releases the lock and leaves the reads on.
+Hit **ARM** and the app goes on rails for the climb. Name a champion and a backup to hold
+yourself to one pick, or leave them empty and it calls the best champion for that draft —
+counters into the enemies who've locked plus comp fit, falling through the list if the top
+one is gone. It brings up the ban that most threatens your team, has your runes and summoners
+ready to import, quiets the lobby, and switches on all 25 climb-focused reads at once.
+Champion-pool discipline is the highest-confidence lever in ranked, and ARM is how you hold
+the line on it — and **THE POOL** (below) is what tells you *which* champions to hold yourself
+to, priced in your own LP. **STAND DOWN** releases the hold and leaves the reads on.
 
 ### 🧠 In champ select
 - **Scouts everyone live** — rank, form, player grades (S–F from how they actually *play*), duo detection, and a **dodge read** that flags tilted or struggling teammates *while you can still dodge*
-- **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, with optional **auto-ban** that waits until the last seconds for maximum hover intel
+- **Smart bans** — ranked by who threatens your whole team's hovers, weighted by pick rate, held until the last seconds so the call uses every hover on the board
 - **Real matchup tips** — written by actual guide authors for your exact matchup, not AI
 - **The live draft link** — posts one URL into lobby chat; teammates who click it get a live web board of the draft with pick suggestions + runes for their seat, no install needed ([setup](docs/DRAFTLINK.md), $0 to run)
-- **One-click (or automatic) runes + summoners import**, multiple rune sets
+- **One-click runes + summoners import**, multiple rune sets
 - **Climb guards** — hover a champion **THE POOL** has priced out of your own games and it says so while you can still change your mind (*⚠ Darius: −93 LP / 10 on it (2W-12L)*). When your history can't speak about the pick yet — which is exactly the case it describes — it falls back to the mastery warning (sub-12k-mastery picks win ~44%, per a 1M-game study), pooled across all your accounts so a smurf pick your main knows is fine
 
 ### ⚡ In game
@@ -125,7 +125,7 @@ your own LP. **STAND DOWN** releases the lock and leaves the reads on.
 - **THE OUT — the game you're LOSING, and the fourteen minutes nobody counts.** THE CLOSER owns the game you're winning and says nothing at all when you're behind. This is the other half of that map, and it exists because a climb is **LP per hour** and half the hour is spent inside games that were decided ten minutes ago — a 38-minute loss and a 24-minute loss cost the same LP. From 15:00 (the first surrender window; there is no such thing as a decided game before one exists) and only while you're 2k+ down — the exact bar the CLOSER calls *ahead*, mirrored — it looks for an **OUT**, and an out is always a fact with a clock on it: **baron** in range and actually contestable, **elder or soul point**, **death timers** long enough that one won fight is the map (*their deaths cost 52s*), a comp that **out-scales** theirs (the same power-curve table champ select graded the draft with), or a **base they still haven't opened**. Because the most expensive thing in a losing game is a team that stops playing one it could still win. It also carries the number nobody has ever shown a losing team: **what you've won back off your worst** — *`-4.2k · won back 3.7k of 7.9k`* — the comeback in measured gold, before anyone can feel it. And when a game genuinely has nothing left — 20:00+, 8k down, an inhibitor of yours open and the 5v5 gone, with no live objective out — it says **CALL IT**: the LP is already spent, the minutes are not. It's deliberately the hardest verdict in the app to reach; in 600 simulated games, **0%** of the games it wrote off ever came back to even. It never speaks aloud and it never votes for you
 - **Objective timers with audio, power-spike alerts, item coaching, and the measured team gold gap** — one compact draggable HUD that fades when nothing needs you, and is fully click-through during a live game so it can never eat a click (hold **Ctrl+Alt** to touch it)
 - **The Death Brief** — the moment you die, a see-through fullscreen overlay gives you the whole game at a glance: respawn clock, why you died, what to buy on respawn, the win read, the enemy to watch, next objectives, and the team boards. Laid out around the game's own death HUD (team boards top-center where TAB lives, nothing over the recap / chat / minimap), center stays clear + click-through so you keep watching the fight. Read-only — never touches your camera or inputs
-- **Auto-mute** — a few seconds into the game Smiteless types Riot's own `/fullmute all` for you: chat *and* ping markers from every player, gone for that game. Your own pings still work, and it waits for the game window to be focused so the command is never typed anywhere else. Underneath that it also sets League's own options (ally chat off, all-chat off, ping audio off) and verifies them by reading them back — those persist until you turn them off. On by default; **Settings → In-game quiet**
+- **In-game quiet** — sets League's own options for you (ally chat off, all-chat off, ping audio off) and verifies them by reading them back, so the noise that tilts you is gone before the game starts and stays gone until you turn it back on. Your own pings still work. On by default; **Settings → In-game quiet**
 - **The Loading-Screen Scout** — while the game loads, ten tall portrait cards (Riot's own loading art, laid out like the real loading screen) read every ACCOUNT in the lobby: rank + LP + season record, last-10 form bars, KDA, mastery, record on the locked champ, a performance grade, and profile tags mined from their real history — `duo`, `SMURF READ`, `OTP · 612k pts`, `4L streak · tilt risk`, `first-time?`, `off-role`, `carries games`, `hardstuck`. Gone the instant the game starts
 
 ### 🚦 Before you queue
@@ -137,7 +137,7 @@ your own LP. **STAND DOWN** releases the lock and leaves the reads on.
 - **Your profile** — per-game performance scores graded against your role's benchmarks (never the lobby), timeline review of your latest game, LP trend, session tracking
 - **The climb system** — research-backed discipline: the 2-loss stop rule and champion-pool focus, with every claim sized to the sample behind it
 - **Click any player** to scout their full profile; right-click for u.gg / op.gg / Porofessor
-- **One-click Riot login, two ways** — *(a)* save each account's "Stay signed in" session and switch from the tray with no password stored, or *(b)* Profile → **⚡ Log in** to save a username+password (DPAPI-encrypted) and have Smiteless autofill the Riot login form for you. Both relaunch you straight into League; the password path survives logging out, the session path can't be captcha'd
+- **Fast account switching** — save each account's "Stay signed in" session and switch between them from the tray, no passwords stored anywhere. Relaunches you straight into League
 
 Patch notes: tray → **Patch notes**, or [CHANGELOG.md](CHANGELOG.md).
 
