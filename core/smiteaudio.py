@@ -27,6 +27,19 @@ TTS_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://ttsmp3.com/"}
 CACHE_DIR = os.path.join(tempfile.gettempdir(), "smiteless_audio")
 MAX_RESPONSE_FILES = 64
 MAX_RESPONSE_AGE = 7 * 24 * 60 * 60
+AUDIO_ERRORS = frozenset({
+    "silent", "online_unavailable", "missing_voice", "sapi_error", "timeout",
+    "playback_error", "speaker_error",
+})
+AUDIO_ERROR_MESSAGES = {
+    "silent": "The answer is ready, but Coach volume is zero. Raise it in Settings to hear audio.",
+    "online_unavailable": "Online speech is unavailable. Check the connection or use an installed matching-language voice.",
+    "missing_voice": "The answer is ready, but no matching Windows voice is installed. Install one or restore the internet connection.",
+    "sapi_error": "The answer is ready, but speech synthesis is unavailable. Retry the audio test in Settings.",
+    "timeout": "The answer is ready, but the audio operation timed out. Retry the audio test in Settings.",
+    "playback_error": "The answer is ready, but Windows could not play it. Check the default output device and retry the audio test in Settings.",
+    "speaker_error": "The answer is ready, but an unexpected audio error occurred. Retry the audio test in Settings.",
+}
 
 
 class Priority(IntEnum):
@@ -49,6 +62,14 @@ def voice_for_locale(locale):
 
 def culture_for_locale(locale):
     return LOCALE_VOICES[normalize_locale(locale)][0]
+
+
+def audio_error_message(result, translate=None):
+    """Format one stable terminal audio cause for Coach and Settings."""
+    value = result if isinstance(result, dict) else {"error": result}
+    code = str(value.get("error") or "speaker_error")
+    source = AUDIO_ERROR_MESSAGES.get(code, AUDIO_ERROR_MESSAGES["speaker_error"])
+    return (translate or (lambda message: message))(source)
 
 
 def cache_identity(text, locale="en", voice=None, volume=30, renderer=RENDERER_VERSION):
@@ -226,46 +247,196 @@ def stop_playback():
     for alias in aliases:
         _mci(f"stop {alias}")
         _mci(f"close {alias}")
+        with _mci_lock:
+            _active_aliases.discard(alias)
+
+
+def _mci_play_result(path, volume, media_type, stage_prefix, mci_call=None):
+    call = mci_call or _mci
+    alias = (f"smiteaudio{os.getpid()}x{threading.get_ident()}x"
+             f"{time.monotonic_ns()}")
+    with _mci_lock:
+        _active_aliases.add(alias)
+    try:
+        opened = call(f'open "{path}" type {media_type} alias {alias}')
+        if opened != 0:
+            return {"ok": False, "error": "playback_error",
+                    "stage": f"{stage_prefix}_open", "backend": "mci"}
+        call(f"setaudio {alias} volume to {max(0, min(1000, int(volume) * 10))}")
+        played = call(f"play {alias} wait")
+        return {"ok": played == 0, "error": "" if played == 0 else "playback_error",
+                "stage": f"{stage_prefix}_play", "backend": "mci"}
+    except Exception:
+        return {"ok": False, "error": "playback_error",
+                "stage": f"{stage_prefix}_play", "backend": "mci"}
+    finally:
+        try:
+            call(f"close {alias}")
+        except Exception:
+            pass
+        finally:
+            with _mci_lock:
+                _active_aliases.discard(alias)
+
+
+def _valid_wav(path):
+    try:
+        with wave.open(str(path), "rb") as source:
+            return source.getnchannels() in (1, 2) \
+                and source.getsampwidth() in (1, 2, 3, 4) \
+                and source.getframerate() > 0 and source.getnframes() > 0
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
+def _winsound_play(path, winsound_module=None):
+    if winsound_module is None:
+        import winsound as winsound_module
+    # PlaySound is synchronous unless SND_ASYNC is requested. Python 3.13 does not expose
+    # SND_SYNC on every Windows build, so relying on that zero-valued compatibility name
+    # prevents playback before the default output device is even opened.
+    winsound_module.PlaySound(
+        path, winsound_module.SND_FILENAME | winsound_module.SND_NODEFAULT)
+
+
+def _play_file_result(path, volume=30):
+    if not path or volume <= 0:
+        return {"ok": False, "error": "silent", "stage": "playback_preflight",
+                "backend": "", "attempts": []}
+    if str(path).lower().endswith(".mp3"):
+        result = _mci_play_result(path, volume, "mpegvideo", "mp3")
+        result["attempts"] = [dict(result)]
+        result["attempts"][0].pop("attempts", None)
+        return result
+    attempts = []
+    if not _valid_wav(path):
+        invalid = {"ok": False, "error": "playback_error", "stage": "wav_validate",
+                   "backend": "wave"}
+        invalid["attempts"] = [dict(invalid)]
+        invalid["attempts"][0].pop("attempts", None)
+        return invalid
+    attempts.append({"ok": True, "error": "", "stage": "wav_validate",
+                     "backend": "wave"})
+    try:
+        _winsound_play(path)
+        played = {"ok": True, "error": "", "stage": "wav_winsound",
+                  "backend": "winsound"}
+        played["attempts"] = attempts + [dict(played)]
+        played["attempts"][-1].pop("attempts", None)
+        return played
+    except Exception:
+        attempts.append({"ok": False, "error": "playback_error",
+                         "stage": "wav_winsound", "backend": "winsound"})
+    mci = _mci_play_result(path, volume, "waveaudio", "wav_mci")
+    mci["attempts"] = attempts + [dict(mci)]
+    mci["attempts"][-1].pop("attempts", None)
+    return mci
 
 
 def play_file(path, volume=30):
-    if not path or volume <= 0:
-        return False
-    if str(path).lower().endswith(".mp3"):
-        alias = f"smiteaudio{os.getpid()}x{threading.get_ident()}"
-        with _mci_lock:
-            _active_aliases.add(alias)
-        try:
-            if _mci(f'open "{path}" type mpegvideo alias {alias}') != 0:
-                return False
-            _mci(f"setaudio {alias} volume to {max(0, min(1000, int(volume) * 10))}")
-            return _mci(f"play {alias} wait") == 0
-        finally:
-            _mci(f"close {alias}")
-            with _mci_lock:
-                _active_aliases.discard(alias)
+    """Compatibility API returning whether one file was played successfully."""
+    return bool(_play_file_result(path, volume).get("ok"))
+
+
+def _stage_result(stage, ok, renderer, culture, error="", **private):
+    """Build one internal audio-stage result without spoken or configuration content."""
+    result = {"ok": bool(ok), "stage": str(stage), "renderer": str(renderer or ""),
+              "culture": str(culture or ""), "error": str(error or "")}
+    result.update(private)
+    return result
+
+
+def _online_result(name, text, locale, volume, kind):
+    culture = culture_for_locale(locale)
     try:
-        import winsound
-        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_SYNC |
-                           winsound.SND_NODEFAULT)
-        return True
+        path = render_online(name, text, locale, volume, kind)
     except Exception:
-        return False
+        path = None
+    if path:
+        return _stage_result("online_render", True, "ttsmp3", culture, path=path)
+    return _stage_result(
+        "online_render", False, "ttsmp3", culture, "online_unavailable")
+
+
+def _sapi_result(name, text, locale, volume, kind):
+    culture = culture_for_locale(locale)
+    try:
+        value = render_sapi(name, text, locale, volume, kind)
+    except Exception:
+        value = {"ok": False, "error": "sapi_error"}
+    if isinstance(value, dict) and value.get("ok") and value.get("path"):
+        return _stage_result(
+            "sapi_render", True, "sapi", culture, path=value["path"],
+            voice=str(value.get("voice") or ""))
+    error = str(value.get("error") or "sapi_error") if isinstance(value, dict) else "sapi_error"
+    if error not in {"missing_voice", "sapi_error", "timeout"}:
+        error = "sapi_error"
+    return _stage_result("sapi_render", False, "sapi", culture, error)
+
+
+def _playback_result(path, renderer, culture, volume):
+    try:
+        value = _play_file_result(path, volume)
+    except Exception:
+        value = {"ok": False, "error": "playback_error", "stage": "playback_error",
+                 "attempts": []}
+    attempts = [
+        _stage_result(row.get("stage") or "playback", row.get("ok"), renderer, culture,
+                      row.get("error") or "")
+        for row in value.get("attempts", [])
+    ]
+    if not attempts:
+        attempts.append(_stage_result(
+            value.get("stage") or "playback", value.get("ok"), renderer, culture,
+            value.get("error") or ""))
+    result = attempts[-1]
+    result["attempts"] = attempts
+    return result
+
+
+def _public_audio_result(attempts, ok=False, renderer="", culture="", error=""):
+    """Return safe diagnostics: no text, temporary URL, local path, or backend detail."""
+    safe_attempts = [
+        {key: attempt.get(key) for key in ("stage", "ok", "renderer", "culture", "error")}
+        for attempt in attempts
+    ]
+    return {"ok": bool(ok), "renderer": str(renderer or ""),
+            "culture": str(culture or ""), "error": str(error or ""),
+            "stage": safe_attempts[-1]["stage"] if safe_attempts else "preflight",
+            "attempts": safe_attempts}
 
 
 def speak(name, text, volume=30, locale="en", kind="cue"):
     """Render and synchronously play one line, reporting the renderer actually used."""
+    culture = culture_for_locale(locale)
     if not str(text or "").strip() or volume <= 0:
-        return {"ok": False, "error": "silent"}
+        return _public_audio_result([], culture=culture, error="silent")
     cleanup_cache()
-    online = render_online(name, text, locale, volume, kind)
-    if online and play_file(online, volume):
-        return {"ok": True, "renderer": "ttsmp3", "voice": voice_for_locale(locale),
-                "culture": culture_for_locale(locale)}
-    sapi = render_sapi(name, text, locale, volume, kind)
-    if sapi.get("ok") and play_file(sapi.get("path"), volume):
-        return sapi
-    return sapi if not sapi.get("ok") else {"ok": False, "error": "playback_error"}
+    attempts = []
+    online = _online_result(name, text, locale, volume, kind)
+    attempts.append(online)
+    if online["ok"]:
+        playback = _playback_result(online["path"], "ttsmp3", culture, volume)
+        attempts.extend(playback["attempts"])
+        if playback["ok"]:
+            result = _public_audio_result(
+                attempts, ok=True, renderer="ttsmp3", culture=culture)
+            result["voice"] = voice_for_locale(locale)
+            return result
+    sapi = _sapi_result(name, text, locale, volume, kind)
+    attempts.append(sapi)
+    if not sapi["ok"]:
+        return _public_audio_result(
+            attempts, renderer="sapi", culture=culture, error=sapi["error"])
+    playback = _playback_result(sapi["path"], "sapi", culture, volume)
+    attempts.extend(playback["attempts"])
+    if playback["ok"]:
+        result = _public_audio_result(attempts, ok=True, renderer="sapi", culture=culture)
+        if sapi.get("voice"):
+            result["voice"] = sapi["voice"]
+        return result
+    return _public_audio_result(
+        attempts, renderer="sapi", culture=culture, error="playback_error")
 
 
 _SR = 44100
@@ -404,10 +575,18 @@ class AudioScheduler:
                 job = self.pending.pop(0)
                 self.current = job
                 generation = self.generation
-            result = (self.chime_player(job.chime, job.volume) if job.chime else
-                      self.speaker(job.name, job.text, job.volume, job.locale,
-                                   "manual" if job.priority == Priority.MANUAL_RESPONSE else
-                                   ("proactive" if job.priority == Priority.PROACTIVE_RESPONSE else "cue")))
+            try:
+                result = (self.chime_player(job.chime, job.volume) if job.chime else
+                          self.speaker(job.name, job.text, job.volume, job.locale,
+                                       "manual" if job.priority == Priority.MANUAL_RESPONSE else
+                                       ("proactive" if job.priority == Priority.PROACTIVE_RESPONSE
+                                        else "cue")))
+            except Exception:
+                culture = "" if job.chime else culture_for_locale(job.locale)
+                renderer = "chime" if job.chime else ""
+                result = _public_audio_result(
+                    [_stage_result("speaker", False, renderer, culture, "speaker_error")],
+                    renderer=renderer, culture=culture, error="speaker_error")
             with self.condition:
                 if self.current is job:
                     self.current = None

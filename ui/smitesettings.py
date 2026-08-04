@@ -85,6 +85,16 @@ def coach_error_message(code):
                               error=str(code or "unknown"))
 
 
+def audio_test_message(result):
+    """Use the same safe terminal audio classification shown by the Coach."""
+    if isinstance(result, dict) and result.get("ok"):
+        renderer = result.get("renderer") or "audio"
+        voice = result.get("voice") or result.get("culture") or ""
+        return t("Played with {renderer}{voice}.").format(
+            renderer=renderer, voice=(f" - {voice}" if voice else ""))
+    return smiteaudio.audio_error_message(result, t)
+
+
 def coach_settings_state(result, settings, progress=None, compute_resolver=None):
     """Pure Settings view-model for model, device, download and worker state."""
     result = result or {}
@@ -441,14 +451,11 @@ def main():
                 smiteaudio.play_chime(15, v)
                 _t.sleep(1.8)                     # let the jingle ring before the voice
                 result = smiteaudio.speak("settings", sentence, v, locale, "test")
-                renderer = result.get("renderer") or result.get("error") or "unavailable"
-                voice = result.get("voice") or result.get("culture") or ""
-                message = t("Played with {renderer}{voice}.").format(
-                    renderer=renderer, voice=(f" - {voice}" if voice else ""))
+                message = audio_test_message(result)
                 root.after(0, lambda: audio_test_status.config(
                     text=message, fg=GOOD if result.get("ok") else BAD))
-            except Exception as exc:
-                message = t("Audio test failed: {error}").format(error=str(exc)[:80])
+            except Exception:
+                message = audio_test_message({"ok": False, "error": "speaker_error"})
                 root.after(0, lambda: audio_test_status.config(text=message, fg=BAD))
         threading.Thread(target=work, daemon=True).start()
     skin.button(body, t("♪ Test audio"), _test_audio, size=SMALL).pack(anchor="w", padx=18, pady=(0, 4))

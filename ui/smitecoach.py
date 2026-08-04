@@ -33,6 +33,26 @@ _NO_WINDOW = llmprocess.NO_WINDOW
 _MUTEX_HANDLE = None
 
 
+def recognition_error_message(code):
+    """Map expected recognition outcomes to localized, recoverable UI guidance."""
+    error = str(code or "recognition_error")
+    source = {
+        "low_confidence":
+            "I could not hear that clearly. Press the hotkey and try once more.",
+        "no_speech": "I did not hear a question. Press the hotkey and try once more.",
+        "empty_transcript": "I did not hear a question. Press the hotkey and try once more.",
+    }.get(error, smitestt.actionable_error(error))
+    return t(source).format(error=error)
+
+
+def coach_audio_state(answer, result):
+    """Keep the textual answer visible while classifying only the audio outcome."""
+    if isinstance(result, dict) and result.get("ok"):
+        return {"state": "idle", "answer": answer, "error": ""}
+    return {"state": "error", "answer": answer,
+            "error": smiteaudio.audio_error_message(result, t)}
+
+
 def _single_instance():
     global _MUTEX_HANDLE
     try:
@@ -187,7 +207,11 @@ class Coordinator:
         self.status_label.config(text=status.upper())
         self.phase_label.config(text=f"{snapshot['phase']}  ·  {llmcli.provider_label(self.provider)}")
         self.user_label.config(text=self.user_text or t("Ask Smiteless about the current game."))
-        self.answer_label.config(text=self.error or self.answer or t("Text coach ready."))
+        if self.answer and self.error:
+            visible = f"{self.answer}\n\n{self.error}"
+        else:
+            visible = self.error or self.answer or t("Text coach ready.")
+        self.answer_label.config(text=visible)
         self._resize_surface()
 
     def _resize_surface(self):
@@ -302,7 +326,7 @@ class Coordinator:
             handle = llmprocess.CancellationHandle()
             self.cancel_handle = handle
         self.audio.stop_listening()
-        self._set(state="listening", user_text=t("Listeningâ€¦"),
+        self._set(state="listening", user_text=t("Listening…"),
                   answer=t("Speak now. Listening stops after silence."), error="")
         self.show()
 
@@ -322,10 +346,7 @@ class Coordinator:
                 return
             if not result.get("ok"):
                 error = result.get("error") or "recognition_error"
-                message = {
-                    "low_confidence": t("I could not hear that clearly. Press the hotkey and try once more."),
-                    "no_speech": t("I did not hear a question. Press the hotkey and try once more."),
-                }.get(error, t(smitestt.actionable_error(error)).format(error=error))
+                message = recognition_error_message(error)
                 self._set(state="error", user_text=result.get("text") or "", error=message)
                 with self.lock:
                     if self.cancel_handle is handle:
@@ -407,15 +428,14 @@ class Coordinator:
             volume = int(settings.get("dragon_volume", 30))
 
             def spoken(result):
-                if result.get("ok"):
-                    self._set(state="idle", answer=text, error="")
-                else:
-                    self._set(state="error", answer=text,
-                              error=t("The answer is ready, but matching-language audio is unavailable."))
+                self._set(**coach_audio_state(text, result))
             self._set(state="speaking", answer=text, error="")
-            self.audio.submit(smiteaudio.AudioJob(
+            accepted = self.audio.submit(smiteaudio.AudioJob(
                 priority=smiteaudio.Priority.MANUAL_RESPONSE, name="answer", text=text,
                 locale=locale, volume=volume, callback=spoken))
+            if not accepted:
+                spoken({"ok": False, "error": "speaker_error",
+                        "stage": "scheduler_submit"})
             return {"ok": True, "text": text, "phase": envelope["phase"]}
         except Exception as exc:
             message = t("Coach unavailable: {error}").format(error=str(exc)[:160])
@@ -607,8 +627,7 @@ class Coordinator:
                     lolcoachproactive.log_event("spoken", intent, extra={"characters": len(text)})
                 else:
                     delay = self.proactive_policy.record_failure()
-                    self._set(state="error", answer=text,
-                              error=t("The proactive tip is ready, but audio is unavailable."))
+                    self._set(**coach_audio_state(text, result))
                     lolcoachproactive.log_event(
                         "tts_failed", intent, str(result.get("error") or "unavailable")[:80],
                         {"backoff_seconds": delay})

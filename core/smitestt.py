@@ -57,6 +57,7 @@ ACTIONABLE_ERRORS = {
     "permission_denied": "Microphone access is blocked in Windows privacy settings.",
     "default_microphone_no_signal": "The Windows default microphone produced no signal. Check Windows Sound settings and retry.",
     "no_speech": "No speech was detected. Check the Windows default microphone and retry.",
+    "empty_transcript": "I did not hear a question. Press the hotkey and try once more.",
     "low_confidence": "I could not hear that clearly. Check the Windows default microphone and try again.",
     "timeout": "The voice operation timed out. Retry when the microphone is available.",
     "malformed_json": "The local Whisper worker returned an invalid response. Restart Smiteless.",

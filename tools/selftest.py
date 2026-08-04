@@ -2127,6 +2127,8 @@ def c_coach_runtime():
     import lolcoachsession as session
     import llmprocess
     import smitecoach
+    import smitei18n
+    import smitesettings
     import smiteless_tray
 
     bad = []
@@ -2176,6 +2178,106 @@ def c_coach_runtime():
     if killed != [fake] or not handle.cancelled:
         bad.append("provider cancellation tree")
 
+    original_language = smitei18n.lang()
+    try:
+        expected = {
+            "en": "I did not hear a question. Press the hotkey and try once more.",
+            "pt_BR": "Não ouvi uma pergunta. Pressione o atalho e tente mais uma vez.",
+        }
+        for locale, message in expected.items():
+            smitei18n.set_lang(locale)
+            listening = smitecoach.t("Listening…")
+            expected_listening = "Ouvindo…" if locale == "pt_BR" else "Listening…"
+            if listening != expected_listening or "â" in listening:
+                bad.append(f"listening ellipsis encoding {locale}")
+            for code in ("no_speech", "empty_transcript"):
+                visible = smitecoach.recognition_error_message(code)
+                if visible != message or code in visible \
+                        or "recognition is unavailable" in visible.lower() \
+                        or "reconhecimento de voz local está indisponível" in visible.lower():
+                    bad.append(f"recoverable {code} {locale} UI mapping")
+            unclear = smitecoach.recognition_error_message("low_confidence")
+            if "clearly" not in unclear.lower() and "clareza" not in unclear.lower():
+                bad.append(f"distinct low-confidence {locale} UI mapping")
+            for code in ("silent", "online_unavailable", "missing_voice", "sapi_error",
+                         "timeout", "playback_error", "speaker_error"):
+                result = {"ok": False, "error": code}
+                coach_message = smitecoach.coach_audio_state(
+                    "private visible answer", result)["error"]
+                settings_message = smitesettings.audio_test_message(result)
+                if coach_message != settings_message or code in coach_message \
+                        or "private visible answer" in coach_message:
+                    bad.append(f"shared safe audio classification {code} {locale}")
+                    break
+    finally:
+        smitei18n.set_lang(original_language)
+
+    class ListeningAudio:
+        def __init__(self):
+            self.stopped = 0
+            self.finished = 0
+
+        def stop_listening(self):
+            self.stopped += 1
+            return True
+
+        def finish_listening(self):
+            self.finished += 1
+            return True
+
+    listener = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    listener.lock = threading.RLock()
+    listener.cancel_handle = None
+    listener.state = "idle"
+    listener.stt_runtime = object()
+    listener.audio = ListeningAudio()
+    listener._cancel_proactive = lambda _reason: False
+    listener.show = mock.Mock()
+    state_changed = threading.Event()
+    asked = threading.Event()
+
+    def set_listener(**values):
+        for key, value in values.items():
+            setattr(listener, key, value)
+        if values.get("state") in ("error", "thinking"):
+            state_changed.set()
+
+    def ask_listener(question, handle=None):
+        listener.asked_question = question
+        listener.asked_handle = handle
+        asked.set()
+        return {"ok": True}
+
+    listener._set = set_listener
+    listener.ask = ask_listener
+    recognize_results = iter((
+        {"ok": False, "error": "empty_transcript"},
+        {"ok": True, "text": "What is my next move?"},
+    ))
+    with mock.patch.object(smitecoach.cfg, "load",
+                           return_value={"voice_coach": True}), \
+            mock.patch.object(smitecoach.smitestt, "recognize",
+                              side_effect=lambda *_args, **_kwargs: next(recognize_results)):
+        first_listen = listener.start_listening()
+        if not state_changed.wait(1):
+            bad.append("empty transcript Coach callback timeout")
+        first_handle_released = listener.cancel_handle is None
+        first_gate_released = listener.audio.finished == 1
+        first_message = listener.error
+        listener.state = "idle"
+        state_changed.clear()
+        second_listen = listener.start_listening()
+        if not asked.wait(1):
+            bad.append("post-empty transcript retry timeout")
+    if not first_listen.get("ok") or not first_handle_released or not first_gate_released \
+            or "empty_transcript" in first_message \
+            or "unavailable" in first_message.lower():
+        bad.append("empty transcript handle/gate/recoverable Coach state")
+    if not second_listen.get("ok") or listener.state != "thinking" \
+            or getattr(listener, "asked_question", "") != "What is my next move?" \
+            or listener.audio.stopped != 2 or listener.audio.finished != 2:
+        bad.append("immediate valid retry after empty transcript")
+
     disabled = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
     disabled._set = mock.Mock()
     disabled.show = mock.Mock()
@@ -2206,6 +2308,39 @@ def c_coach_runtime():
             or provider_call.call_args.args[1] != "codex":
         bad.append("provider failure/no-failover/no-answer-cache")
 
+    rejected_audio = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    rejected_audio.session = session.CoachSession()
+    rejected_audio.lock = threading.RLock()
+    rejected_audio.cancel_handle = None
+    rejected_audio.provider = "codex"
+    rejected_audio.audio = mock.Mock()
+    rejected_audio.audio.submit.return_value = False
+    rejected_audio._cancel_proactive = lambda _reason: False
+    rejected_audio.show = mock.Mock()
+
+    def set_rejected_audio(**values):
+        for key, value in values.items():
+            setattr(rejected_audio, key, value)
+
+    rejected_audio._set = set_rejected_audio
+    original_language = smitei18n.lang()
+    smitei18n.set_lang("en")
+    try:
+        with mock.patch.object(smitecoach.cfg, "load", return_value={
+                    "voice_coach": True, "llm_provider": "codex", "dragon_volume": 30}), \
+                mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+                mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=fake_env), \
+                mock.patch.object(smitecoach.lolcoachtools, "answer",
+                                  return_value={"text": "Keep this visible answer"}):
+            refused_submit = rejected_audio.ask("What now?")
+    finally:
+        smitei18n.set_lang(original_language)
+    if not refused_submit.get("ok") or rejected_audio.state != "error" \
+            or rejected_audio.answer != "Keep this visible answer" \
+            or "unexpected audio error" not in rejected_audio.error.lower() \
+            or rejected_audio.audio.submit.call_count != 1:
+        bad.append("rejected manual audio submit preserved answer/state")
+
     surface = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
     surface.root = mock.Mock()
     surface.root.winfo_reqheight.return_value = 260
@@ -2219,7 +2354,7 @@ def c_coach_runtime():
     rendered.state = "error"
     rendered.provider = "codex"
     rendered.user_text = "question"
-    rendered.answer = ""
+    rendered.answer = "kept answer"
     rendered.error = "long error"
     rendered.status_label = mock.Mock()
     rendered.phase_label = mock.Mock()
@@ -2228,6 +2363,9 @@ def c_coach_runtime():
     rendered._resize_surface = mock.Mock()
     rendered._render()
     rendered._resize_surface.assert_called_once_with()
+    visible_audio_failure = rendered.answer_label.config.call_args.kwargs.get("text", "")
+    if "kept answer" not in visible_audio_failure or "long error" not in visible_audio_failure:
+        bad.append("rendered audio failure hid textual answer")
 
     hidden = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
     hidden.root = mock.Mock()
@@ -2809,7 +2947,10 @@ def c_coach_proactive():
 
 def c_voice_audio():
     """Completed locale voices/cache, audio arbitration and hotkey contracts."""
+    import tempfile
     import threading
+    import wave
+    from pathlib import Path
     from unittest import mock
     import smiteaudio
     import smitestt
@@ -2828,6 +2969,137 @@ def c_voice_audio():
     c = smiteaudio.cache_identity("Take it!", "en", volume=30)
     if len({a, b, c}) != 3 or "Salli" not in a or "Camila" not in b:
         bad.append("locale/text audio cache isolation")
+
+    fake_winsound = type("FakeWinsound", (), {
+        "SND_FILENAME": 0x00020000,
+        "SND_NODEFAULT": 0x0002,
+        "calls": [],
+        "PlaySound": classmethod(lambda cls, path, flags: cls.calls.append((path, flags))),
+    })
+    smiteaudio._winsound_play("fixture.wav", fake_winsound)
+    if fake_winsound.calls != [("fixture.wav", 0x00020002)] \
+            or hasattr(fake_winsound, "SND_SYNC"):
+        bad.append("Python 3.13 winsound synchronous-default compatibility")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-audio-fixture-") as tmp:
+        wav_path = Path(tmp) / "fixture.wav"
+        mp3_path = Path(tmp) / "fixture.mp3"
+        mp3_path.write_bytes(b"fixture-mp3")
+        with wave.open(str(wav_path), "wb") as target:
+            target.setnchannels(1)
+            target.setsampwidth(2)
+            target.setframerate(16000)
+            target.writeframes(b"\x00\x00" * 320)
+        sapi_value = {"ok": True, "path": str(wav_path), "renderer": "sapi",
+                      "culture": "pt-BR", "voice": "Fixture voice"}
+
+        invalid_wav = Path(tmp) / "invalid.wav"
+        invalid_wav.write_bytes(b"not-wave-audio")
+        with mock.patch.object(smiteaudio, "_winsound_play") as invalid_winsound, \
+                mock.patch.object(smiteaudio, "_mci") as invalid_mci:
+            invalid_result = smiteaudio._play_file_result(str(invalid_wav), 30)
+        if invalid_result.get("error") != "playback_error" \
+                or invalid_result.get("stage") != "wav_validate" \
+                or invalid_winsound.called or invalid_mci.called:
+            bad.append("invalid WAV rejected before playback")
+
+        online_commands = []
+
+        def online_mci(command):
+            online_commands.append(command)
+            return 0
+
+        with mock.patch.object(smiteaudio, "cleanup_cache"), \
+                mock.patch.object(smiteaudio, "render_online", return_value=str(mp3_path)), \
+                mock.patch.object(smiteaudio, "render_sapi") as sapi_probe, \
+                mock.patch.object(smiteaudio, "_mci", side_effect=online_mci):
+            online_success = smiteaudio.speak(
+                "fixture", "private fixture speech", 30, "en", "test")
+        if not online_success.get("ok") or online_success.get("renderer") != "ttsmp3" \
+                or sapi_probe.called or not any(command.startswith("close ")
+                                                for command in online_commands):
+            bad.append("online MP3 success without SAPI")
+
+        with mock.patch.object(smiteaudio, "cleanup_cache"), \
+                mock.patch.object(smiteaudio, "render_online", return_value=None), \
+                mock.patch.object(smiteaudio, "render_sapi", return_value=sapi_value), \
+                mock.patch.object(smiteaudio, "_winsound_play", return_value=None):
+            local_fallback = smiteaudio.speak(
+                "fixture", "private fixture speech", 30, "pt_BR", "test")
+        attempts = local_fallback.get("attempts", [])
+        if not local_fallback.get("ok") or local_fallback.get("renderer") != "sapi" \
+                or attempts[0].get("error") != "online_unavailable" \
+                or attempts[-1].get("stage") != "wav_winsound":
+            bad.append("online failure/SAPI winsound success structured result")
+        if "path" in str(local_fallback).lower() \
+                or "private fixture speech" in str(local_fallback):
+            bad.append("audio result leaked path or speech")
+
+        with mock.patch.object(smiteaudio, "cleanup_cache"), \
+                mock.patch.object(smiteaudio, "render_online", return_value=str(mp3_path)), \
+                mock.patch.object(smiteaudio, "render_sapi", return_value=sapi_value), \
+                mock.patch.object(smiteaudio, "_winsound_play", return_value=None), \
+                mock.patch.object(smiteaudio, "_mci", return_value=1):
+            mp3_fallback = smiteaudio.speak(
+                "fixture", "private fixture speech", 30, "pt_BR", "test")
+        if not mp3_fallback.get("ok") or mp3_fallback.get("renderer") != "sapi" \
+                or not any(row.get("stage") == "mp3_open" and not row.get("ok")
+                           for row in mp3_fallback.get("attempts", [])):
+            bad.append("MP3 playback failure/SAPI fallback")
+
+        wav_commands = []
+
+        def wav_mci(command):
+            wav_commands.append(command)
+            return 0
+
+        with mock.patch.object(smiteaudio, "cleanup_cache"), \
+                mock.patch.object(smiteaudio, "render_online", return_value=None), \
+                mock.patch.object(smiteaudio, "render_sapi", return_value=sapi_value), \
+                mock.patch.object(smiteaudio, "_winsound_play",
+                                  side_effect=OSError("fixture player failure")), \
+                mock.patch.object(smiteaudio, "_mci", side_effect=wav_mci):
+            mci_fallback = smiteaudio.speak(
+                "fixture", "private fixture speech", 30, "pt_BR", "test")
+        stages = [row.get("stage") for row in mci_fallback.get("attempts", [])]
+        if not mci_fallback.get("ok") or stages[-2:] != ["wav_winsound", "wav_mci_play"] \
+                or not any(command.startswith("close ") for command in wav_commands) \
+                or smiteaudio._active_aliases:
+            bad.append("winsound failure/MCI WAV fallback and cleanup")
+
+        with mock.patch.object(smiteaudio, "cleanup_cache"), \
+                mock.patch.object(smiteaudio, "render_online", return_value=str(mp3_path)), \
+                mock.patch.object(smiteaudio, "render_sapi", return_value=sapi_value), \
+                mock.patch.object(smiteaudio, "_winsound_play",
+                                  side_effect=OSError("fixture player failure")), \
+                mock.patch.object(smiteaudio, "_mci", return_value=1):
+            failed_players = smiteaudio.speak(
+                "fixture", "private fixture speech", 30, "en", "test")
+        if failed_players.get("ok") or failed_players.get("error") != "playback_error" \
+                or failed_players.get("stage") != "wav_mci_open" \
+                or smiteaudio._active_aliases:
+            bad.append("all audio players terminal playback error")
+
+    with mock.patch.object(smiteaudio, "cleanup_cache"), \
+            mock.patch.object(smiteaudio, "render_online", return_value=None), \
+            mock.patch.object(smiteaudio, "render_sapi",
+                              return_value={"ok": False, "error": "missing_voice"}):
+        failed_renderers = smiteaudio.speak(
+            "fixture", "private fixture speech", 30, "en", "test")
+    if failed_renderers.get("ok") or failed_renderers.get("error") != "missing_voice" \
+            or failed_renderers.get("stage") != "sapi_render":
+        bad.append("dual-renderer terminal structured cause")
+
+    with mock.patch.object(smiteaudio, "render_online") as online_probe, \
+            mock.patch.object(smiteaudio, "render_sapi") as sapi_probe:
+        silent = smiteaudio.speak("fixture", "private fixture speech", 0, "en", "test")
+    if silent.get("ok") or silent.get("error") != "silent" \
+            or online_probe.called or sapi_probe.called:
+        bad.append("silent preflight without rendering")
+    if set(smiteaudio.AUDIO_ERRORS) != {
+            "silent", "online_unavailable", "missing_voice", "sapi_error", "timeout",
+            "playback_error", "speaker_error"}:
+        bad.append("stable audio error catalog")
 
     played, stopped = [], []
     started, release = threading.Event(), threading.Event()
@@ -2889,6 +3161,36 @@ def c_voice_audio():
     if not any(name == "during-listening" for name, _kind in played):
         bad.append("post-listening deterministic release")
     scheduler.close()
+
+    exception_results = []
+    exception_done = threading.Event()
+
+    def exception_speaker(name, *_args):
+        if name == "explode":
+            raise RuntimeError("private speaker fixture")
+        return {"ok": True, "renderer": "fixture"}
+
+    def exception_callback(result):
+        exception_results.append(result)
+        if len(exception_results) == 2:
+            exception_done.set()
+
+    resilient = smiteaudio.AudioScheduler(
+        speaker=exception_speaker, chime_player=lambda *_args: {"ok": True},
+        stopper=lambda: None)
+    resilient.submit(smiteaudio.AudioJob(
+        smiteaudio.Priority.MANUAL_RESPONSE, name="explode", text="private",
+        callback=exception_callback))
+    resilient.submit(smiteaudio.AudioJob(
+        smiteaudio.Priority.MANUAL_RESPONSE, name="after", text="private",
+        callback=exception_callback))
+    exception_done.wait(1)
+    resilient.close()
+    if len(exception_results) != 2 \
+            or exception_results[0].get("error") != "speaker_error" \
+            or not exception_results[1].get("ok") \
+            or "private" in str(exception_results[0]):
+        bad.append("speaker exception callback/scheduler survival")
 
     with mock.patch.object(smiteaudio, "coordinator_request", return_value=None), \
             mock.patch.object(smiteaudio, "speak",
@@ -3740,6 +4042,31 @@ def c_local_whisper_workers():
         if not english.get("ok") or english.get("text") != "Dragon now" \
                 or english.get("language") != "en":
             bad.append("Unicode English worker transcription")
+
+        class EmptyModel:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def transcribe(self, _path, **_kwargs):
+                info = type("Info", (), {
+                    "language": "en", "language_probability": 0.97})()
+                return self.rows, info
+
+        for rows in ([], [Segment("  ")]):
+            worker.model = EmptyModel(rows)
+            empty = worker.handle({"version": 1, "command": "transcribe",
+                                   "audio_path": str(audio_path), "locale": "en"})
+            if empty.get("error") != "empty_transcript":
+                bad.append("zero/empty segments typed empty_transcript")
+                break
+        worker.model = EmptyModel([Segment("unclear", no_speech_prob=0.91)])
+        uncertain = worker.handle({"version": 1, "command": "transcribe",
+                                   "audio_path": str(audio_path), "locale": "en"})
+        if uncertain.get("error") != "low_confidence":
+            bad.append("nonempty high-no-speech segment typed low_confidence")
+        if "empty_transcript" not in smitestt.ACTIONABLE_ERRORS \
+                or "unavailable" in smitestt.actionable_error("empty_transcript").lower():
+            bad.append("empty transcript actionable STT mapping")
         if not worker.handle({"version": 1, "command": "unload"}).get("ok") \
                 or worker.status().get("model_loaded"):
             bad.append("worker unload/status")
