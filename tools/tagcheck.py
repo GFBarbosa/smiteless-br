@@ -25,6 +25,11 @@ except Exception:
     pass
 
 import lolload as llo
+import smitei18n
+
+# These historical fixtures assert the exact PT-BR copy recorded in docs/TAGS.md. Keep
+# them independent from whichever UI locale happens to be saved on the build machine.
+smitei18n.set_lang("pt_BR")
 
 FAILS = []
 

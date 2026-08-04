@@ -802,6 +802,41 @@ def _load_profile(rid):
         return None
 
 
+def coach_snapshot(profile=None, max_age=24 * 3600):
+    """Return a bounded cached self-profile. This adapter never refetches match history."""
+    if profile is None:
+        try:
+            rid = open(_RID_FILE, encoding="utf-8").read().strip()
+            rid = rid if "#" in rid else None
+        except Exception:
+            rid = None
+        profile = _load_profile(rid) if rid else None
+    if not profile:
+        return None
+    cached_ts = int(profile.get("cached_ts") or time.time())
+    age = max(0, int(time.time()) - cached_ts)
+    if age > max_age:
+        return {"_unavailable": "stale", "source_age_ms": age * 1000}
+
+    games = []
+    for game in (profile.get("games") or [])[:5]:
+        games.append({
+            "champion": game.get("champ"), "role": game.get("pos"),
+            "win": bool(game.get("win")), "kda": [game.get("k"), game.get("d"), game.get("a")],
+            "in_game_performance_grade": game.get("letter"),
+            "review": list(game.get("review") or [])[:3],
+        })
+    return {
+        "rank": profile.get("rank"), "recent_games": games,
+        "wins": profile.get("wins"), "losses": profile.get("losses"),
+        "win_rate": profile.get("wr"), "averages": profile.get("avgs") or {},
+        "roles": profile.get("roles") or {}, "session": profile.get("session"),
+        "champion_pool": list(profile.get("champs") or [])[:6],
+        "insights": list(profile.get("insights") or [])[:4],
+        "source_age_ms": age * 1000,
+    }
+
+
 def build_profile(dd, key=None, count=14, riot_id=None, puuid=None, force=False):
     """The whole home page: {riot_id, rank, recent(W-L), champs[], games[], avg_score}.
     With riot_id/puuid it builds ANY player's profile (search / click-through); session,

@@ -92,8 +92,63 @@ def _llm_health_result(selected, found):
 def c_llm_cli():
     import llmcli
     import smiteconfig as cfg
-    selected = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
+    selected = cfg.load().get("llm_provider", cfg.LLM_PROVIDER_DEFAULT)
     return _llm_health_result(selected, llmcli.availability())
+
+
+def c_coach_service_health():
+    """Read-only coordinator/provider/worker health; never starts a provider or model."""
+    import lolcoachipc
+    import llmcli
+    import smiteconfig as cfg
+
+    settings = cfg.load()
+    selected = llmcli.normalize_provider(settings.get("llm_provider"))
+    endpoint = lolcoachipc.read_endpoint()
+    if not endpoint:
+        return SKIP, (f"selected {llmcli.provider_label(selected)}; coordinator not running; "
+                      "worker unavailable")
+    try:
+        status = lolcoachipc.request({"type": "status"}, timeout=2, endpoint=endpoint)
+    except lolcoachipc.IpcError as exc:
+        return FAIL, f"selected {llmcli.provider_label(selected)}; coordinator unreachable: {exc}"
+    worker = status.get("stt_worker") or {}
+    if not status.get("ok") or status.get("provider") != selected:
+        return FAIL, (f"selected {llmcli.provider_label(selected)}; coordinator reported "
+                      f"{status.get('provider') or 'unknown'}")
+    return OK, (f"selected {llmcli.provider_label(selected)}; coordinator={status.get('state')}; "
+                f"manual={'on' if status.get('enabled') else 'off'}; "
+                f"worker={'loaded' if worker.get('model_loaded') else 'unloaded'}")
+
+
+def c_coach_readiness_health():
+    """Report model/device/compute/microphone/TTS without download, load or capture."""
+    import smiteaudio
+    import smiteconfig as cfg
+    import smitestt
+
+    settings = cfg.load()
+    try:
+        configuration = smitestt.runtime_configuration(settings)
+    except smitestt.SttError as exc:
+        return FAIL, f"selected STT configuration unavailable: {exc.code}; no CPU fallback"
+    readiness = smitestt.readiness()
+    model = readiness.get("model") or {}
+    runtime = readiness.get("runtime") or {}
+    voices = ", ".join(
+        f"{locale}={smiteaudio.voice_for_locale(locale)}/{smiteaudio.culture_for_locale(locale)}"
+        for locale in ("en", "pt_BR"))
+    detail = (f"model={model.get('state') or 'unknown'}; device={configuration['device']}; "
+              f"compute={configuration['compute_type']}; policy={configuration['load_policy']}; "
+              f"microphone={'ready' if readiness.get('microphone') else 'unavailable'}; "
+              f"worker=unloaded; voices {voices}")
+    if not all(runtime.get(name) for name in ("faster-whisper", "ctranslate2", "sounddevice")):
+        return FAIL, "local Whisper runtime incomplete; " + detail
+    if model.get("state") in ("invalid", "corrupt", "unavailable"):
+        return FAIL, detail
+    if not model.get("ready"):
+        return SKIP, detail + "; one-time model download required"
+    return OK, detail
 
 
 def c_llm_providers():
@@ -265,13 +320,27 @@ def c_llm_integration():
                 raw = {} if raw_value is None else {"matchup_tip_provider": raw_value}
                 with open(cfg.PATH, "w", encoding="utf-8") as handle:
                     json.dump(raw, handle)
-                if cfg.load()["matchup_tip_provider"] != expected:
+                loaded = cfg.load()
+                if loaded["llm_provider"] != expected or loaded["matchup_tip_provider"] != expected:
                     bad.append(f"config normalization {raw_value!r}")
+
+            migration_cases = (
+                ({"matchup_tip_provider": "codex"}, "codex"),
+                ({"llm_provider": "codex"}, "codex"),
+                ({"llm_provider": "claude", "matchup_tip_provider": "codex"}, "claude"),
+                ({"llm_provider": "invalid", "matchup_tip_provider": "codex"}, "claude"),
+            )
+            for raw, expected in migration_cases:
+                with open(cfg.PATH, "w", encoding="utf-8") as handle:
+                    json.dump(raw, handle)
+                if cfg.load()["llm_provider"] != expected:
+                    bad.append(f"llm_provider migration {raw!r}")
 
             with open(cfg.PATH, "w", encoding="utf-8") as handle:
                 json.dump({"matchup_tip_provider": "codex", "matchup_tips": False}, handle)
             saved = cfg.save({"board_size": 80})
-            if saved.get("matchup_tip_provider") != "codex" \
+            if saved.get("llm_provider") != "codex" \
+                    or saved.get("matchup_tip_provider") != "codex" \
                     or saved.get("matchup_tips") is not False:
                 bad.append("partial save did not preserve provider/toggle")
 
@@ -303,7 +372,7 @@ def c_llm_integration():
                 if os.path.exists(tip_path):
                     os.remove(tip_path)
                 with mock.patch.object(lolmatchup.cfg, "load",
-                                       return_value={"matchup_tip_provider": provider}), \
+                                       return_value={"llm_provider": provider}), \
                         mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
                         mock.patch.object(lolmatchup.llmcli, "call",
                                           return_value=(f"{provider} tip", None)) as call_mock:
@@ -316,7 +385,7 @@ def c_llm_integration():
                 if os.path.exists(tip_path):
                     os.remove(tip_path)
                 with mock.patch.object(lolmatchup.cfg, "load",
-                                       return_value={"matchup_tip_provider": provider}), \
+                                       return_value={"llm_provider": provider}), \
                         mock.patch.object(lolmatchup, "_file", return_value=tip_path), \
                         mock.patch.object(lolmatchup.llmcli, "call",
                                           return_value=(None, f"{provider} unavailable")):
@@ -326,7 +395,7 @@ def c_llm_integration():
                     bad.append(f"matchup {provider} error cached")
 
             with mock.patch.object(lolcoach.cfg, "load",
-                                   return_value={"matchup_tip_provider": "codex"}), \
+                                   return_value={"llm_provider": "codex"}), \
                     mock.patch.object(lolcoach.llmcli, "call",
                                       return_value=("coach", None)) as coach_call:
                 coach_got = lolcoach._call_ai("generic coach prompt")
@@ -1675,9 +1744,9 @@ def c_new_i18n():
                 or i18n.t("Ward clock (the vision war, jg / sup)").startswith("Ward") \
                 or i18n.t("GOLD CLOCK — THE FIRST TEN MINUTES").startswith("GOLD"):
             bad.append("GOLD/WARD Settings or legend catalog entries are missing")
-        if i18n.t("Matchup AI fallback:") == "Matchup AI fallback:" \
-                or "dica escrita" not in i18n.t(
-                    "Used only when no written matchup tip is available. The selected local "
+        if i18n.t("AI provider:") == "AI provider:" \
+                or "coach" not in i18n.t(
+                    "Used by the coach and as the matchup-tip fallback. The selected local "
                     "CLI is authoritative; failures never switch providers automatically."):
             bad.append("matchup provider Settings copy did not switch PT/EN")
         mute_copy = i18n.t(
@@ -1823,6 +1892,2512 @@ def c_lcu():
     return OK, f"connected - phase = {ph}"
 
 
+def c_coach_context():
+    """Phase 1 fixtures: exclusivity, privacy, evidence, timeout and determinism."""
+    import tempfile
+    import threading
+    import lolcoachcontext as cc
+    import lolgame
+    import lollive
+    import lolload
+    import lolqueue
+    import phasecheck
+    from unittest import mock
+
+    all_sections = {
+        "profile": {"recent_games": [{"in_game_performance_grade": "A"}]},
+        "queue": {"verdict": "WAIT"},
+        "draft": {"self_champion": "Ahri"},
+        "loading": {"enemies": [{"champion": "Zed", "tags": [
+            {"text": "off-champ", "evidence_scope": "this_game"},
+            {"text": "3W heater", "evidence_scope": "account_history"}]}]},
+        "live": {"game_time": 901, "events": [{"kind": "DragonKill"}]},
+        "postgame": {"recent_games": [{"in_game_performance_grade": "S"}]},
+    }
+    expected = {
+        "None": {"profile"}, "Lobby": {"profile", "queue"},
+        "Matchmaking": {"queue"}, "ReadyCheck": {"queue"},
+        "ChampSelect": {"draft"}, "Loading": {"draft", "loading"},
+        "GameStart": {"draft", "loading"}, "InProgress": {"live"},
+        "Reconnect": {"live"}, "WaitingForStats": {"postgame"},
+        "PreEndOfGame": {"postgame"}, "EndOfGame": {"postgame"},
+    }
+    dd = {"id2name": {1: "Annie", 2: "Olaf"}, "name2id": {"annie": 1, "olaf": 2},
+          "norm": lambda value: str(value or "").lower(), "items": {}, "id2tags": {}}
+    barrier = threading.Barrier(2)
+    roster_calls = []
+
+    def parallel_lcu(url, **_kwargs):
+        roster_calls.append(url)
+        barrier.wait(timeout=0.5)
+        if url.endswith("/lol-gameflow/v1/session"):
+            return {"gameData": {
+                "teamOne": [{"summonerId": 11, "championId": 1,
+                             "selectedPosition": "MIDDLE"}],
+                "teamTwo": [{"summonerId": 22, "championId": 2,
+                             "selectedPosition": "TOP"}],
+            }}
+        return {"summonerId": 11}
+
+    timings = []
+    with mock.patch.object(lolload.lg, "_lcu", return_value=(123, {})), \
+            mock.patch.object(lolload.lb, "http", side_effect=parallel_lcu):
+        roster = lolload._roster(
+            request_timeout=0.2,
+            on_timing=lambda stage, elapsed, outcome: timings.append((stage, outcome)),
+        )
+    if not roster or not roster[0][0]["me"] or len(roster_calls) != 2 \
+            or {stage for stage, _outcome in timings} != {
+                "gameflow-session", "current-summoner"}:
+        return FAIL, "cold Loading roster reads were not parallel and timed"
+
+    def cached_lcu(url, **_kwargs):
+        if url.endswith("/current-summoner"):
+            raise AssertionError("cached identity was ignored")
+        return {"gameData": {
+            "teamOne": [{"summonerId": 11, "championId": 1}],
+            "teamTwo": [{"summonerId": 22, "championId": 2}],
+        }}
+
+    with mock.patch.object(lolload.lg, "_lcu", return_value=(123, {})), \
+            mock.patch.object(lolload.lb, "http", side_effect=cached_lcu):
+        if not lolload._roster(mysid=11, request_timeout=0.2)[0][0]["me"]:
+            return FAIL, "ChampSelect identity warmup was not reused in Loading"
+
+    live_payload = {
+        "activePlayer": {"riotId": "Self Name#NA1"},
+        "allPlayers": [
+            {"riotId": "Self Name#NA1", "championName": "Annie",
+             "team": "ORDER", "position": "MIDDLE"},
+            {"riotId": "Enemy Name#NA1", "championName": "Olaf",
+             "team": "CHAOS", "position": "TOP"},
+        ],
+    }
+    with mock.patch.object(lolload.lb, "http", return_value=live_payload):
+        live_minimal = lolload.brief_from_live(dd)
+    live_encoded = json.dumps(live_minimal)
+    if not live_minimal or not live_minimal["allies"][0]["me"] \
+            or "Name#NA1" in live_encoded or "riotId" in live_encoded \
+            or not live_minimal["_lobby_key"].startswith("live-"):
+        return FAIL, "clock-zero Live Client fallback was not anonymous and shaped"
+    draft = lolgame.coach_snapshot(dd, {"my": 1, "pos": "mid", "allies": [(1, "mid")],
+                                         "enemies": [(2, "top")], "phase": "ChampSelect",
+                                         "source": "fixture"})
+    if draft["allies"][0]["slot"] != "self" or draft["enemies"][0]["slot"] != "enemy_1":
+        return FAIL, "draft adapter did not anonymize stable player slots"
+    loading = lolload.coach_snapshot({"allies": [{"me": True, "champ": "Annie",
+        "player": "Self Name#NA1", "puuid": "x" * 78,
+        "tags": [("comfort · 5-1 on Annie", "good")]}], "enemies": []})
+    if loading["allies"][0]["slot"] != "self" or \
+            loading["allies"][0]["tags"][0]["evidence_scope"] != "this_game":
+        return FAIL, "loading adapter lost self anonymity or tag scope"
+    with tempfile.TemporaryDirectory(prefix="smiteless-loading-short-") as tmp:
+        snap_file = os.path.join(tmp, "scout.json")
+        minimal = {"scouted": False, "_lobby_key": "short-load",
+                   "plan": ["play safe"], "wincons": {},
+                   "allies": [{"me": True, "champ": "Annie", "role": "MID",
+                                "player": "", "puuid": None, "tags": []}],
+                   "enemies": [{"me": False, "champ": "Olaf", "role": "TOP",
+                                 "player": "", "puuid": None, "tags": []}]}
+        full = dict(minimal, scouted=True)
+        lolload._LOCAL.update(key=None, brief=None)
+        with mock.patch.object(lolload, "SNAP_FILE", snap_file), \
+                mock.patch.object(lolload, "SNAP_LOCK", snap_file + ".lock"):
+            with mock.patch.object(lolload, "brief",
+                                   side_effect=[None, None, minimal]) as minimal_read, \
+                    mock.patch.object(lolload, "brief_from_live", return_value=None), \
+                    mock.patch.object(lolload, "_lobby_key") as key_probe:
+                prepared = lolload.prepare_minimal_snapshot(
+                    dd, mysid=11, attempts=3, request_timeout=0.1, retry_delay=0)
+            if prepared is not minimal or minimal_read.call_count != 3:
+                return FAIL, "short Loading bounded retries did not reach the roster"
+            if key_probe.called:
+                return FAIL, "minimal Loading snapshot repeated the roster/Lobby read"
+            if not os.path.exists(snap_file):
+                return FAIL, "short Loading did not publish the minimal snapshot"
+            cached = lolload.coach_snapshot(lifecycle_key="short-load")
+            encoded_cached = json.dumps(cached)
+            if cached["allies"][0]["slot"] != "self" or "puuid" in encoded_cached \
+                    or "player" in encoded_cached:
+                return FAIL, "minimal Loading snapshot was not anonymous"
+            with mock.patch.object(lolload, "_lobby_key", return_value="short-load"), \
+                    mock.patch.object(lolload, "brief", return_value=full) as full_fetch:
+                shared = lolload.brief_shared(dd, wait=0)
+            if not shared.get("scouted") or full_fetch.call_count != 1 \
+                    or full_fetch.call_args.kwargs.get("scout") is not True:
+                return FAIL, "minimal Loading snapshot suppressed the one full scout"
+            live_same_match = dict(minimal, _lobby_key="live-same-champions")
+            lolload.publish_minimal_snapshot(dd, live_same_match)
+            with open(snap_file, encoding="utf-8") as snapshot_handle:
+                preserved = json.load(snapshot_handle)
+            if preserved.get("key") != "short-load" \
+                    or not (preserved.get("brief") or {}).get("scouted"):
+                return FAIL, "Live fallback downgraded an existing full scout"
+        lolload._LOCAL.update(key=None, brief=None)
+    live_data = {"activePlayer": {"riotId": "Self Name#NA1"},
+                 "gameData": {"gameTime": 12}, "events": {"Events": []},
+                 "allPlayers": [{"riotId": "Self Name#NA1", "championName": "Annie",
+                                 "team": "ORDER", "scores": {}, "items": []},
+                                {"riotId": "Enemy Name#NA1", "championName": "Olaf",
+                                 "team": "CHAOS", "scores": {}, "items": []}]}
+    live = lollive.coach_snapshot(dd, live_data)
+    if "Name#NA1" in json.dumps(live) or live["enemies"][0]["slot"] != "enemy_1":
+        return FAIL, "live adapter exposed a Riot ID or lost anonymous slots"
+    for phase_name, want in expected.items():
+        env = cc.capture(phase=phase_name, collectors=all_sections,
+                         lifecycle_hints={"game_id": 123}, now=1000)
+        if set(env["sections"]) != want:
+            return FAIL, f"{phase_name} leaked sections {set(env['sections'])}, wanted {want}"
+
+    with mock.patch.object(lolqueue, "coach_snapshot",
+                           side_effect=lambda phase=None: {"captured_phase": phase}):
+        lobby = cc.capture(phase="Lobby", collectors={"profile": {"safe": True}},
+                           lifecycle_hints={"lobby_id": 123}, now=1000)
+    if lobby["sections"].get("queue", {}).get("captured_phase") != "Lobby":
+        return FAIL, "context did not pass its known phase to the queue adapter"
+    with mock.patch.object(phasecheck, "phase",
+                           side_effect=AssertionError("phase was re-detected")), \
+            mock.patch.object(lolgame, "_lcu", return_value=None):
+        state = lolqueue._coach_queue_state(phase="Lobby")
+    if state.get("phase") != "Lobby":
+        return FAIL, "queue adapter did not reuse its supplied phase"
+
+    dirty = {"Authorization": "Basic dXNlcjpwYXNz", "riot_api_key": "RGAPI-secret",
+             "puuid": "x" * 78, "player": "Enemy Name#NA1",
+             "raw": "LeagueClient:123:456:password:https",
+             "note": r"see C:\Users\Alice\AppData\Local\Riot\lockfile",
+             "safe": "keep me"}
+    env = cc.capture(phase="Lobby", collectors={"profile": dirty, "queue": {}},
+                     lifecycle_hints={"lobby_id": "secret-lobby"}, now=1000)
+    encoded = cc.serialize_json(env)
+    forbidden = ("RGAPI-", "Basic ", "x" * 70, "Name#NA1", r"C:\Users", "password:https")
+    if any(value in encoded for value in forbidden):
+        return FAIL, "a credential, identifier or local path survived coach serialization"
+    if not env["redactions"] or env["sections"]["profile"].get("safe") != "keep me":
+        return FAIL, "sanitizer did not preserve safe data and record redactions"
+
+    ev = cc.capture(phase="Loading", collectors=all_sections,
+                    lifecycle_hints={"game_id": 123}, now=1000)
+    scopes = {(row["kind"], row["evidence_scope"]) for row in ev["evidence"]}
+    if ("tag", "this_game") not in scopes or ("tag", "account_history") not in scopes:
+        return FAIL, "tag evidence scopes collapsed"
+    post = cc.capture(phase="EndOfGame", collectors=all_sections,
+                      lifecycle_hints={"game_id": 123}, now=1000)
+    if not any(row["kind"] == "in_game_performance_grade" and
+               row["evidence_scope"] == "this_game" for row in post["evidence"]):
+        return FAIL, "performance grade lost its in-game evidence origin"
+
+    def slow():
+        time.sleep(0.05)
+        return {"late": True}
+
+    partial = cc.capture(phase="Lobby", collectors={"profile": slow,
+                         "queue": {"verdict": "GO"}}, timeout=0.005,
+                         lifecycle_hints={"lobby_id": 7}, now=1000)
+    if partial["sections"].get("queue", {}).get("verdict") != "GO":
+        return FAIL, "one collector timeout discarded a healthy section"
+    timeouts = [row for row in partial["unavailable"] if row["reason"] == "timeout"]
+    if timeouts != [{"section": "profile", "reason": "timeout"}]:
+        return FAIL, f"collector timeout was not isolated: {partial['unavailable']}"
+
+    a = cc.capture(phase="InProgress", collectors=all_sections,
+                   lifecycle_hints={"game_id": 123}, now=1000)
+    b = cc.capture(phase="InProgress", collectors=all_sections,
+                   lifecycle_hints={"game_id": 123}, now=1000)
+    if cc.serialize_json(a) != cc.serialize_json(b):
+        return FAIL, "context JSON is not stable for identical inputs"
+    first = cc.lifecycle_identity("InProgress")
+    if cc.lifecycle_identity("InProgress") != first:
+        return FAIL, "fallback lifecycle changed inside one game"
+    cc.lifecycle_identity("EndOfGame")
+    if cc.lifecycle_identity("Lobby") == first:
+        return FAIL, "timestamp fallback joined two games across a terminal transition"
+    return OK, "all phases exclusive; secrets redacted; evidence scoped; failures isolated"
+
+
+def c_coach_runtime():
+    """Phase 2 fixtures: session, prompts, authenticated IPC and launcher contracts."""
+    import socket
+    import tempfile
+    import threading
+    from unittest import mock
+    import lolcoachcontext as context
+    import lolcoachipc as ipc
+    import lolcoachprompt as prompt
+    import lolcoachsession as session
+    import llmprocess
+    import smitecoach
+    import smiteless_tray
+
+    bad = []
+    clock = [1000.0]
+    memory = session.CoachSession(max_turns=2, max_characters=40, idle_seconds=20,
+                                  clock=lambda: clock[0])
+    memory.observe("Lobby", "league-a")
+    memory.add_turn("first question", "first answer")
+    memory.observe("ChampSelect", "league-a")
+    memory.add_turn("second question", "second answer")
+    memory.add_turn("third question", "third answer")
+    if len(memory.history()) > 2 or any("context" in row for row in memory.history()):
+        bad.append("session bounds/text-only history")
+    if [row["phase"] for row in memory.snapshot()["phase_markers"]][-2:] \
+            != ["Lobby", "ChampSelect"]:
+        bad.append("session phase markers")
+    memory.observe("PostGame", "league-a")
+    if not memory.observe("Lobby", "league-b")["new_lifecycle"] or memory.history():
+        bad.append("session lifecycle separation")
+    memory.add_turn("q", "a")
+    clock[0] += 21
+    if memory.history():
+        bad.append("session two-hour-style idle expiry")
+    memory.add_turn("q", "a")
+    memory.reset()
+    if memory.snapshot()["turn_count"]:
+        bad.append("session reset")
+
+    env = context.capture(
+        phase="Lobby", lifecycle_hints={"lobby_id": "fixture"}, now=1000,
+        collectors={"profile": {"safe": "value", "riot_id": "Name#NA1"},
+                    "queue": {"_unavailable": "missing"}},
+    )
+    en = prompt.build_prompt("What now?", env, [{"user": "Earlier?", "assistant": "Wait."}], "en")
+    pt = prompt.build_prompt("E agora?", env, [], "pt_BR")
+    if "Reply only in English" not in en or "Brazilian Portuguese" not in pt \
+            or "unavailable" not in en or "Name#NA1" in en:
+        bad.append("bilingual/redacted/unavailable prompt")
+
+    killed = []
+    fake = type("FakeProcess", (), {"pid": 7})()
+    handle = llmprocess.CancellationHandle()
+    with mock.patch.object(llmprocess, "terminate_tree", side_effect=killed.append):
+        if not handle.attach(fake):
+            bad.append("cancellation attach")
+        handle.cancel()
+    if killed != [fake] or not handle.cancelled:
+        bad.append("provider cancellation tree")
+
+    disabled = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    disabled._set = mock.Mock()
+    disabled.show = mock.Mock()
+    with mock.patch.object(smitecoach.cfg, "load",
+                           return_value={"voice_coach": False}), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture") as capture_mock:
+        rejected = disabled.ask("Should I queue?")
+    if rejected.get("ok") or not rejected.get("disabled") or capture_mock.called:
+        bad.append("disabled coach sent context")
+
+    failing = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    failing.session = session.CoachSession()
+    failing.lock = threading.RLock()
+    failing.cancel_handle = None
+    failing.provider = "claude"
+    failing._set = mock.Mock()
+    failing.show = mock.Mock()
+    fake_env = context.capture(phase="None", lifecycle_hints={"session_id": "x"},
+                               now=1000, collectors={"profile": {"safe": True}})
+    with mock.patch.object(smitecoach.cfg, "load",
+                           return_value={"voice_coach": True, "llm_provider": "codex"}), \
+            mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=fake_env), \
+            mock.patch.object(smitecoach.llmcli, "call",
+                              return_value=(None, "provider failed")) as provider_call:
+        failed = failing.ask("What now?")
+    if failed.get("ok") or failing.session.history() \
+            or provider_call.call_args.args[1] != "codex":
+        bad.append("provider failure/no-failover/no-answer-cache")
+
+    surface = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    surface.root = mock.Mock()
+    surface.root.winfo_reqheight.return_value = 260
+    surface.root.winfo_screenwidth.return_value = 1920
+    surface.root.winfo_screenheight.return_value = 1080
+    surface._resize_surface()
+    surface.root.geometry.assert_called_once_with("440x260+1452+496")
+    rendered = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    rendered.session = mock.Mock()
+    rendered.session.snapshot.return_value = {"phase": "Lobby"}
+    rendered.state = "error"
+    rendered.provider = "codex"
+    rendered.user_text = "question"
+    rendered.answer = ""
+    rendered.error = "long error"
+    rendered.status_label = mock.Mock()
+    rendered.phase_label = mock.Mock()
+    rendered.user_label = mock.Mock()
+    rendered.answer_label = mock.Mock()
+    rendered._resize_surface = mock.Mock()
+    rendered._render()
+    rendered._resize_surface.assert_called_once_with()
+
+    hidden = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    hidden.root = mock.Mock()
+    if hidden.dispatch({"type": "hide"}) != {"ok": True}:
+        bad.append("focus-free hide IPC")
+    else:
+        hidden.root.after.assert_called_once_with(0, hidden.root.withdraw)
+
+    with mock.patch.object(smitecoach, "_server_alive", return_value=True), \
+            mock.patch.object(smitecoach, "_single_instance") as instance_mock:
+        duplicate = smitecoach.serve()
+    if duplicate != 0 or instance_mock.called:
+        bad.append("duplicate serve idempotence")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-coach-ipc-") as tmp:
+        endpoint_path = os.path.join(tmp, "endpoint.json")
+        server = ipc.CoachIpcServer(
+            lambda message: {"ok": True, "echo": message.get("text")}, endpoint_path)
+        endpoint = server.publish()
+        if endpoint.get("owner_pid") is not None:
+            bad.append("ownerless IPC endpoint compatibility")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            got = ipc.request({"type": "fixture", "text": "hello"},
+                              endpoint_path=endpoint_path)
+            if got != {"ok": True, "echo": "hello"}:
+                bad.append("IPC valid request")
+
+            def raw(value):
+                with socket.create_connection(("127.0.0.1", endpoint["port"]), timeout=2) as sock:
+                    sock.sendall(json.dumps(value).encode("utf-8") + b"\n")
+                    return json.loads(sock.recv(4096).split(b"\n", 1)[0].decode("utf-8"))
+
+            wrong = raw({"version": ipc.PROTOCOL_VERSION, "token": "wrong", "type": "status"})
+            mismatch = raw({"version": 999, "token": endpoint["token"], "type": "status"})
+            if wrong.get("error") != "unauthorized" or mismatch.get("error") != "version_mismatch":
+                bad.append("IPC auth/version gate")
+            with socket.create_connection(("127.0.0.1", endpoint["port"]), timeout=2) as sock:
+                sock.sendall(b"x" * (ipc.MAX_REQUEST_BYTES + 1) + b"\n")
+                oversized = json.loads(sock.recv(4096).split(b"\n", 1)[0].decode("utf-8"))
+            if oversized.get("error") != "request_too_large":
+                bad.append("IPC oversized request")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        if os.path.exists(endpoint_path):
+            bad.append("IPC clean shutdown endpoint")
+        try:
+            ipc.request({"type": "status"}, endpoint_path=endpoint_path, timeout=0.1)
+            bad.append("IPC missing server")
+        except ipc.IpcError:
+            pass
+        with open(endpoint_path, "w", encoding="utf-8") as handle_file:
+            json.dump({"pid": 999, "port": 1, "token": "stale"}, handle_file)
+        try:
+            ipc.request({"type": "status"}, endpoint_path=endpoint_path, timeout=0.1)
+            bad.append("IPC stale endpoint")
+        except ipc.IpcError:
+            ipc.remove_endpoint(endpoint_path)
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-coach-reload-") as tmp:
+        endpoint_path = os.path.join(tmp, "endpoint.json")
+        old_server = ipc.CoachIpcServer(lambda message: {"ok": True}, endpoint_path,
+                                        owner_pid=101)
+        old_endpoint = old_server.publish()
+        old_server.server_close()
+        new_server = ipc.CoachIpcServer(lambda message: {"ok": True}, endpoint_path,
+                                        owner_pid=202)
+        new_endpoint = new_server.publish()
+        try:
+            if old_endpoint["owner_pid"] != 101 or new_endpoint["owner_pid"] != 202 \
+                    or old_endpoint["token"] == new_endpoint["token"]:
+                bad.append("reload endpoint ownership/generation")
+            with mock.patch.object(smitecoach, "_server_alive", return_value=True), \
+                    mock.patch.object(smitecoach.lolcoachipc, "read_endpoint",
+                                      return_value=new_endpoint), \
+                    mock.patch.object(smitecoach, "_launch_server") as late_launch, \
+                    mock.patch.object(smitecoach.lolcoachipc, "request") as late_shutdown:
+                if smitecoach.main(["shutdown", "--endpoint-token=" +
+                                    old_endpoint["token"]]) != 0 or late_shutdown.called \
+                        or late_launch.called:
+                    bad.append("late old-tray shutdown reached replacement coordinator")
+        finally:
+            new_server.server_close()
+
+    launcher_paths = (os.path.join(_ROOT, "dist", "tray.ahk"),
+                      os.path.join(_ROOT, "smiteless.ahk"),
+                      os.path.join(_ROOT, "tools", "smiteless_tray.py"))
+    launcher_texts = [open(path, encoding="utf-8").read() for path in launcher_paths]
+    if not all(("coach serve" in text or '"coach", "serve"' in text)
+               and ("coach show" in text or '"coach", "show"' in text)
+               and ("coach hide" in text or '"coach", "hide"' in text)
+               and ("coach shutdown" in text or '"coach", "shutdown"' in text)
+               and "owner-pid" in text and "endpoint-token" in text
+               and "reload" in text.lower()
+               for text in launcher_texts):
+        bad.append("coach startup/show/hide/reload launcher contract")
+    if any("A_Pid" in text or "GetCurrentProcessId" in text
+           or "ProcessExist()" not in text for text in launcher_texts[:2]):
+        bad.append("AHK tray owner PID contract")
+
+    tray_icon = mock.Mock()
+    with mock.patch.object(smiteless_tray, "_shutdown_coach") as tray_shutdown, \
+            mock.patch.object(smiteless_tray, "_launch") as tray_launch, \
+            mock.patch.object(smiteless_tray._stop, "set") as tray_stop:
+        smiteless_tray.reload_tray(tray_icon)
+    if not (tray_shutdown.called and tray_stop.called and tray_icon.stop.called) \
+            or tray_launch.call_args.args[1:] != ("--reload-wait", str(os.getpid())):
+        bad.append("Python tray reload replacement contract")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, "session/prompt/cancellation/IPC/launcher fixtures pass"
+
+
+def c_coach_tools():
+    """Phase 5 fixtures: allowlisted one-round context discovery and redaction."""
+    import dataclasses
+    import tempfile
+    import threading
+    from unittest import mock
+    import lolcoachcontext as context
+    import lolcoachtools as tools
+    import lolmatchup
+    import lolcoachsession
+    import smitecoach
+
+    bad = []
+    dirty = {
+        "safe": "keep me", "riot_id": "Enemy Name#NA1", "puuid": "x" * 78,
+        "authorization": "Basic dXNlcjpwYXNz", "path": r"C:\Users\Alice\secret.txt",
+    }
+    forbidden_phase = {
+        "profile.recent": "InProgress", "queue.current": "ChampSelect",
+        "draft.current": "None", "loading.scout": "Lobby",
+        "live.current": "Loading", "matchup.current": "None",
+        "postgame.latest": "Lobby",
+    }
+    with tempfile.TemporaryDirectory(prefix="smiteless-coach-tools-") as tmp:
+        trace_path = os.path.join(tmp, "trace.jsonl")
+        for spec in tools._SPECS:
+            allowed_phase = spec.phases[0]
+            allowed = tools.execute(
+                spec.tool_id, {}, allowed_phase, collectors={spec.tool_id: lambda: dirty},
+                trace_path=trace_path)
+            encoded = json.dumps(allowed.get("data"), ensure_ascii=False)
+            if not allowed.get("ok") or allowed.get("outcome") != "ok" \
+                    or "keep me" not in encoded or any(secret in encoded for secret in (
+                        "Name#NA1", "x" * 70, "Basic ", r"C:\Users")):
+                bad.append(f"{spec.tool_id} allowed/sanitizer")
+
+            forbidden_collector = mock.Mock(return_value={"must": "not run"})
+            forbidden = tools.execute(
+                spec.tool_id, {}, forbidden_phase[spec.tool_id],
+                collectors={spec.tool_id: forbidden_collector}, trace_path=trace_path)
+            if forbidden.get("executed") or forbidden_collector.called \
+                    or forbidden.get("outcome") != "forbidden_phase":
+                bad.append(f"{spec.tool_id} forbidden phase")
+
+            slow_spec = dataclasses.replace(spec, timeout_seconds=0.005)
+            with mock.patch.dict(tools.SPECS, {spec.tool_id: slow_spec}):
+                timed = tools.execute(
+                    spec.tool_id, {}, allowed_phase,
+                    collectors={spec.tool_id: lambda: (time.sleep(0.03), dirty)[1]},
+                    trace_path=trace_path)
+            if timed.get("outcome") != "timeout" or not timed.get("executed"):
+                bad.append(f"{spec.tool_id} timeout")
+
+            stale = tools.execute(
+                spec.tool_id, {}, allowed_phase,
+                collectors={spec.tool_id: lambda age=spec.freshness_seconds: {
+                    "source_age_ms": (age + 1) * 1000, "safe": True}},
+                trace_path=trace_path)
+            if stale.get("outcome") != "stale" or not stale.get("executed"):
+                bad.append(f"{spec.tool_id} freshness")
+
+        first_spec = tools._SPECS[0]
+        oversized = tools.execute(
+            first_spec.tool_id, {}, first_spec.phases[0],
+            collectors={first_spec.tool_id: lambda: {
+                "rows": [{"safe": "word " * 200} for _ in range(20)]}},
+            trace_path=trace_path)
+        if oversized.get("outcome") != "oversized" or not oversized.get("executed"):
+            bad.append("oversized retrieved output refusal")
+
+        traces = [json.loads(line) for line in open(trace_path, encoding="utf-8") if line.strip()]
+        if not traces or any(set(row) != {
+                "ts", "tool", "timing_ms", "byte_count", "outcome"} for row in traces):
+            bad.append("metadata-only trace schema")
+        trace_text = json.dumps(traces)
+        if any(secret in trace_text for secret in ("keep me", "Name#NA1", "Basic ", "arguments")):
+            bad.append("trace persisted args/results")
+
+        envelope = context.capture(
+            phase="None", lifecycle_hints={"session_id": "tools"}, now=1000,
+            collectors={"profile": {"summary": "baseline intentionally incomplete"}},
+        )
+        provider_prompts = []
+        provider_outputs = iter((
+            '{"needs_context":{"tool":"profile.recent","arguments":{}}}',
+            "Use the safer recent-game pattern.",
+        ))
+
+        def retrieve_provider(prompt):
+            provider_prompts.append(prompt)
+            return next(provider_outputs), None
+
+        retrieved = tools.answer(
+            "What pattern should I fix?", envelope, [], "en", retrieve_provider,
+            collectors={"profile.recent": lambda: dirty}, trace_path=trace_path)
+        if retrieved.get("provider_calls") != 2 or retrieved.get("tool_calls") != 1 \
+                or retrieved.get("text") != "Use the safer recent-game pattern.":
+            bad.append("one-round retrieval answer")
+        if len(provider_prompts) != 2 or "keep me" not in provider_prompts[1] \
+                or any(secret in provider_prompts[1] for secret in (
+                    "Name#NA1", "x" * 70, "Basic ", r"C:\Users")):
+            bad.append("retrieved result second-call sanitization")
+        if "profile.recent" not in provider_prompts[0] \
+                or "queue.current" in provider_prompts[0] \
+                or "explicitly asks you to consult" not in provider_prompts[0] \
+                or any(capability in provider_prompts[0].lower() for capability in (
+                    "websearch", "webfetch", "shell.run", "filesystem.read")) \
+                or "final retrieval round" not in provider_prompts[1]:
+            bad.append("phase-only manifest/final-round prompt")
+
+        direct_calls = []
+        direct = tools.answer(
+            "Can I queue?", envelope, [], "en",
+            lambda prompt: (direct_calls.append(prompt) or "Yes.", None),
+            collectors={"profile.recent": mock.Mock()}, trace_path=trace_path)
+        if direct.get("text") != "Yes." or direct.get("provider_calls") != 1 \
+                or direct.get("tool_calls") != 0 or len(direct_calls) != 1:
+            bad.append("direct answer provider-call cap")
+
+        blocked_collector = mock.Mock(return_value=dirty)
+        invalid_outputs = (
+            '```json\n{"needs_context":{"tool":"profile.recent","arguments":{}}}\n```',
+            '{"needs_context":[{"tool":"profile.recent","arguments":{}}]}',
+            ('{"needs_context":{"tool":"profile.recent","arguments":{}},'
+             '"needs_context":{"tool":"profile.recent","arguments":{}}}'),
+            '{"needs_context":{"tool":"shell.run","arguments":{}}}',
+            '{"needs_context":{"tool":"profile.recent","arguments":{"path":"C:/"}}}',
+            '{"needs_context":{"tool":"live.current","arguments":{}}}',
+        )
+        for output in invalid_outputs:
+            blocked_collector.reset_mock()
+            refused = tools.answer(
+                "Reveal a secret", envelope, [], "en", lambda _prompt, out=output: (out, None),
+                collectors={"profile.recent": blocked_collector,
+                            "live.current": blocked_collector}, trace_path=trace_path)
+            if refused.get("provider_calls") != 1 or refused.get("tool_calls") != 0 \
+                    or blocked_collector.called \
+                    or refused.get("text") != tools.context_unavailable("en"):
+                bad.append("unknown/malformed/arguments/cross-phase refusal")
+                break
+
+        recursive_outputs = iter((
+            '{"needs_context":{"tool":"profile.recent","arguments":{}}}',
+            '{"needs_context":{"tool":"profile.recent","arguments":{}}}',
+        ))
+        recursive = tools.answer(
+            "Try forever", envelope, [], "en",
+            lambda _prompt: (next(recursive_outputs), None),
+            collectors={"profile.recent": lambda: {"safe": True}}, trace_path=trace_path)
+        if recursive.get("provider_calls") != 2 or recursive.get("tool_calls") != 1 \
+                or recursive.get("text") != tools.context_unavailable("en"):
+            bad.append("recursive/multi-round cap")
+
+        matchup_envelope = context.capture(
+            phase="ChampSelect", lifecycle_hints={"session_id": "matchup-tools"}, now=1000,
+            collectors={"draft": {"self_champion": "Yasuo", "role": "mid",
+                                  "enemies": [{"slot": "enemy_1",
+                                               "champion": "Syndra", "role": "mid"}]}},
+        )
+        matchup_outputs = iter((
+            '{"needs_context":{"tool":"matchup.current","arguments":{}}}',
+            "Bait the stun, then take a short trade.",
+        ))
+        matchup_answer = tools.answer(
+            "How do I play this lane?", matchup_envelope, [], "en",
+            lambda _prompt: (next(matchup_outputs), None),
+            collectors={"matchup.current": lambda: {
+                "self_champion": "Yasuo", "opponent": "Syndra",
+                "cached_guidance": "Bait the stun."}}, trace_path=trace_path)
+        if matchup_answer.get("provider_calls") != 2 \
+                or matchup_answer.get("tool_calls") != 1 \
+                or "short trade" not in matchup_answer.get("text", ""):
+            bad.append("missing-matchup retrieval answer")
+
+        legal_none = {row["id"] for row in tools.manifest_for_phase("None")}
+        legal_live = {row["id"] for row in tools.manifest_for_phase("InProgress")}
+        if legal_none != {"profile.recent"} \
+                or legal_live != {"live.current", "matchup.current"}:
+            bad.append("phase-filtered public manifest")
+
+        dd = {"ver": "16.15.1", "norm": lambda value: "".join(
+                  char for char in str(value).lower() if char.isalnum()),
+              "name2id": {"yasuo": 1, "syndra": 2},
+              "id2name": {1: "Yasuo", 2: "Syndra"},
+              "id2key": {1: "Yasuo", 2: "Syndra"}}
+        matchup_path = os.path.join(tmp, "Yasuo_vs_Syndra_mid_1615_en.txt")
+        with open(matchup_path, "w", encoding="utf-8") as handle:
+            handle.write("Bait Syndra's stun before trading.")
+        with mock.patch.object(lolmatchup, "CACHE", tmp), \
+                mock.patch.object(lolmatchup.llmcli, "call") as no_provider:
+            matchup = lolmatchup.coach_snapshot(dd, "Yasuo", "Syndra", "mid", "en")
+        if not matchup or "Bait Syndra" not in matchup.get("cached_guidance", "") \
+                or no_provider.called:
+            bad.append("matchup cache-only adapter")
+
+        coordinator = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+        coordinator.session = lolcoachsession.CoachSession()
+        coordinator.lock = threading.RLock()
+        coordinator.cancel_handle = None
+        coordinator.provider = "codex"
+        coordinator._set = mock.Mock()
+        coordinator.show = mock.Mock()
+        coordinator._cancel_proactive = mock.Mock(return_value=False)
+        coordinator.audio = mock.Mock()
+        coordinator.audio.submit.return_value = True
+        with mock.patch.object(smitecoach.cfg, "load", return_value={
+                "voice_coach": True, "llm_provider": "codex", "dragon_volume": 30}), \
+                mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+                mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=envelope), \
+                mock.patch.object(smitecoach.lolcoachtools, "answer", return_value={
+                    "text": "Integrated answer.", "error": None}) as harness_call, \
+                mock.patch.object(smitecoach.llmcli, "call") as direct_provider:
+            integrated = coordinator.ask("Use missing context")
+        if not integrated.get("ok") or not harness_call.called or direct_provider.called \
+                or coordinator.session.history()[-1]["assistant"] != "Integrated answer.":
+            bad.append("manual coordinator harness integration")
+
+    if bad:
+        return FAIL, "; ".join(dict.fromkeys(bad))
+    return OK, "seven tools phase-gated, timed, sanitized; retrieval capped at two calls"
+
+
+def c_coach_proactive():
+    """Phase 4 fixtures: lifecycle edges, sparse policy, typed bridge and isolation."""
+    import inspect
+    import tempfile
+    import threading
+    from unittest import mock
+    import lolcoachproactive as proactive
+    import smitecoach
+    import smiteconfig as cfg
+
+    bad = []
+    clock = [0.0]
+    detector = proactive.ProactiveDetector(clock=lambda: clock[0])
+
+    def snap(phase, lifecycle="game-1", sections=None, widget=None, **extra):
+        return {"phase": phase, "lifecycle_id": lifecycle,
+                "sections": sections or {}, "widget": widget or {},
+                "observed_at": clock[0], **extra}
+
+    if detector.observe(snap("None", "client")):
+        bad.append("late registration baseline")
+    clock[0] = 1
+    lobby = detector.observe(snap("Lobby", sections={"queue": {
+        "verdict": "STOP", "summary": "cold window", "evidence": ["fixture"]}}))
+    if [intent.kind for intent in lobby] != ["queue_warning"]:
+        bad.append("Lobby STOP/WAIT edge")
+    clock[0] = 2
+    if detector.observe(snap("Matchmaking")):
+        bad.append("routine matchmaking chatter")
+    clock[0] = 3
+    draft = detector.observe(snap("ChampSelect", sections={"draft": {
+        "role": "MID", "self_champion": "Ahri", "locked": True,
+        "enemies": [{"champion": "Zed", "role": "MID"}] + [
+            {"champion": name, "role": role} for name, role in
+            (("Olaf", "TOP"), ("Lee Sin", "JUNGLE"),
+             ("Jinx", "BOTTOM"), ("Nautilus", "UTILITY"))]}}))
+    if {intent.kind for intent in draft} != {
+            "draft_assignment", "draft_lock", "enemy_lane_reveal", "draft_final_plan"}:
+        bad.append("ChampSelect high-value edges")
+    hover_detector = proactive.ProactiveDetector(clock=lambda: clock[0])
+    hover_detector.observe(snap("None", "hover-client"))
+    hover_detector.observe(snap("ChampSelect", "hover-game", {"draft": {
+        "role": "MID", "self_champion": "Ahri", "locked": False}}))
+    if hover_detector.observe(snap("ChampSelect", "hover-game", {"draft": {
+            "role": "MID", "self_champion": "Zed", "locked": False}})):
+        bad.append("routine champion-hover chatter")
+    clock[0] = 4
+    loading = detector.observe(snap("Loading", sections={"loading": {
+        "scouted": True, "plan": ["front to back"],
+        "win_conditions": {"win": "scale"}}}))
+    if [intent.kind for intent in loading] != ["loading_plan"]:
+        bad.append("Loading consolidated scout edge")
+    clock[0] = 5
+    live = detector.observe(snap("InProgress", widget={
+        "tempo": {"phase": "TAKE", "objective": "Drake"},
+        "guards": {"ward": {"calls": 1, "verdict": "PIT", "quiet": False}},
+        "events": [{"kind": "DragonKill", "time": 300.0},
+                   {"kind": "ChampionKill", "time": 301.0}],
+    }))
+    if {intent.kind for intent in live} != {"live_tempo", "guard_ward", "major_event"}:
+        bad.append("live typed transition filtering")
+    if detector.observe(snap("InProgress", widget={
+            "tempo": {"phase": "TAKE", "objective": "Drake"},
+            "guards": {"ward": {"calls": 1, "verdict": "PIT", "quiet": False}},
+            "events": [{"kind": "DragonKill", "time": 300.0}]})):
+        bad.append("live dedupe")
+    clock[0] = 6
+    post = detector.observe(snap("PostGame", sections={"postgame": {
+        "recent_games": [{"champion": "Ahri", "win": True,
+                          "in_game_performance_grade": "A"}]}}))
+    if [intent.kind for intent in post] != ["postgame_review"]:
+        bad.append("post-game review edge")
+    clock[0] = 7
+    reset = detector.observe(snap("Lobby", "game-2", {"queue": {
+        "verdict": "WAIT", "summary": "take ten"}}))
+    if [intent.kind for intent in reset] != ["queue_warning"]:
+        bad.append("lifecycle reset")
+
+    muted_detector = proactive.ProactiveDetector(clock=lambda: clock[0])
+    muted_detector.observe(snap("Lobby", "muted", {"queue": {"verdict": "GO"}}))
+    muted_detector.observe(snap("Lobby", "muted", {"queue": {"verdict": "STOP"}}),
+                           emit=False)
+    if muted_detector.observe(snap("Lobby", "muted", {"queue": {"verdict": "STOP"}})):
+        bad.append("muted state replay")
+    late = proactive.ProactiveDetector(clock=lambda: clock[0])
+    if late.observe(snap("InProgress", "late", widget={
+            "events": [{"kind": "BaronKill", "time": 1200}]})):
+        bad.append("late registration replay")
+
+    clock[0] = 0
+    policy = proactive.ProactivePolicy(
+        clock=lambda: clock[0], global_cooldown=60, per_kind_cooldown=120,
+        max_per_lifecycle=2, max_per_phase=2, backoff_base=10)
+
+    def intent(kind, priority=1, created=None, ttl=180, phase="InProgress"):
+        created = clock[0] if created is None else created
+        return proactive.ProactiveIntent(
+            kind, phase, priority, created, ttl, f"{kind}:{created}", f"fixture:{kind}")
+
+    low, high = intent("low", 1), intent("high", 3)
+    if policy.offer(low, "life") != "queued" or policy.offer(high, "life") != "replaced" \
+            or policy.pop_ready() != high:
+        bad.append("one-item priority replacement")
+    clock[0] = 30
+    second = intent("second", 2)
+    policy.offer(second, "life")
+    if policy.pop_ready() is not None:
+        bad.append("global cooldown")
+    clock[0] = 61
+    if policy.pop_ready() != second:
+        bad.append("cooldown release")
+    if policy.offer(intent("third", 3), "life") != "max_lifecycle":
+        bad.append("per-game max")
+
+    clock[0] = 0
+    suppressed = proactive.ProactivePolicy(clock=lambda: clock[0])
+    muted_intent = intent("muted")
+    if suppressed.offer(muted_intent, "life", muted=True) != "muted" \
+            or suppressed.offer(muted_intent, "life") != "duplicate":
+        bad.append("muted policy advancement")
+    stale_intent = intent("stale")
+    if suppressed.offer(stale_intent, "life", stale=True) != "stale" \
+            or suppressed.offer(stale_intent, "life") != "duplicate":
+        bad.append("stale suppression/replay")
+    uncertain_intent = intent("uncertain")
+    if suppressed.offer(uncertain_intent, "life", uncertain=True) != "uncertain" \
+            or suppressed.offer(uncertain_intent, "life") != "duplicate":
+        bad.append("uncertain phase suppression/replay")
+    zero_intent = intent("zero", phase="Loading")
+    if suppressed.offer(zero_intent, "life", loading_zero=True) != "loading_zero" \
+            or suppressed.offer(zero_intent, "life") != "duplicate":
+        bad.append("zero-clock suppression/replay")
+    expired = intent("expired", created=-10, ttl=5)
+    if suppressed.offer(expired, "life") != "expired":
+        bad.append("TTL expiry")
+
+    recovery = proactive.ProactivePolicy(
+        clock=lambda: clock[0], global_cooldown=0, per_kind_cooldown=0,
+        backoff_base=10, backoff_cap=40)
+    recovery.offer(intent("initial"), "life")
+    recovery.pop_ready()
+    delay = recovery.record_failure()
+    recovery.offer(intent("recover"), "life")
+    if delay != 10 or recovery.pop_ready() is not None:
+        bad.append("provider/TTS backoff")
+    clock[0] = 10
+    if recovery.pop_ready() is None:
+        bad.append("scheduler recovery after failure")
+    recovery.record_success()
+    if recovery.failures or recovery.backoff_until > clock[0]:
+        bad.append("success clears backoff")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-proactive-") as tmp:
+        state_path = os.path.join(tmp, "widget.json")
+        with mock.patch.object(proactive, "WIDGET_STATE_FILE", state_path):
+            if not proactive.publish_widget_state(
+                    302, {"phase": "TAKE", "obj": "Drake"},
+                    {"ward": {"calls": 1, "verdict": "PIT", "quiet": False}},
+                    [{"EventName": "DragonKill", "EventTime": 300,
+                      "KillerName": "Secret#NA1"},
+                     {"EventName": "ChampionKill", "EventTime": 301}], now=100):
+                bad.append("typed widget publication")
+            bridge = proactive.read_widget_state(now=102)
+            encoded = json.dumps(bridge)
+            if bridge.get("tempo", {}).get("phase") != "TAKE" \
+                    or bridge.get("events") != [{"kind": "DragonKill", "time": 300.0}] \
+                    or "Secret" in encoded or "ChampionKill" in encoded:
+                bad.append("widget allowlist/privacy")
+            if proactive.read_widget_state(now=110).get("_unavailable") != "stale":
+                bad.append("widget freshness")
+
+    manual = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    manual.lock = threading.RLock()
+    manual.proactive_policy = proactive.ProactivePolicy(clock=lambda: 0)
+    queued = proactive.ProactiveIntent(
+        "manual", "Lobby", 1, 0, 30, "manual:1", "fixture:manual")
+    manual.proactive_policy.offer(queued, "life")
+    manual.proactive_handle = mock.Mock()
+    manual.audio = mock.Mock()
+    manual.audio.cancel_proactive.return_value = True
+    manual._set = mock.Mock()
+    with mock.patch.object(proactive, "log_event"):
+        cancelled = manual._cancel_proactive("manual_question")
+    if not manual.proactive_handle is None or manual.proactive_policy.queued is not None:
+        bad.append("manual interaction drops proactive work")
+    if not cancelled or not manual.audio.cancel_proactive.called:
+        bad.append("active proactive audio cancellation")
+    source = inspect.getsource(smitecoach.Coordinator._run_proactive)
+    if "self.session" in source or "build_prompt(question, envelope, [], locale)" not in source:
+        bad.append("proactive conversation-history isolation")
+
+    runner = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+    runner.lock = threading.RLock()
+    runner.cancel_handle = None
+    runner.proactive_handle = None
+    runner.state = "idle"
+    runner._coach_dd = None
+    runner.proactive_spoken = 0
+    runner._set = mock.Mock()
+    runner.show = mock.Mock()
+    runner.proactive_policy = proactive.ProactivePolicy(
+        clock=lambda: clock[0], global_cooldown=0, per_kind_cooldown=0)
+    run_intent = proactive.ProactiveIntent(
+        "queue_warning", "Lobby", 3, clock[0], 120,
+        "run:1", "queue:stop")
+
+    class ImmediateAudio:
+        def submit(self, job):
+            job.callback({"ok": True})
+            return True
+
+    runner.audio = ImmediateAudio()
+    settings = {"llm_provider": "codex", "dragon_volume": 30}
+    with mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="Lobby"), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value={"phase": "Lobby"}), \
+            mock.patch.object(smitecoach.lolcoachprompt, "build_prompt", return_value="prompt"), \
+            mock.patch.object(smitecoach.cfg, "load", return_value=settings), \
+            mock.patch.object(smitecoach.llmcli, "call",
+                              side_effect=[(None, "provider failed"), ("short tip", None)]), \
+            mock.patch.object(proactive, "log_event"):
+        runner._run_proactive(run_intent)
+        failed_count = runner.proactive_policy.failures
+        runner._run_proactive(proactive.ProactiveIntent(
+            "queue_warning", "Lobby", 3, clock[0], 120,
+            "run:2", "queue:wait"))
+    if failed_count != 1 or runner.proactive_policy.failures \
+            or runner.proactive_spoken != 1:
+        bad.append("provider failure isolation/TTS recovery")
+
+    defaults = cfg.load()
+    if defaults.get("proactive_global_cooldown", 0) < 60 \
+            or defaults.get("proactive_max_per_game", 99) > 6:
+        bad.append("conservative config limits")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("lifecycle intents/reset; injected-clock TTL/cooldown/dedupe/queue/max/backoff; "
+                "typed widget bridge; manual/history isolation pass")
+
+
+def c_voice_audio():
+    """Completed locale voices/cache, audio arbitration and hotkey contracts."""
+    import threading
+    from unittest import mock
+    import smiteaudio
+    import smitestt
+
+    bad = []
+    if smitestt.locale_to_culture("en") != "en-US" \
+            or smitestt.locale_to_culture("pt_BR") != "pt-BR" \
+            or smitestt.BACKEND_LOCAL != "faster_whisper":
+        bad.append("local STT locale/backend mapping")
+    if smiteaudio.voice_for_locale("en") != "Salli" \
+            or smiteaudio.voice_for_locale("pt_BR") != "Camila" \
+            or smiteaudio.culture_for_locale("pt_BR") != "pt-BR":
+        bad.append("online/SAPI locale selection")
+    a = smiteaudio.cache_identity("Take it", "en", volume=30)
+    b = smiteaudio.cache_identity("Pegue", "pt_BR", volume=30)
+    c = smiteaudio.cache_identity("Take it!", "en", volume=30)
+    if len({a, b, c}) != 3 or "Salli" not in a or "Camila" not in b:
+        bad.append("locale/text audio cache isolation")
+
+    played, stopped = [], []
+    started, release = threading.Event(), threading.Event()
+
+    def speaker(name, text, volume, locale, kind):
+        played.append((name, kind))
+        if name == "hold":
+            started.set()
+            release.wait(2)
+        return {"ok": True, "renderer": "fake"}
+
+    scheduler = smiteaudio.AudioScheduler(
+        speaker=speaker,
+        chime_player=lambda value, volume: played.append((f"chime-{value}", "cue")) or
+        {"ok": True}, stopper=lambda: stopped.append("stop"))
+    scheduler.submit(smiteaudio.AudioJob(smiteaudio.Priority.MANUAL_RESPONSE,
+                                         name="hold", text="answer"))
+    if not started.wait(1):
+        bad.append("audio scheduler worker")
+    scheduler.submit(smiteaudio.AudioJob(smiteaudio.Priority.PROACTIVE_RESPONSE,
+                                         name="old", text="old"))
+    scheduler.submit(smiteaudio.AudioJob(smiteaudio.Priority.PROACTIVE_RESPONSE,
+                                         name="new", text="new"))
+    if not scheduler.cancel_proactive() or any(
+            job.priority == smiteaudio.Priority.PROACTIVE_RESPONSE
+            for job in scheduler.pending):
+        bad.append("explicit proactive queue cancellation")
+    scheduler.submit(smiteaudio.AudioJob(smiteaudio.Priority.DETERMINISTIC_ALERT,
+                                         name="alert", text="alert"))
+    release.set()
+    deadline = time.monotonic() + 2
+    while scheduler.current is not None or scheduler.pending:
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.01)
+    if [name for name, _kind in played] != ["hold", "alert"]:
+        bad.append("manual/deterministic/proactive priority")
+    scheduler.submit(smiteaudio.AudioJob(smiteaudio.Priority.PROACTIVE_RESPONSE,
+                                         name="queued", text="queued"))
+    scheduler.stop_listening()
+    during = smiteaudio.AudioJob(smiteaudio.Priority.DETERMINISTIC_ALERT,
+                                 name="during-listening", text="wait")
+    scheduler.submit(during)
+    proactive_accepted = scheduler.submit(smiteaudio.AudioJob(
+        smiteaudio.Priority.PROACTIVE_RESPONSE, name="during-proactive", text="drop"))
+    time.sleep(0.05)
+    if not stopped or not scheduler.listening \
+            or any(job.priority == smiteaudio.Priority.PROACTIVE_RESPONSE
+                   for job in scheduler.pending) \
+            or proactive_accepted \
+            or any(name == "during-listening" for name, _kind in played):
+        bad.append("listening preemption")
+    scheduler.finish_listening()
+    deadline = time.monotonic() + 1
+    while scheduler.current is not None or scheduler.pending:
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.01)
+    if not any(name == "during-listening" for name, _kind in played):
+        bad.append("post-listening deterministic release")
+    scheduler.close()
+
+    with mock.patch.object(smiteaudio, "coordinator_request", return_value=None), \
+            mock.patch.object(smiteaudio, "speak",
+                              return_value={"ok": True, "renderer": "local"}) as local_speak:
+        fallback = smiteaudio.deterministic_speech("ward", "Ward it.", 30, "en")
+    if not fallback.get("ok") or not local_speak.called:
+        bad.append("coordinator-unavailable local fallback")
+
+    launcher_paths = (os.path.join(_ROOT, "dist", "tray.ahk"),
+                      os.path.join(_ROOT, "smiteless.ahk"),
+                      os.path.join(_ROOT, "tools", "smiteless_tray.py"))
+    texts = [open(path, encoding="utf-8").read() for path in launcher_paths]
+    if not all("coach toggle" in text or '"coach", "toggle"' in text for text in texts) \
+            or not all(("^!c" in text) for text in texts[:2]) \
+            or "VK_C" not in texts[2] or "Ask coach" not in "".join(texts):
+        bad.append("Ctrl+Alt+C/menu launcher contract")
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, "local STT mapping, locale voice/cache, arbitration and hotkey fixtures pass"
+
+
+def _historical_modern_stt_probe():
+    """Phase 3A source/package contract; never registers identity or opens the microphone."""
+    import subprocess
+    import xml.etree.ElementTree as et
+
+    probe_dir = os.path.join(_ROOT, "tools", "stt_winrt_probe")
+    paths = {
+        "source": os.path.join(probe_dir, "SmitelessSttProbe.cs"),
+        "api_surface": os.path.join(probe_dir, "SpeechRecognizerApiSurfaceProbe.cs"),
+        "desktop": os.path.join(probe_dir, "SmitelessSttProbe.exe.manifest"),
+        "unpackaged": os.path.join(probe_dir, "SmitelessSttProbe.Unpackaged.exe.manifest"),
+        "package": os.path.join(probe_dir, "Package.appxmanifest"),
+        "build": os.path.join(probe_dir, "build-probe.ps1"),
+        "readme": os.path.join(probe_dir, "README.md"),
+        "production_build": os.path.join(_ROOT, "dist", "build-stt-package.ps1"),
+        "production_lifecycle": os.path.join(_ROOT, "dist", "stt-package.ps1"),
+        "app_build": os.path.join(_ROOT, "dist", "build.ps1"),
+        "release": os.path.join(_ROOT, "dist", "make-release.ps1"),
+        "installer": os.path.join(_ROOT, "dist", "installer.ahk"),
+    }
+    missing = [name for name, path in paths.items() if not os.path.isfile(path)]
+    if missing:
+        return FAIL, "missing modern STT probe files: " + ", ".join(missing)
+
+    source = open(paths["source"], encoding="utf-8").read()
+    required_source = (
+        "SupportedTopicLanguages", "SupportedGrammarLanguages", "capture_started",
+        "RecognizeAsync", "CompileConstraintsAsync", "missing_package_identity",
+        "SpeechRecognitionConfidence.Low", "SpeechRecognitionConfidence.Rejected",
+        "network_unavailable", "microphone_unavailable", "permission_denied",
+        "online_speech_disabled", "AudioQualityFailure", "GetCurrentPackageFullName",
+        "new UTF8Encoding(false)", "alternateResults == null",
+        "SMITELESS_STT_PROBE_CUE", "MediaDevice.GetDefaultAudioCaptureId",
+        '"capture_mode", "windows_default"', '"explicit_endpoint_binding", false',
+    )
+    absent = [token for token in required_source if token not in source]
+    if absent:
+        return FAIL, "modern STT source contract missing: " + ", ".join(absent)
+
+    api_surface_source = open(paths["api_surface"], encoding="utf-8").read()
+    required_api_surface = (
+        "typeof(SpeechRecognizer)", "typeof(MediaCaptureInitializationSettings)",
+        "recognizer_has_writable_input_member", "recognizer_has_input_parameter",
+        "media_capture_has_audio_device_id", "explicit_endpoint_binding_supported",
+    )
+    absent = [token for token in required_api_surface if token not in api_surface_source]
+    if absent:
+        return FAIL, "STT API-surface probe contract missing: " + ", ".join(absent)
+
+    ns = {
+        "f": "http://schemas.microsoft.com/appx/manifest/foundation/windows10",
+        "uap": "http://schemas.microsoft.com/appx/manifest/uap/windows10",
+        "uap10": "http://schemas.microsoft.com/appx/manifest/uap/windows10/10",
+        "rescap": "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities",
+        "msix": "urn:schemas-microsoft-com:msix.v1",
+    }
+    package = et.parse(paths["package"]).getroot()
+    identity = package.find("f:Identity", ns)
+    app = package.find("f:Applications/f:Application", ns)
+    microphone = package.find("f:Capabilities/f:DeviceCapability[@Name='microphone']", ns)
+    run_full = package.find("f:Capabilities/rescap:Capability[@Name='runFullTrust']", ns)
+    unvirtualized = package.find(
+        "f:Capabilities/rescap:Capability[@Name='unvirtualizedResources']", ns)
+    allow_external = package.find("f:Properties/uap10:AllowExternalContent", ns)
+    if identity is None or app is None or microphone is None or run_full is None \
+            or unvirtualized is None or allow_external is None \
+            or (allow_external.text or "").strip().lower() != "true":
+        return FAIL, "sparse package identity/capability contract"
+    uap10 = "{%s}" % ns["uap10"]
+    if app.get(uap10 + "RuntimeBehavior") != "win32App" \
+            or app.get(uap10 + "TrustLevel") != "mediumIL":
+        return FAIL, "sparse package Win32 runtime/trust contract"
+
+    desktop = et.parse(paths["desktop"]).getroot()
+    msix = desktop.find("msix:msix", ns)
+    if msix is None or msix.get("packageName") != identity.get("Name") \
+            or msix.get("publisher") != identity.get("Publisher") \
+            or msix.get("applicationId") != app.get("Id"):
+        return FAIL, "desktop/package identity fields diverge"
+
+    build_text = open(paths["build"], encoding="utf-8").read()
+    if "/nv" not in build_text or any(token in build_text for token in (
+            "Add-AppxPackage", "New-SelfSignedCertificate", "Import-Certificate",
+            "Remove-AppxPackage")):
+        return FAIL, "probe build must pack external identity without registering/trusting it"
+
+    production_build = open(paths["production_build"], encoding="utf-8").read()
+    required_production_build = (
+        'packageName = "Smiteless.Stt"', "CertificateThumbprint", "HasPrivateKey",
+        "1.3.6.1.5.5.7.3.3", "makeappx.exe", "signtool.exe", "/nv",
+        "Get-AuthenticodeSignature", "Package.appxmanifest",
+        "SmitelessSttProbe.exe.manifest",
+        'publisher -eq "CN=Smiteless Development"',
+    )
+    absent = [token for token in required_production_build if token not in production_build]
+    if absent or any(token in production_build for token in (
+            "New-SelfSignedCertificate", "Import-Certificate", "Add-AppxPackage")):
+        return FAIL, "production STT signing gate: " + ", ".join(absent)
+
+    lifecycle = open(paths["production_lifecycle"], encoding="utf-8").read()
+    required_lifecycle = (
+        'packageName = "Smiteless.Stt"', "Get-AuthenticodeSignature",
+        "SignerCertificate.Subject", "Add-AppxPackage", "-ExternalLocation",
+        "-ForceUpdateFromAnyVersion", "Remove-AppxPackage", "Get-AppxPackage",
+        'Subject -eq "CN=Smiteless Development"',
+    )
+    absent = [token for token in required_lifecycle if token not in lifecycle]
+    if absent or any(token in lifecycle for token in (
+            "New-SelfSignedCertificate", "Import-Certificate")):
+        return FAIL, "production STT registration gate: " + ", ".join(absent)
+
+    app_build = open(paths["app_build"], encoding="utf-8").read()
+    release = open(paths["release"], encoding="utf-8").read()
+    installer = open(paths["installer"], encoding="utf-8").read()
+    if "build-stt-package.ps1" not in app_build or "RequireSttPackage" not in app_build \
+            or 'stage "app\\stt"' not in app_build \
+            or "stt-package.ps1" not in app_build:
+        return FAIL, "frozen build does not stage the signed STT contract"
+    if "SttCertificateThumbprint" not in release or "RequireSttPackage" not in release:
+        return FAIL, "release path can bypass the signed STT packaging gate"
+    required_installer = (
+        "ConfigureStt", "RestoreStt", "smiteless_stt_backup_", "Smiteless.Stt.msix",
+        'RunSttLifecycle(sttScript, "Uninstall"', "previous speech package was restored",
+    )
+    absent = [token for token in required_installer if token not in installer]
+    if absent:
+        return FAIL, "installer STT upgrade/rollback/uninstall contract: " + ", ".join(absent)
+
+    exe = os.path.join(_ROOT, "build", "stt-probe", "SmitelessSttProbe.Unpackaged.exe")
+    api_surface_exe = os.path.join(
+        _ROOT, "build", "stt-probe", "SpeechRecognizerApiSurfaceProbe.exe")
+    if os.path.isfile(api_surface_exe):
+        surface_child = subprocess.run([api_surface_exe], capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace", timeout=10)
+        try:
+            surface = json.loads(surface_child.stdout)
+        except json.JSONDecodeError:
+            return FAIL, "built STT API-surface probe emitted malformed JSON"
+        if surface_child.returncode or not surface.get("ok") \
+                or surface.get("media_capture_has_audio_device_id") is not True \
+                or not isinstance(surface.get("explicit_endpoint_binding_supported"), bool):
+            return FAIL, "built STT API-surface JSON contract"
+    if os.path.isfile(exe):
+        child = subprocess.run([exe, "readiness", "pt-BR"], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=10)
+        try:
+            value = json.loads(child.stdout)
+        except json.JSONDecodeError:
+            return FAIL, "built modern STT readiness emitted malformed JSON"
+        if not value.get("ok") or value.get("command") != "readiness" \
+                or value.get("backend") != "windows_media_speech" \
+                or value.get("capture_started") is not False \
+                or not isinstance(value.get("supported_topic_languages"), list):
+            return FAIL, "built modern STT readiness JSON contract"
+        if not value.get("package_identity"):
+            refusal = subprocess.run([exe, "recognize", "pt-BR", "1000"],
+                                     capture_output=True, text=True, encoding="utf-8",
+                                     errors="replace", timeout=10)
+            try:
+                refused = json.loads(refusal.stdout)
+            except json.JSONDecodeError:
+                return FAIL, "unpackaged recognition refusal emitted malformed JSON"
+            if refusal.returncode != 2 or refused.get("error") != "missing_package_identity":
+                return FAIL, "unpackaged helper must refuse recognition before microphone access"
+        return OK, ("modern STT helper + sparse manifest; package_identity="
+                    f"{value.get('package_identity')}, pt-BR={value.get('topic_supported')}")
+    return OK, "modern STT helper + sparse manifest source contracts (helper not built)"
+
+
+def c_frozen_whisper_runtime():
+    """Phase 3H frozen/local runtime contract; never captures, loads or downloads a model."""
+    import subprocess
+
+    bad = []
+    paths = {
+        "requirements": os.path.join(_ROOT, "requirements.txt"),
+        "build": os.path.join(_ROOT, "dist", "build.ps1"),
+        "release": os.path.join(_ROOT, "dist", "make-release.ps1"),
+        "installer": os.path.join(_ROOT, "dist", "installer.ahk"),
+        "entry": os.path.join(_ROOT, "smiteless_main.py"),
+        "stt": os.path.join(_ROOT, "core", "smitestt.py"),
+        "settings": os.path.join(_ROOT, "ui", "smitesettings.py"),
+    }
+    sources = {name: open(path, encoding="utf-8").read()
+               for name, path in paths.items()}
+    build = sources["build"]
+    required_build = (
+        '"smitemicworker","smitewhisperworker"',
+        '"--collect-all","faster_whisper"',
+        '"--collect-binaries","ctranslate2"',
+        '"--collect-binaries","_sounddevice_data"',
+        '"--copy-metadata","ctranslate2"',
+        '"--copy-metadata","sounddevice"',
+        'assets\\whisper-small-manifest.json',
+        '"--console","--hide-console","hide-early"',
+    )
+    absent = [token for token in required_build if token not in build]
+    if absent:
+        bad.append("frozen runtime collection missing: " + ", ".join(absent))
+    if "__stt-mic-worker" not in sources["entry"] \
+            or "__stt-whisper-worker" not in sources["entry"] \
+            or "getattr(sys, \"frozen\", False)" not in sources["stt"]:
+        bad.append("frozen private-worker dispatch")
+    for requirement in ("faster-whisper==1.2.1", "ctranslate2==4.8.1",
+                        "sounddevice==0.5.5"):
+        if requirement not in sources["requirements"]:
+            bad.append("unpinned runtime: " + requirement)
+    forbidden = (
+        "Windows.Media.SpeechRecognition", "System.Speech", "Add-AppxPackage",
+        "Smiteless.Stt", "SttCertificateThumbprint", "RequireSttPackage",
+        "build-stt-package.ps1", "stt-package.ps1",
+    )
+    active = "\n".join(sources.values())
+    leaked = [token for token in forbidden if token in active]
+    if leaked:
+        bad.append("legacy speech product path remains: " + ", ".join(leaked))
+    for stale in (os.path.join(_ROOT, "dist", "build-stt-package.ps1"),
+                  os.path.join(_ROOT, "dist", "stt-package.ps1")):
+        if os.path.exists(stale):
+            bad.append("legacy production script still exists: " + os.path.basename(stale))
+
+    frozen = os.environ.get("SMITELESS_FROZEN_EXE", "").strip()
+    if frozen:
+        if not os.path.isfile(frozen):
+            bad.append("SMITELESS_FROZEN_EXE does not exist")
+        else:
+            requests = (
+                ("__stt-mic-worker", {"version": 1, "command": "readiness"},
+                 lambda row: row.get("ok") and row.get("capture_started") is False),
+                ("__stt-whisper-worker", {"version": 1, "command": "readiness"},
+                 lambda row: row.get("ok") and row.get("model_loaded") is False
+                 and row.get("download_started") is False
+                 and (row.get("runtime") or {}).get("ok") is True
+                 and (row.get("runtime") or {}).get("pointer_bits") == 64
+                 and all((row.get("packages") or {}).get(name)
+                         for name in ("faster-whisper", "ctranslate2"))),
+            )
+            for command, request, validate in requests:
+                try:
+                    child = subprocess.run(
+                        [frozen, command], input=json.dumps(request) + "\n",
+                        capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    row = json.loads((child.stdout or "").strip())
+                    if not validate(row):
+                        bad.append(command + " readiness contract")
+                except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+                    bad.append(command + " frozen startup")
+    if bad:
+        return FAIL, "; ".join(bad)
+    detail = "collection/dispatch/legacy-removal contracts pass"
+    if frozen:
+        detail += "; frozen DLL imports and no-load readiness pass"
+    return OK, detail
+
+
+def c_local_whisper_probe():
+    """Active Phase 3A: local Whisper readiness/refusal without model/network access."""
+    import tempfile
+    from unittest import mock
+    import whisper_probe as probe
+
+    bad = []
+    if probe.MODEL_NAME != "small" or not probe.MODEL_ID.endswith("faster-whisper-small") \
+            or len(probe.MODEL_REVISION) != 40:
+        bad.append("multilingual small model pin")
+    for forbidden in ("small.en", "base", "medium"):
+        try:
+            probe.validate_model_name(forbidden)
+            bad.append(f"accepted forbidden model {forbidden}")
+        except probe.ProbeError:
+            pass
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-whisper-fixture-") as tmp:
+        local = os.path.join(tmp, "Local")
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": local}, clear=False):
+            root = probe.model_root()
+            expected = os.path.join(local, "Smiteless", "models", "whisper-small")
+            if os.path.normcase(str(root)) != os.path.normcase(os.path.abspath(expected)):
+                bad.append("shared LocalAppData model root")
+            ready = probe.readiness()
+        model = ready.get("model", {})
+        if model.get("state") != "missing" or ready.get("model_loaded") is not False \
+                or ready.get("download_started") is not False:
+            bad.append("missing-model readiness performed work")
+        if ready.get("cpu", {}).get("selected") != "int8" \
+                or not isinstance(ready.get("cuda", {}).get("compute_types"), list):
+            bad.append("CPU/CUDA readiness contract")
+        if ready.get("packages", {}).get("ctranslate2") is None \
+                and ready.get("error") != "ctranslate2_not_installed":
+            bad.append("absent dependency diagnostic")
+
+    source = open(os.path.join(_ROOT, "tools", "whisper_probe.py"), encoding="utf-8").read()
+    cloud_tokens = ("api.openai.com", "gpt-4o-transcribe", "requests.post(",
+                    "Windows.Media.SpeechRecognition", "System.Speech")
+    if any(token in source for token in cloud_tokens):
+        bad.append("cloud/legacy STT path in local probe")
+    if "device=None" not in source or "local_files_only=True" not in source:
+        bad.append("default-microphone/offline model contract")
+    if "capture_beep(880, 250)" not in source or "capture_beep(440, 180)" not in source:
+        bad.append("microphone start/end beep contract")
+    if "cpu_fallback" not in source or "without CPU fallback" not in source:
+        bad.append("explicit GPU failure contract")
+    cuda_error = probe.actionable_runtime_error(
+        RuntimeError("Library cublas64_12.dll is not found or cannot be loaded"))
+    if "CUDA 12" not in cuda_error or "cuDNN 9" not in cuda_error:
+        bad.append("actionable CUDA runtime diagnostic")
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, "multilingual small pin; no-load readiness; CPU/GPU/refusal contracts pass"
+
+
+def c_whisper_model_manager():
+    """Active Phase 3B: trusted tiny-file cache/lock/download fixtures, never network."""
+    import copy
+    import hashlib
+    import tempfile
+    import threading
+    from pathlib import Path
+    from unittest import mock
+    import smitewhispermodel as model
+
+    bad = []
+    blobs = {
+        "config.json": b'{"fixture":1}\n',
+        "model.bin": b"tiny-model-fixture\x00\x01",
+        "tokenizer.json": b'{"tokens":["dragao","dragon"]}\n',
+        "vocabulary.txt": b"dragao\ndragon\nlee sin\n",
+    }
+
+    def fixture_manifest():
+        return model.validate_manifest({
+            "schema_version": 1,
+            "model": {
+                "name": "small", "multilingual": True,
+                "repository": "Systran/faster-whisper-small",
+                "revision": "1" * 40,
+            },
+            "format": {
+                "name": "CTranslate2", "format_version": 1,
+                "runtime_version": "4.8.1",
+            },
+            "cache": {
+                "directory": "whisper-small",
+                "compatibility_key": "fixture-small-ct2-v1",
+            },
+            "files": [
+                {"path": name, "size": len(data),
+                 "sha256": hashlib.sha256(data).hexdigest()}
+                for name, data in blobs.items()
+            ],
+        })
+
+    manifest = fixture_manifest()
+    production = model.load_manifest()
+    expected_hashes = {
+        "config.json": (2370, "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828"),
+        "model.bin": (483546902, "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"),
+        "tokenizer.json": (2203239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
+        "vocabulary.txt": (459861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
+    }
+    got_hashes = {row["path"]: (row["size"], row["sha256"])
+                  for row in production["files"]}
+    if got_hashes != expected_hashes or production["model"]["revision"] \
+            != "536b0662742c02347bc0e980a01041f333bce120":
+        bad.append("trusted production revision/file manifest")
+    unsafe = copy.deepcopy(manifest)
+    unsafe["files"][0]["path"] = "../escape.bin"
+    try:
+        model.validate_manifest(unsafe)
+        bad.append("manifest path traversal accepted")
+    except model.ModelManagerError as exc:
+            if exc.code != "manifest_unsafe_path":
+                bad.append("manifest traversal typed error")
+    broad_cache = copy.deepcopy(manifest)
+    broad_cache["cache"]["directory"] = ".."
+    try:
+        model.validate_manifest(broad_cache)
+        bad.append("broad/versioned cache directory accepted")
+    except model.ModelManagerError as exc:
+        if exc.code != "manifest_cache_invalid":
+            bad.append("versioned cache typed error")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-state-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        with mock.patch.object(sys, "frozen", False, create=True):
+            source_root = model.resolve_paths(local_appdata=tmp).model_root
+        with mock.patch.object(sys, "frozen", True, create=True):
+            frozen_root = model.resolve_paths(local_appdata=tmp).model_root
+        if source_root != frozen_root or source_root != Path(tmp).resolve() / \
+                "Smiteless" / "models" / "whisper-small":
+            bad.append("source/frozen canonical model root")
+        try:
+            model.resolve_paths(
+                local_appdata=Path(tmp) / "redirected",
+                trusted_local_appdata=Path(tmp) / "trusted")
+            bad.append("redirected LocalAppData accepted")
+        except model.ModelManagerError as exc:
+            if exc.code != "local_appdata_redirected":
+                bad.append("redirected LocalAppData typed error")
+        forged = model.ModelPaths(
+            Path(tmp), Path(tmp) / "Elsewhere", Path(tmp) / "Elsewhere" / "models",
+            Path(tmp) / "Elsewhere" / "models" / "whisper-small",
+            Path(tmp) / "Elsewhere" / "models" / model.LOCK_FILE_NAME)
+        try:
+            model.inspect_model(manifest=manifest, paths=forged)
+            bad.append("forged model path object accepted")
+        except model.ModelManagerError as exc:
+            if exc.code != "unsafe_model_path":
+                bad.append("forged model path typed error")
+        if model.inspect_model(manifest=manifest, paths=paths)["state"] != "missing":
+            bad.append("missing model state")
+        paths.model_root.mkdir(parents=True)
+        first_name = next(iter(blobs))
+        (paths.model_root / first_name).write_bytes(blobs[first_name])
+        if model.inspect_model(manifest=manifest, paths=paths)["state"] != "partial":
+            bad.append("partial model state")
+        for name, data in blobs.items():
+            (paths.model_root / name).write_bytes(data)
+        corrupt_name = "tokenizer.json"
+        (paths.model_root / corrupt_name).write_bytes(b"X" * len(blobs[corrupt_name]))
+        corrupt = model.inspect_model(manifest=manifest, paths=paths)
+        if corrupt["state"] != "invalid" or corrupt.get("error") != "model_hash_mismatch":
+            bad.append("same-size wrong-hash model state")
+        (paths.model_root / corrupt_name).write_bytes(blobs[corrupt_name])
+        if not model.inspect_model(manifest=manifest, paths=paths).get("ready"):
+            bad.append("valid model state")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-lock-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        old = model.ModelLock(paths, clock=lambda: 100.0, pid_probe=lambda _pid: True,
+                              owner_pid=101)
+        if not old.acquire():
+            bad.append("initial active lock")
+        blocked = model.ModelLock(
+            paths, clock=lambda: 100.0 + model.LOCK_STALE_SECONDS + 1,
+            pid_probe=lambda _pid: True, owner_pid=202)
+        active_state = model.lock_status(
+            paths, clock=lambda: 100.0 + model.LOCK_STALE_SECONDS + 1,
+            pid_probe=lambda _pid: True)
+        if active_state.get("owner_pid") != 101 or not active_state.get("stale") \
+                or active_state.get("recoverable"):
+            bad.append("lock owner/age/active status")
+        if blocked.acquire():
+            bad.append("active old lock was reclaimed")
+            blocked.release()
+        old.release()
+        abandoned = model.ModelLock(paths, clock=lambda: 100.0,
+                                    pid_probe=lambda _pid: True, owner_pid=303)
+        abandoned.acquire()
+        recovered = model.ModelLock(
+            paths, clock=lambda: 100.0 + model.LOCK_STALE_SECONDS + 1,
+            pid_probe=lambda pid: pid != 303, owner_pid=404)
+        if not recovered.acquire():
+            bad.append("proven-dead stale lock was not recovered")
+        recovered.release()
+        abandoned.release()
+
+        gate = threading.Barrier(3)
+        release = threading.Event()
+        outcomes = []
+
+        def contender(owner_pid):
+            lock = model.ModelLock(paths, pid_probe=lambda _pid: True, owner_pid=owner_pid)
+            gate.wait()
+            acquired = lock.acquire()
+            outcomes.append(acquired)
+            if acquired:
+                release.wait(2)
+                lock.release()
+
+        threads = [threading.Thread(target=contender, args=(pid,)) for pid in (501, 502)]
+        for thread in threads:
+            thread.start()
+        gate.wait()
+        deadline = time.monotonic() + 2
+        while len(outcomes) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        release.set()
+        for thread in threads:
+            thread.join(timeout=2)
+        if sorted(outcomes) != [False, True]:
+            bad.append("concurrent fake-process exclusion")
+
+    def write_remaining(_manifest, entry, partial, offset, cancellation, on_chunk):
+        cancellation.raise_if_cancelled()
+        data = blobs[entry["path"]]
+        with open(partial, "ab" if offset else "wb") as handle:
+            handle.write(data[offset:])
+        on_chunk(len(data))
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-resume-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        calls = []
+        interrupted = [False]
+
+        def flaky(_manifest, entry, partial, offset, cancellation, on_chunk):
+            cancellation.raise_if_cancelled()
+            name = entry["path"]
+            data = blobs[name]
+            calls.append((name, offset))
+            if name == "tokenizer.json" and not interrupted[0]:
+                interrupted[0] = True
+                cut = max(1, len(data) // 2)
+                with open(partial, "ab" if offset else "wb") as handle:
+                    handle.write(data[offset:cut])
+                on_chunk(cut)
+                raise RuntimeError("fixture interruption")
+            with open(partial, "ab" if offset else "wb") as handle:
+                handle.write(data[offset:])
+            on_chunk(len(data))
+
+        with mock.patch.object(model, "CHECKPOINT_INTERVAL_BYTES", 1):
+            first = model.download_model(manifest, paths, fetcher=flaky)
+        staging_dirs = list(paths.models_root.glob(model.STAGING_PREFIX + "*"))
+        checkpoint = model._read_json(staging_dirs[0] / model.CHECKPOINT_NAME) \
+            if len(staging_dirs) == 1 else None
+        split = len(calls)
+        progress_rows = []
+        second = model.download_model(
+            manifest, paths, fetcher=flaky, progress=progress_rows.append)
+        resumed_calls = calls[split:]
+        if first.get("error") != "download_failed" or not first.get("resumable"):
+            bad.append("interrupted download checkpoint")
+        completed_size = len(blobs["config.json"]) + len(blobs["model.bin"])
+        if not checkpoint or checkpoint.get("bytes_downloaded", 0) <= completed_size:
+            bad.append("bounded partial-byte checkpoint")
+        if not second.get("ok") or not second.get("resumed") \
+                or not model.inspect_model(manifest=manifest, paths=paths).get("ready"):
+            bad.append("interrupted download resume/promotion")
+        if any(name in ("config.json", "model.bin") for name, _offset in resumed_calls) \
+                or not any(name == "tokenizer.json" and offset > 0
+                           for name, offset in resumed_calls):
+            bad.append("completed-file skip/partial-file resume")
+        if not progress_rows or progress_rows[-1].get("state") != "ready" \
+                or progress_rows[-1].get("percent") != 100.0:
+            bad.append("pure progress API")
+        response_text = json.dumps([first, second, model.status(manifest, paths)],
+                                   sort_keys=True)
+        if os.path.normcase(tmp) in os.path.normcase(response_text) or "token" in response_text:
+            bad.append("user path/model token leaked into status")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-retry-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        attempts = [0]
+
+        def invalid_then_valid(_manifest, entry, partial, offset, cancellation, on_chunk):
+            attempts[0] += 1
+            data = blobs[entry["path"]]
+            if attempts[0] == 1:
+                Path(partial).write_bytes(b"!" * len(data))
+                on_chunk(len(data))
+                return
+            write_remaining(_manifest, entry, partial, offset, cancellation, on_chunk)
+
+        failed = model.download_model(manifest, paths, fetcher=invalid_then_valid)
+        retried = model.download_model(manifest, paths, fetcher=write_remaining)
+        if failed.get("error") != "download_file_invalid" or not retried.get("ok"):
+            bad.append("invalid completed-file clean retry")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-concurrent-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        entered = threading.Event()
+        release_fetch = threading.Event()
+        concurrent_results = []
+
+        def blocking_fetcher(_manifest, entry, partial, offset, cancellation, on_chunk):
+            entered.set()
+            if not release_fetch.wait(2):
+                raise RuntimeError("fixture release timeout")
+            write_remaining(_manifest, entry, partial, offset, cancellation, on_chunk)
+
+        first_thread = threading.Thread(
+            target=lambda: concurrent_results.append(
+                model.download_model(manifest, paths, fetcher=blocking_fetcher)))
+        first_thread.start()
+        if not entered.wait(2):
+            bad.append("concurrent download did not enter fetch")
+        second_thread = threading.Thread(
+            target=lambda: concurrent_results.append(
+                model.download_model(manifest, paths, fetcher=write_remaining)))
+        second_thread.start()
+        second_thread.join(timeout=2)
+        release_fetch.set()
+        first_thread.join(timeout=2)
+        if len(concurrent_results) != 2 \
+                or sorted((row.get("ok", False), row.get("error"))
+                          for row in concurrent_results) \
+                != [(False, "model_locked"), (True, None)]:
+            bad.append("concurrent download/promotion exclusion")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-atomic-") as tmp:
+        paths = model.resolve_paths(local_appdata=tmp)
+        paths.model_root.mkdir(parents=True)
+        sentinel = paths.model_root / "old-invalid-cache.txt"
+        sentinel.write_text("preserve until promotion", encoding="utf-8")
+        observed = []
+
+        def observing_fetcher(_manifest, entry, partial, offset, cancellation, on_chunk):
+            observed.append(sentinel.is_file() and not (paths.model_root / entry["path"]).exists())
+            write_remaining(_manifest, entry, partial, offset, cancellation, on_chunk)
+
+        promoted = model.download_model(manifest, paths, fetcher=observing_fetcher)
+        if not promoted.get("ok") or not all(observed) or sentinel.exists() \
+                or not model.inspect_model(manifest=manifest, paths=paths).get("ready"):
+            bad.append("validated atomic promotion/preservation")
+        candidate = model.validate_import_candidate(paths.model_root, manifest, paths)
+        if not candidate.get("ready"):
+            bad.append("allowlisted future import candidate validation")
+        cancellation = model.DownloadCancellation()
+        cancellation.cancel()
+        other_paths = model.resolve_paths(local_appdata=Path(tmp) / "cancel")
+        cancelled = model.download_model(
+            manifest, other_paths, fetcher=write_remaining, cancellation=cancellation)
+        if cancelled.get("error") != "cancelled" or not cancelled.get("resumable"):
+            bad.append("pure cancellation API")
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-model-upgrade-") as tmp:
+        current_paths = model.paths_for_manifest(manifest, local_appdata=tmp)
+        current = model.download_model(manifest, current_paths, fetcher=write_remaining)
+        future_manifest = copy.deepcopy(manifest)
+        future_manifest["model"]["revision"] = "2" * 40
+        future_manifest["cache"] = {
+            "directory": "whisper-small-fixture-v2",
+            "compatibility_key": "fixture-small-ct2-v2",
+        }
+        future_manifest = model.validate_manifest(future_manifest)
+        future_paths = model.paths_for_manifest(future_manifest, local_appdata=tmp)
+        failed_future = model.download_model(
+            future_manifest, future_paths,
+            fetcher=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("fixture interrupted incompatible upgrade")))
+        preserved = model.inspect_model(manifest=manifest, paths=current_paths)
+        upgraded = model.download_model(
+            future_manifest, future_paths, fetcher=write_remaining)
+        if not current.get("ok") or failed_future.get("error") != "download_failed" \
+                or not preserved.get("ready") or not upgraded.get("ok") \
+                or not model.inspect_model(
+                    manifest=future_manifest, paths=future_paths).get("ready") \
+                or current_paths.model_root == future_paths.model_root:
+            bad.append("incompatible versioned-cache upgrade preservation")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("trusted manifest/path guards; missing/partial/corrupt/valid; active/stale locks; "
+                "concurrent downloads; interrupt/resume/retry/atomic/versioned promotion/cancel pass")
+
+
+def c_local_whisper_workers():
+    """Active Phase 3C: bounded fake capture and isolated JSON worker contracts."""
+    import array
+    import hashlib
+    import subprocess
+    import tempfile
+    import wave
+    from pathlib import Path
+    from unittest import mock
+    import llmprocess
+    import smitemicworker as mic
+    import smitestt
+    import smitewhispermodel as manager
+    import smitewhisperworker as whisper
+
+    bad = []
+    block_frames = mic.SAMPLE_RATE * mic.BLOCK_MS // 1000
+    silence = array.array("h", [0] * block_frames).tobytes()
+    voiced = array.array("h", [1200] * block_frames).tobytes()
+    captured = mic.capture_blocks(
+        [voiced] * 4 + [silence] * 20,
+        initial_silence_ms=250, end_silence_ms=300, total_ms=3000)
+    if not captured.get("pcm") or not captured.get("stopped_by_silence") \
+            or captured.get("duration_ms", 9999) > 1000:
+        bad.append("bounded PCM/end-silence capture")
+    try:
+        mic.capture_blocks([silence] * 20, initial_silence_ms=250, total_ms=1000)
+        bad.append("initial silence accepted as speech")
+    except mic.CaptureError as exc:
+        if exc.code != "no_speech":
+            bad.append("initial silence typed error")
+
+    blobs = {
+        "config.json": b'{"fixture":1}\n',
+        "model.bin": b"tiny-model-fixture\x00\x01",
+        "tokenizer.json": b'{"tokens":["dragao","dragon"]}\n',
+        "vocabulary.txt": b"dragao\ndragon\nlee sin\n",
+    }
+    manifest = manager.validate_manifest({
+        "schema_version": 1,
+        "model": {"name": "small", "multilingual": True,
+                  "repository": "Systran/faster-whisper-small", "revision": "2" * 40},
+        "format": {"name": "CTranslate2", "format_version": 1,
+                   "runtime_version": "4.8.1"},
+        "cache": {"directory": "whisper-small", "compatibility_key": "worker-fixture-v1"},
+        "files": [{"path": name, "size": len(data),
+                   "sha256": hashlib.sha256(data).hexdigest()}
+                  for name, data in blobs.items()],
+    })
+
+    def write_wav(path, pcm=voiced * 4):
+        with wave.open(str(path), "wb") as target:
+            target.setnchannels(1)
+            target.setsampwidth(2)
+            target.setframerate(16000)
+            target.writeframes(pcm)
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-worker-fixture-") as tmp:
+        paths = manager.resolve_paths(local_appdata=tmp)
+        paths.model_root.mkdir(parents=True)
+        for name, data in blobs.items():
+            (paths.model_root / name).write_bytes(data)
+        audio_root = mic.audio_root(paths)
+        audio_root.mkdir(parents=True)
+        audio_path = audio_root / "coach-fixture.wav"
+        audio_path.touch()
+
+        seen_stream = []
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                seen_stream.append(kwargs)
+                self.blocks = iter([voiced] * 4 + [silence] * 20)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _frames):
+                return next(self.blocks, silence), False
+
+        fake_sd = type("FakeSoundDevice", (), {
+            "query_devices": staticmethod(lambda device, kind: {"max_input_channels": 1}),
+            "RawInputStream": FakeStream,
+        })
+        got_capture = mic.capture_default(
+            audio_path, initial_silence_ms=250, end_silence_ms=300, total_ms=2000,
+            sounddevice=fake_sd, root=audio_root, beeper=lambda *_args: True,
+            post_beep_delay=0)
+        if not got_capture.get("ok") or not mic.validate_wav(audio_path, root=audio_root) \
+                or not seen_stream or seen_stream[0].get("device") is not None \
+                or not got_capture.get("start_beep") or not got_capture.get("end_beep"):
+            bad.append("Windows-default fake capture/WAV validation")
+        missing_sd = type("MissingSoundDevice", (), {
+            "query_devices": staticmethod(
+                lambda *_args: (_ for _ in ()).throw(RuntimeError("no input"))),
+        })
+        if mic.microphone_readiness(missing_sd).get("error") != "microphone_unavailable":
+            bad.append("missing default microphone typed error")
+        arbitrary = Path(tmp) / "outside.wav"
+        arbitrary.write_bytes(b"outside")
+        try:
+            mic.validate_audio_path(arbitrary, root=audio_root, require_exists=True)
+            bad.append("arbitrary audio path accepted")
+        except mic.CaptureError:
+            pass
+
+        stale = audio_root / "coach-stale.wav"
+        stale.touch()
+        unrelated = audio_root / "keep.txt"
+        unrelated.touch()
+        os.utime(stale, (1, 1))
+        if mic.cleanup_stale_audio(audio_root, clock=lambda: 10000, max_age=10) != 1 \
+                or stale.exists() or not unrelated.exists():
+            bad.append("allowlisted startup temp cleanup")
+
+        class Segment:
+            def __init__(self, text, no_speech_prob=0.01):
+                self.text = text
+                self.no_speech_prob = no_speech_prob
+
+        class FakeModel:
+            def transcribe(self, path, **kwargs):
+                language = kwargs.get("language")
+                if Path(path) != audio_path or language not in ("en", "pt"):
+                    raise AssertionError("worker transcription arguments")
+                text = ((" Dragão ", " agora ") if language == "pt"
+                        else (" Dragon ", " now "))
+                info = type("Info", (), {
+                    "language": language, "language_probability": 0.97})()
+                return [Segment(part) for part in text], info
+
+        factory_calls = []
+
+        def model_factory(path, **kwargs):
+            factory_calls.append((path, kwargs))
+            return FakeModel()
+
+        worker = whisper.WhisperWorker(
+            paths=paths, manifest=manifest, model_factory=model_factory,
+            audio_root=audio_root)
+        if worker.handle({"version": 999, "command": "status"}).get("error") \
+                != "protocol_mismatch":
+            bad.append("worker protocol mismatch")
+        for decoder, limit in ((mic.decode_request, mic.MAX_REQUEST_BYTES),
+                               (whisper.decode_request, whisper.MAX_REQUEST_BYTES)):
+            for raw, expected in ((b"not-json", "malformed_json"),
+                                  (b"x" * (limit + 1), "request_too_large")):
+                try:
+                    decoder(raw)
+                    bad.append(f"worker accepted {expected}")
+                except (mic.CaptureError, whisper.WorkerError) as exc:
+                    if exc.code != expected:
+                        bad.append(f"worker mistyped {expected}")
+        invalid_load = worker.handle({"version": 1, "command": "load",
+                                      "model_path": str(Path(tmp) / "other"),
+                                      "device": "cpu", "compute_type": "int8"})
+        if invalid_load.get("error") != "invalid_model_path":
+            bad.append("invalid model path refusal")
+        loaded = worker.handle({"version": 1, "command": "load",
+                                "model_path": str(paths.model_root),
+                                "device": "cpu", "compute_type": "int8"})
+        if not loaded.get("ok") or not factory_calls \
+                or factory_calls[0][1].get("local_files_only") is not True:
+            bad.append("offline canonical model load")
+        write_wav(audio_path)
+        invalid_audio = worker.handle({"version": 1, "command": "transcribe",
+                                       "audio_path": str(arbitrary), "locale": "pt_BR"})
+        if invalid_audio.get("error") != "invalid_audio_path":
+            bad.append("invalid worker audio path refusal")
+        transcript = worker.handle({"version": 1, "command": "transcribe",
+                                    "audio_path": str(audio_path), "locale": "pt_BR"})
+        if not transcript.get("ok") or transcript.get("text") != "Dragão agora" \
+                or transcript.get("cpu_fallback") is not False:
+            bad.append("Unicode PT-BR worker transcription")
+        english = worker.handle({"version": 1, "command": "transcribe",
+                                 "audio_path": str(audio_path), "locale": "en"})
+        if not english.get("ok") or english.get("text") != "Dragon now" \
+                or english.get("language") != "en":
+            bad.append("Unicode English worker transcription")
+        if not worker.handle({"version": 1, "command": "unload"}).get("ok") \
+                or worker.status().get("model_loaded"):
+            bad.append("worker unload/status")
+
+        created = []
+        real_new = smitestt._new_audio_file
+
+        def tracked_new(_paths=None):
+            value = real_new(paths)
+            created.append(value[0])
+            return value
+
+        def fake_capture(path, *_args, **_kwargs):
+            write_wav(path)
+            return {"ok": True, "duration_ms": 200, "sample_rate": 16000,
+                    "channels": 1, "peak_int16": 1200, "rms_int16": 1200}
+
+        with mock.patch.object(smitestt.smitewhispermodel, "load_manifest",
+                               return_value=manifest), \
+                mock.patch.object(smitestt.smitewhispermodel, "resolve_paths",
+                                  return_value=paths), \
+                mock.patch.object(smitestt.smitewhispermodel, "inspect_model",
+                                  return_value={"state": "ready", "ready": True}), \
+                mock.patch.object(smitestt, "_new_audio_file", side_effect=tracked_new), \
+                mock.patch.object(smitestt, "_capture", side_effect=fake_capture), \
+                mock.patch.object(smitestt, "_transcribe",
+                                  return_value={"ok": False, "error": "worker_crash"}):
+            failed_turn = smitestt.recognize("pt_BR")
+        if failed_turn.get("error") != "worker_crash" or not created or created[0].exists():
+            bad.append("temporary WAV cleanup after worker failure")
+        with mock.patch.object(smitestt.smitewhispermodel, "load_manifest",
+                               return_value=manifest), \
+                mock.patch.object(smitestt.smitewhispermodel, "resolve_paths",
+                                  return_value=paths), \
+                mock.patch.object(smitestt.smitewhispermodel, "inspect_model",
+                                  return_value={"state": "missing", "ready": False}), \
+                mock.patch.object(smitestt, "_capture") as capture_probe:
+            missing_model = smitestt.recognize("en")
+        if missing_model.get("error") != "model_missing" or capture_probe.called:
+            bad.append("missing model opened microphone")
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self, stdout="", returncode=0, timeout=False):
+            self.stdout = stdout
+            self.returncode = returncode
+            self.timeout = timeout
+
+        def communicate(self, input=None, timeout=None):
+            self.input = input
+            if self.timeout:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            return self.stdout, "redacted diagnostic"
+
+    def protocol_factory(stdout="", returncode=0, timeout=False):
+        return lambda *_args, **_kwargs: FakeProcess(stdout, returncode, timeout)
+
+    good_line = json.dumps({"version": 1, "ok": True, "command": "status"}) + "\n"
+    responses, error = smitestt._run_protocol(
+        ["fixture"], [{"version": 1, "command": "status"}], 1,
+        popen_factory=protocol_factory(good_line))
+    if error or not responses or not responses[0].get("ok"):
+        bad.append("JSON-lines success")
+    protocol_cases = (
+        ("malformed", protocol_factory("not-json\n"), "malformed_json"),
+        ("no output", protocol_factory(""), "no_output"),
+        ("crash", protocol_factory("", returncode=7), "worker_crash"),
+        ("oversized", protocol_factory("x" * (smitestt.MAX_PROTOCOL_OUTPUT_BYTES + 1)),
+         "response_too_large"),
+    )
+    for name, factory, expected in protocol_cases:
+        _responses, got_error = smitestt._run_protocol(
+            ["fixture"], [{"version": 1, "command": "status"}], 1,
+            popen_factory=factory)
+        if got_error != expected:
+            bad.append(f"{name} protocol error")
+    killed = []
+    with mock.patch.object(smitestt.llmprocess, "terminate_tree", side_effect=killed.append):
+        _responses, timed_error = smitestt._run_protocol(
+            ["fixture"], [{"version": 1, "command": "status"}], 1,
+            popen_factory=protocol_factory(timeout=True))
+    if timed_error != "timeout" or len(killed) != 1:
+        bad.append("worker timeout/tree termination")
+    cancelled = llmprocess.CancellationHandle()
+    cancelled.cancel()
+    killed = []
+    with mock.patch.object(smitestt.llmprocess, "terminate_tree", side_effect=killed.append):
+        _responses, cancelled_error = smitestt._run_protocol(
+            ["fixture"], [{"version": 1, "command": "status"}], 1,
+            cancel_handle=cancelled, popen_factory=protocol_factory(good_line))
+    if cancelled_error != "cancelled" or len(killed) != 1:
+        bad.append("worker cancellation/tree termination")
+
+    sources = "\n".join(open(os.path.join(_ROOT, path), encoding="utf-8").read()
+                         for path in ("core/smitestt.py", "tools/smitemicworker.py",
+                                      "tools/smitewhisperworker.py"))
+    forbidden = ("Windows.Media.SpeechRecognition", "System.Speech", "api.openai.com",
+                 "gpt-4o-transcribe", "requests.post(", "audio_device_id",
+                 "coach_microphone_id")
+    if any(token in sources for token in forbidden):
+        bad.append("cloud/legacy/endpoint-selection code in active local STT")
+    if "device=None" not in sources or "RawInputStream" not in sources \
+            or "local_files_only=True" not in sources \
+            or "from faster_whisper import WhisperModel" not in sources \
+            or 'reconfigure(encoding="utf-8"' not in sources \
+            or "START_BEEP_HZ = 880" not in sources or "END_BEEP_HZ = 440" not in sources:
+        bad.append("default-input/offline isolated-worker static contract")
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("bounded default capture; private WAV cleanup; versioned Unicode worker; "
+                "path/protocol/crash/timeout/cancel/refusal contracts pass")
+
+
+def c_whisper_runtime_policies():
+    """Active Phase 3D: canonical compute and generation-bound worker policies."""
+    import queue
+    import tempfile
+    import threading
+    from pathlib import Path
+    from unittest import mock
+    import llmprocess
+    import smiteconfig as cfg
+    import smitestt
+
+    bad = []
+    real_path = cfg.PATH
+    with tempfile.TemporaryDirectory(prefix="smiteless-stt-config-") as tmp:
+        cfg.PATH = os.path.join(tmp, "settings.json")
+        try:
+            defaults = cfg.load()
+            if defaults.get("coach_stt_device") != "cpu" \
+                    or defaults.get("coach_stt_load_policy") != "keep_loaded" \
+                    or defaults.get("coach_stt_model") != "small":
+                bad.append("canonical STT defaults")
+            saved = cfg.save({"coach_stt_device": "CUDA",
+                              "coach_stt_load_policy": "per_question",
+                              "coach_stt_model": "small.en"})
+            if saved.get("coach_stt_device") != "cuda" \
+                    or saved.get("coach_stt_load_policy") != "per_question" \
+                    or saved.get("coach_stt_model") != "small":
+                bad.append("STT config normalization/small.en refusal")
+            partial = cfg.save({"board_size": 80})
+            if partial.get("coach_stt_device") != "cuda" \
+                    or partial.get("coach_stt_load_policy") != "per_question":
+                bad.append("partial save preserved STT policy")
+        finally:
+            cfg.PATH = real_path
+
+    cpu = smitestt.runtime_configuration({
+        "coach_stt_device": "cpu", "coach_stt_load_policy": "keep_loaded",
+        "coach_stt_model": "small"})
+    gpu_float = smitestt.runtime_configuration({"coach_stt_device": "cuda"},
+                                               compute_probe=lambda: {"float16"})
+    gpu_mixed = smitestt.runtime_configuration({"coach_stt_device": "cuda"},
+                                               compute_probe=lambda: {"int8_float16"})
+    if cpu.get("compute_type") != "int8" or gpu_float.get("compute_type") != "float16" \
+            or gpu_mixed.get("compute_type") != "int8_float16":
+        bad.append("CPU/GPU compute selection")
+    for code, probe in (("cuda_unavailable", lambda: (_ for _ in ()).throw(
+            smitestt.SttError("cuda_unavailable"))),
+                        ("unsupported_compute_type", lambda: {"float32"})):
+        try:
+            smitestt.runtime_configuration({"coach_stt_device": "cuda"},
+                                           compute_probe=probe)
+            bad.append(f"accepted {code}")
+        except smitestt.SttError as exc:
+            if exc.code != code:
+                bad.append(f"mistyped {code}")
+
+    class Output:
+        def __init__(self, values):
+            self.values = values
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            value = self.values.get(timeout=2)
+            if value is None:
+                raise StopIteration
+            return value
+
+    class Input:
+        def __init__(self, process):
+            self.process = process
+
+        def write(self, raw):
+            for line in raw.splitlines():
+                if line:
+                    self.process.respond(json.loads(line))
+
+        def flush(self):
+            pass
+
+    class FakePersistentProcess:
+        next_pid = 9100
+
+        def __init__(self, wrong_id=False, load_error=None, transcribe_error=None):
+            self.pid = FakePersistentProcess.next_pid
+            FakePersistentProcess.next_pid += 1
+            self.returncode = None
+            self.values = queue.Queue()
+            self.stdout = Output(self.values)
+            self.stderr = iter(())
+            self.stdin = Input(self)
+            self.commands = []
+            self.wrong_id = wrong_id
+            self.load_error = load_error
+            self.transcribe_error = transcribe_error
+
+        def respond(self, request):
+            command = request.get("command")
+            self.commands.append((command, request.get("device"), request.get("compute_type")))
+            response = {"version": 1, "ok": True, "command": command,
+                        "id": "old-generation" if self.wrong_id else request.get("id")}
+            if command == "load" and self.load_error:
+                response.update(ok=False, error=self.load_error)
+            elif command == "transcribe":
+                if self.transcribe_error:
+                    response.update(ok=False, error=self.transcribe_error)
+                else:
+                    response.update(text="fixture transcript", language="en",
+                                    cpu_fallback=False)
+            self.values.put(json.dumps(response) + "\n")
+            if command == "shutdown":
+                self.returncode = 0
+                self.values.put(None)
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                raise TimeoutError("still running")
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+            self.values.put(None)
+
+        def communicate(self, timeout=None):
+            return "", ""
+
+    created = []
+
+    def factory(*_args, **_kwargs):
+        process = FakePersistentProcess()
+        created.append(process)
+        return process
+
+    keep = {"coach_stt_device": "cpu", "coach_stt_load_policy": "keep_loaded",
+            "coach_stt_model": "small"}
+    with mock.patch.object(llmprocess, "terminate_tree", side_effect=lambda p: p.kill()):
+        runtime = smitestt.WhisperRuntime(
+            popen_factory=factory, command_factory=lambda: ["fixture"])
+        first = runtime.transcribe(Path("one.wav"), "en", Path("model"), settings=keep)
+        second = runtime.transcribe(Path("two.wav"), "en", Path("model"), settings=keep)
+        if not first.get("ok") or not second.get("ok") or len(created) != 1 \
+                or [row[0] for row in created[0].commands].count("load") != 1 \
+                or not runtime.status().get("model_loaded"):
+            bad.append("keep-loaded lazy load/warm reuse")
+        generation = runtime.status().get("generation")
+        unloaded = runtime.unload()
+        if not unloaded.get("ok") or runtime.status().get("worker_alive"):
+            bad.append("explicit unload/process exit")
+        runtime.transcribe(Path("three.wav"), "en", Path("model"), settings=keep)
+        if runtime.status().get("generation") != generation + 1 or len(created) != 2:
+            bad.append("unload next-generation restart")
+        with mock.patch.object(smitestt, "_transcribe",
+                               return_value={"ok": True, "text": "one shot"}) as one_shot:
+            per_question = dict(keep, coach_stt_load_policy="per_question")
+            got = runtime.transcribe(
+                Path("four.wav"), "en", Path("model"), settings=per_question)
+        if not got.get("ok") or not one_shot.called or runtime.status().get("worker_alive"):
+            bad.append("per-question shutdown policy")
+        runtime.close()
+        if runtime.status().get("worker_alive"):
+            bad.append("tray/coordinator close")
+
+        failing_created = []
+        gpu_runtime = smitestt.WhisperRuntime(
+            popen_factory=lambda *_a, **_k: failing_created.append(
+                FakePersistentProcess(load_error="cuda_runtime_missing")) or failing_created[-1],
+            command_factory=lambda: ["fixture"], compute_probe=lambda: {"float16"})
+        gpu = gpu_runtime.transcribe(
+            Path("gpu.wav"), "en", Path("model"),
+            settings={"coach_stt_device": "cuda",
+                      "coach_stt_load_policy": "keep_loaded",
+                      "coach_stt_model": "small"})
+        if gpu.get("error") != "cuda_runtime_missing" or len(failing_created) != 1 \
+                or any(row[1] == "cpu" for row in failing_created[0].commands):
+            bad.append("GPU load failure had CPU fallback")
+
+        transcribe_failed = []
+        gpu_transcribe_runtime = smitestt.WhisperRuntime(
+            popen_factory=lambda *_a, **_k: transcribe_failed.append(
+                FakePersistentProcess(transcribe_error="cuda_runtime_missing"))
+                or transcribe_failed[-1],
+            command_factory=lambda: ["fixture"], compute_probe=lambda: {"float16"})
+        gpu_transcribe = gpu_transcribe_runtime.transcribe(
+            Path("gpu.wav"), "en", Path("model"),
+            settings={"coach_stt_device": "cuda",
+                      "coach_stt_load_policy": "keep_loaded",
+                      "coach_stt_model": "small"})
+        if gpu_transcribe.get("error") != "cuda_runtime_missing" \
+                or gpu_transcribe_runtime.status().get("worker_alive") \
+                or any(row[1] == "cpu" for row in transcribe_failed[0].commands):
+            bad.append("GPU transcription failure cleanup/CPU fallback")
+
+        stale_created = []
+        stale_runtime = smitestt.WhisperRuntime(
+            popen_factory=lambda *_a, **_k: stale_created.append(
+                FakePersistentProcess(wrong_id=not stale_created)) or stale_created[-1],
+            command_factory=lambda: ["fixture"])
+        stale = stale_runtime.transcribe(
+            Path("stale.wav"), "en", Path("model"), settings=keep)
+        fresh = stale_runtime.transcribe(
+            Path("fresh.wav"), "en", Path("model"), settings=keep)
+        if stale.get("error") != "stale_worker_response" or not fresh.get("ok") \
+                or len(stale_created) != 2:
+            bad.append("delayed old-worker generation isolation")
+        stale_runtime.close()
+
+    order = []
+    fake_runtime = mock.Mock()
+    fake_runtime.transcribe.side_effect = lambda *_a, **_k: order.append("worker") or {
+        "ok": True, "text": "heard"}
+    with tempfile.TemporaryDirectory(prefix="smiteless-listen-order-") as tmp:
+        audio = Path(tmp) / "coach-order.wav"
+        audio.touch()
+        paths = mock.Mock(model_root=Path(tmp) / "model")
+        with mock.patch.object(smitestt.smitewhispermodel, "load_manifest", return_value={}), \
+                mock.patch.object(smitestt.smitewhispermodel, "paths_for_manifest",
+                                  return_value=paths), \
+                mock.patch.object(smitestt.smitewhispermodel, "inspect_model",
+                                  return_value={"ready": True}), \
+                mock.patch.object(smitestt, "_new_audio_file", return_value=(audio, Path(tmp))), \
+                mock.patch.object(smitestt, "_capture",
+                                  side_effect=lambda *_a, **_k: order.append("capture") or {
+                                      "ok": True}), \
+                mock.patch("smitemicworker.validate_wav",
+                           return_value={"duration_ms": 100}):
+            smitestt.recognize("en", runtime=fake_runtime, settings=keep)
+    if order != ["capture", "worker"]:
+        bad.append("model worker allocated before capture completed")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("canonical CPU/CUDA config; lazy reuse/unload/per-question/close; "
+                "GPU refusal and generation isolation pass")
+
+
+def c_coach_settings_onboarding():
+    """Active Phase 3E: pure Settings states and consented first-use transaction."""
+    import tempfile
+    from unittest import mock
+    import smiteconfig as cfg
+    import smitei18n
+    import smitesettings
+    import smitestt
+    import smitewhispermodel
+
+    bad = []
+    real_path = cfg.PATH
+    with tempfile.TemporaryDirectory(prefix="smiteless-phase3e-config-") as tmp:
+        cfg.PATH = os.path.join(tmp, "settings.json")
+        try:
+            with open(cfg.PATH, "w", encoding="utf-8") as handle:
+                json.dump({"speech_backend": "windows_media_speech",
+                           "speech_online": True}, handle)
+            migrated = cfg.load()
+            if migrated.get("coach_stt_device") != "cpu" \
+                    or migrated.get("coach_stt_load_policy") != "keep_loaded" \
+                    or migrated.get("coach_stt_model") != "small" \
+                    or migrated.get("voice_coach") is not False \
+                    or migrated.get("proactive_coach") is not False:
+                bad.append("WinRT-era config migration/default opt-ins")
+            invalid = cfg.save({"coach_stt_device": "automatic",
+                                "coach_stt_load_policy": "forever",
+                                "coach_stt_model": "small.en"})
+            partial = cfg.save({"board_size": 85})
+            if invalid.get("coach_stt_device") != "cpu" \
+                    or invalid.get("coach_stt_load_policy") != "keep_loaded" \
+                    or invalid.get("coach_stt_model") != "small" \
+                    or partial.get("voice_coach") is not False \
+                    or partial.get("proactive_coach") is not False:
+                bad.append("invalid/partial Settings normalization")
+        finally:
+            cfg.PATH = real_path
+
+    cpu_resolver = lambda _settings: {
+        "device": "cpu", "compute_type": "int8",
+        "load_policy": "keep_loaded", "model": "small"}
+    base_settings = {"coach_stt_device": "cpu",
+                     "coach_stt_load_policy": "keep_loaded",
+                     "coach_stt_model": "small"}
+    ready = smitesettings.coach_settings_state({
+        "model": {"state": "ready", "ready": True},
+        "worker": {"model_loaded": False, "last_error": ""}},
+        base_settings, compute_resolver=cpu_resolver)
+    missing = smitesettings.coach_settings_state({
+        "model": {"state": "missing", "ready": False, "error": "model_missing"},
+        "worker": {}}, base_settings, compute_resolver=cpu_resolver)
+    invalid = smitesettings.coach_settings_state({
+        "model": {"state": "invalid", "ready": False,
+                  "error": "model_hash_mismatch"}, "worker": {}},
+        base_settings, compute_resolver=cpu_resolver)
+    downloading = smitesettings.coach_settings_state({
+        "model": {"state": "partial", "ready": False}, "worker": {}},
+        base_settings, progress={"state": "downloading", "percent": 42.5,
+                                 "bytes_downloaded": 425, "bytes_total": 1000},
+        compute_resolver=cpu_resolver)
+    loaded = smitesettings.coach_settings_state({
+        "model": {"state": "ready", "ready": True},
+        "worker": {"model_loaded": True, "last_error": ""}},
+        base_settings, compute_resolver=cpu_resolver)
+
+    def gpu_failure(_settings):
+        raise smitestt.SttError("cuda_unavailable")
+
+    gpu_error = smitesettings.coach_settings_state({
+        "model": {"state": "ready", "ready": True}, "worker": {}},
+        {**base_settings, "coach_stt_device": "cuda"},
+        compute_resolver=gpu_failure)
+    if not ready.get("model_ready") or ready.get("compute_type") != "int8" \
+            or missing.get("error") != "model_missing" \
+            or invalid.get("error") != "model_hash_mismatch" \
+            or not downloading.get("downloading") or downloading.get("percent") != 42.5 \
+            or not loaded.get("worker_loaded") \
+            or gpu_error.get("error") != "cuda_unavailable":
+        bad.append("Settings model/download/device/compute/worker states")
+
+    download_calls = []
+    progress_rows = []
+
+    def successful_download(**kwargs):
+        download_calls.append("success")
+        kwargs["progress"]({"state": "downloading", "percent": 50,
+                            "bytes_downloaded": 1, "bytes_total": 2})
+        return {"ok": True, "downloaded": True,
+                "model": {"state": "ready", "ready": True}}
+
+    ready_result = lambda: {"ok": True,
+                            "model": {"state": "ready", "ready": True}}
+    declined = smitesettings.run_coach_onboarding(
+        False, base_settings, downloader=lambda **_kwargs: bad.append("decline downloaded"))
+    accepted = smitesettings.run_coach_onboarding(
+        True, base_settings, downloader=successful_download,
+        readiness_fn=ready_result, progress=progress_rows.append)
+    interrupted = smitesettings.run_coach_onboarding(
+        True, base_settings,
+        downloader=lambda **_kwargs: {"ok": False, "error": "download_failed",
+                                      "resumable": True}, readiness_fn=ready_result)
+    retried = smitesettings.run_coach_onboarding(
+        True, base_settings, downloader=successful_download,
+        readiness_fn=ready_result, progress=lambda _row: None)
+    cancelled = smitesettings.run_coach_onboarding(
+        True, base_settings, cancellation=smitewhispermodel.DownloadCancellation(),
+        downloader=lambda **_kwargs: {"ok": False, "error": "cancelled",
+                                      "resumable": True}, readiness_fn=ready_result)
+    validation_failed = smitesettings.run_coach_onboarding(
+        True, base_settings, downloader=successful_download,
+        readiness_fn=lambda: {"ok": True, "model": {
+            "state": "invalid", "ready": False, "error": "model_hash_mismatch"}},
+        progress=lambda _row: None)
+    if not declined.get("declined") or declined.get("enable_voice") \
+            or not accepted.get("ok") or not accepted.get("enable_voice") \
+            or not accepted.get("offer_microphone_test") or len(progress_rows) != 1 \
+            or interrupted.get("error") != "download_failed" \
+            or not interrupted.get("resumable") or not retried.get("ok") \
+            or cancelled.get("error") != "cancelled" \
+            or validation_failed.get("error") != "model_hash_mismatch":
+        bad.append("onboarding accept/decline/cancel/interrupt/retry/validation/test offer")
+
+    if smitesettings.needs_coach_onboarding(
+            {"voice_coach": False}, False, False) \
+            or smitesettings.needs_coach_onboarding(
+                {"voice_coach": True}, True, False) \
+            or smitesettings.needs_coach_onboarding(
+                {"voice_coach": False}, True, True) \
+            or not smitesettings.needs_coach_onboarding(
+                {"voice_coach": False}, True, False):
+        bad.append("unrelated save/new-opt-in download boundary")
+
+    smitei18n.set_lang("pt_BR")
+    translated = smitesettings.coach_error_message("cuda_runtime_missing")
+    low_confidence = smitesettings.coach_error_message("low_confidence")
+    smitei18n.set_lang("en")
+    if "CUDA 12" not in translated or "selecione CPU" not in translated \
+            or "WinRT" in translated or "pacote de voz" in translated \
+            or "clareza" not in low_confidence or "microfone padrão" not in low_confidence \
+            or "low_confidence" in low_confidence:
+        bad.append("bilingual actionable local-Whisper errors")
+
+    with mock.patch.object(smitesettings.smitewhispermodel, "download_model") as download_mock, \
+            mock.patch.object(smitesettings.smitestt, "recognize") as recognize_mock:
+        smitesettings.coach_settings_state(
+            {"model": {"state": "missing", "ready": False}, "worker": {}},
+            base_settings, compute_resolver=cpu_resolver)
+    if download_mock.called or recognize_mock.called:
+        bad.append("passive Settings state started download/capture")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("config migration/default opt-ins; all Settings states; consent, progress, "
+                "cancel/retry/validation/readiness/test offer and bilingual errors pass")
+
+
+def c_installed_whisper_lifecycle():
+    """Phase 3I installer/upgrade/uninstall contract using isolated tiny filesystem fixtures."""
+    import re
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    installer_path = os.path.join(_ROOT, "dist", "installer.ahk")
+    installer = open(installer_path, encoding="utf-8").read()
+    bad = []
+    required = (
+        "KnownFolder(0x001C)", "KnownFolder(0x0028)", "InstallTargetIsSafe",
+        "AllowedChild", "CLAUDE_FILES", "CLAUDE_DIRS", "CACHE_FILES", "CACHE_DIRS",
+        "TEMP_DIRS", "CleanupLegacyAudioCache", "/IM Smiteless.exe",
+        "/IM SmitelessApp.exe", "A_Desktop", "A_Startup", "A_Programs",
+        "RegDeleteKey(REGKEY)", 'rmdir /s /q "' + "' TARGET '",
+        "Voice coaching downloads its local model only after you opt in",
+        'Expand-Archive -LiteralPath', '-DestinationPath \'" TARGET "\' -Force',
+    )
+    absent = [token for token in required if token not in installer]
+    if absent:
+        bad.append("installer lifecycle tokens missing: " + ", ".join(absent))
+    if not re.search(r'Run\(A_ComSpec.*bat.*TEMP_ROOT,\s*"Hide"\)', installer):
+        bad.append("detached uninstall cleanup inherits the install directory")
+    forbidden_deletes = (
+        "DirDelete(CLAUDE_ROOT, true)", "DirDelete(CACHE_ROOT, true)",
+        "DirDelete(LOCAL_ROOT, true)", "DirDelete(PROFILE_ROOT, true)",
+        "DirDelete(TEMP_ROOT, true)",
+    )
+    leaked = [token for token in forbidden_deletes if token in installer]
+    if leaked:
+        bad.append("broad uninstall target present: " + ", ".join(leaked))
+    if 'DirDelete(TARGET "\\models"' in installer \
+            or 'DirDelete(TARGET "\\models", true)' in installer:
+        bad.append("compatible upgrade deletes the shared model cache")
+
+    def ahk_array(name):
+        match = re.search(rf"(?ms)^\s*{re.escape(name)}\s*:=\s*\[(.*?)\]", installer)
+        return re.findall(r'"([^"]+)"', match.group(1)) if match else []
+
+    arrays = {name: ahk_array(name) for name in (
+        "CLAUDE_FILES", "CLAUDE_DIRS", "CACHE_FILES", "CACHE_DIRS", "TEMP_DIRS")}
+    required_state = {
+        "CLAUDE_FILES": {"smiteless_settings.json", "smiteless_logins.bin",
+                         "smiteless_noautoopen", "smiteless_nohomeonstart"},
+        "CLAUDE_DIRS": {"smiteless_accounts"},
+        "CACHE_FILES": {"smiteless_coach_endpoint.json", "scout_snapshot.json.lock",
+                        "smiteless_coach_tools.jsonl", "smiteless_coach_tools.jsonl.old",
+                        "smiteless_proactive_intents.jsonl",
+                        "smiteless_proactive_intents.jsonl.old",
+                        "smiteless_proactive_widget.json"},
+        "CACHE_DIRS": {"riot", "matchups", "ddragon"},
+        "TEMP_DIRS": {"smiteless_audio"},
+    }
+    for name, expected in required_state.items():
+        if not expected.issubset(set(arrays[name])):
+            bad.append(name + " incomplete")
+        if any(not value or ".." in value or ":" in value
+               or value.startswith(("\\", "/")) for value in arrays[name]):
+            bad.append(name + " contains a broadened relative target")
+
+    def allowed_child(root, relative, allowlist):
+        if not relative or relative not in allowlist or ".." in relative \
+                or ":" in relative or relative.startswith(("\\", "/")):
+            return None
+        root = Path(root).resolve()
+        target = (root / relative).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            return None
+        return target if target != root else None
+
+    with tempfile.TemporaryDirectory(prefix="smiteless-phase3i-uninstall-") as tmp:
+        fixture = Path(tmp)
+        local_root = fixture / "LocalAppData"
+        profile_root = fixture / "User"
+        claude_root = profile_root / ".claude"
+        cache_root = claude_root / "cache"
+        temp_root = fixture / "Temp"
+        install_root = local_root / "Smiteless"
+        unrelated_local = local_root / "Unrelated" / "keep.txt"
+        unrelated_claude = claude_root / "unrelated.txt"
+        unrelated_cache = cache_root / "unrelated" / "keep.txt"
+        unrelated_temp = temp_root / "keep.txt"
+        for path in (unrelated_local, unrelated_claude, unrelated_cache, unrelated_temp):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("keep", encoding="utf-8")
+        for relative in arrays["CLAUDE_FILES"]:
+            path = claude_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+        for relative in arrays["CLAUDE_DIRS"]:
+            path = claude_root / relative / "owned.txt"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+        for relative in arrays["CACHE_FILES"]:
+            path = cache_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+        for relative in arrays["CACHE_DIRS"]:
+            path = cache_root / relative / "owned.txt"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+        for relative in arrays["TEMP_DIRS"]:
+            path = temp_root / relative / "owned.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+        for relative in ("app/runtime.dll", "models/whisper-small/model.bin",
+                         "models/whisper-small-v2/model.bin",
+                         "models/whisper-small.partial-fixture/model.bin.partial",
+                         "models/.whisper-small.lock"):
+            path = install_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("owned", encoding="utf-8")
+
+        for name, root in (("CLAUDE_FILES", claude_root), ("CACHE_FILES", cache_root)):
+            for relative in arrays[name]:
+                target = allowed_child(root, relative, arrays[name])
+                if target:
+                    target.unlink(missing_ok=True)
+        for name, root in (("CLAUDE_DIRS", claude_root), ("CACHE_DIRS", cache_root),
+                           ("TEMP_DIRS", temp_root)):
+            for relative in arrays[name]:
+                target = allowed_child(root, relative, arrays[name])
+                if target and target.exists():
+                    shutil.rmtree(target)
+        shutil.rmtree(install_root)
+
+        owned_left = []
+        for name, root in (("CLAUDE_FILES", claude_root), ("CLAUDE_DIRS", claude_root),
+                           ("CACHE_FILES", cache_root), ("CACHE_DIRS", cache_root),
+                           ("TEMP_DIRS", temp_root)):
+            owned_left.extend(str(root / relative) for relative in arrays[name]
+                              if (root / relative).exists())
+        preserved = all(path.read_text(encoding="utf-8") == "keep" for path in (
+            unrelated_local, unrelated_claude, unrelated_cache, unrelated_temp))
+        refused = all(allowed_child(claude_root, target, arrays["CLAUDE_FILES"]) is None
+                      for target in ("", "..", "../outside", str(profile_root),
+                                     "unrelated.txt"))
+        if install_root.exists() or owned_left or not preserved or not refused:
+            bad.append("isolated complete-uninstall allowlist/path-guard fixture")
+
+    if bad:
+        return FAIL, "; ".join(bad)
+    return OK, ("clean first-use disclosure; compatible/versioned upgrade preservation; exact "
+                "process/state/model/audio/shortcut/registry cleanup and broad-target refusal pass")
+
+
 def main():
     print("\nSMITELESS SELF-TEST")
     print("=" * 66)
@@ -1832,6 +4407,8 @@ def main():
         ("op.gg (builds + matchups)", c_opgg),
         ("Riot API key (player scout)", c_riot_key),
         ("LLM CLI (matchup tips)", c_llm_cli),
+        ("Coach coordinator health", c_coach_service_health),
+        ("Coach voice readiness", c_coach_readiness_health),
         ("LLM provider contracts", c_llm_providers),
         ("LLM provider integration", c_llm_integration),
         ("Tag spec (docs/TAGS.md)", c_tagspec),
@@ -1853,6 +4430,18 @@ def main():
         ("New feature i18n (PT/EN)", c_new_i18n),
         ("MAX ELO (one-switch arming)", c_maxelo),
         ("MAX ELO auto-lock (draft)", c_autolock),
+        ("Coach context boundary", c_coach_context),
+        ("Coach text runtime", c_coach_runtime),
+        ("Coach context discovery", c_coach_tools),
+        ("Coach proactive lifecycle", c_coach_proactive),
+        ("Coach voice + audio", c_voice_audio),
+        ("Frozen local Whisper runtime", c_frozen_whisper_runtime),
+        ("Local Whisper probe", c_local_whisper_probe),
+        ("Whisper model manager", c_whisper_model_manager),
+        ("Local Whisper capture/workers", c_local_whisper_workers),
+        ("Whisper runtime policies", c_whisper_runtime_policies),
+        ("Coach Settings + onboarding", c_coach_settings_onboarding),
+        ("Installed Whisper lifecycle", c_installed_whisper_lifecycle),
         ("League client / LCU", c_lcu),
     ]
     for name, fn in checks:

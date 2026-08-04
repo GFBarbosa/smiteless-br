@@ -42,27 +42,80 @@ def _ign_for(port, hdr, sid):
         return "", None
 
 
-def _roster():
-    """(my_rows, enemy_rows, (port, hdr)) or None. Each row: {sid, champ_id, role, me}."""
+def _timed_lcu(label, url, hdr, timeout, on_timing=None):
+    started = time.monotonic()
+    outcome = "ok"
+    try:
+        return lb.http(url, headers=hdr, timeout=timeout, insecure=True)
+    except Exception as exc:
+        outcome = type(exc).__name__
+        raise
+    finally:
+        if on_timing:
+            try:
+                on_timing(label, time.monotonic() - started, outcome)
+            except Exception:
+                pass
+
+
+def current_summoner_id(request_timeout=2.0, on_timing=None):
+    """Read the local summoner id early so Loading only waits for the roster session."""
     lc = lg._lcu()
     if not lc:
         return None
     port, hdr = lc
     try:
-        s = lb.http(f"https://127.0.0.1:{port}/lol-gameflow/v1/session",
-                    headers=hdr, timeout=4, insecure=True)
+        current = _timed_lcu(
+            "current-summoner",
+            f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
+            hdr, request_timeout, on_timing,
+        )
+        return current.get("summonerId")
     except Exception:
+        return None
+
+
+def _roster(mysid=None, request_timeout=4.0, on_timing=None):
+    """(my_rows, enemy_rows, (port, hdr)) or None. Each row: {sid, champ_id, role, me}."""
+    lc = lg._lcu()
+    if not lc:
+        return None
+    port, hdr = lc
+    session_url = f"https://127.0.0.1:{port}/lol-gameflow/v1/session"
+    current_url = f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner"
+    if mysid is None:
+        # Both reads are independent.  Running them together caps the cold path at one timeout
+        # instead of the eight-second sequence that outlived fast Loading screens.
+        with _futures.ThreadPoolExecutor(max_workers=2) as ex:
+            session_future = ex.submit(
+                _timed_lcu, "gameflow-session", session_url, hdr,
+                request_timeout, on_timing,
+            )
+            current_future = ex.submit(
+                _timed_lcu, "current-summoner", current_url, hdr,
+                request_timeout, on_timing,
+            )
+            try:
+                s = session_future.result()
+            except Exception:
+                s = None
+            try:
+                current = current_future.result()
+                mysid = current.get("summonerId")
+            except Exception:
+                pass
+    else:
+        try:
+            s = _timed_lcu("gameflow-session", session_url, hdr,
+                           request_timeout, on_timing)
+        except Exception:
+            s = None
+    if not s:
         return None
     gd = (s or {}).get("gameData") or {}
     t1, t2 = gd.get("teamOne") or [], gd.get("teamTwo") or []
     if not (t1 and t2):
         return None
-    mysid = None
-    try:
-        mysid = lb.http(f"https://127.0.0.1:{port}/lol-summoner/v1/current-summoner",
-                        headers=hdr, timeout=4, insecure=True).get("summonerId")
-    except Exception:
-        pass
     mine = t1 if any(p.get("summonerId") == mysid for p in t1) else \
         (t2 if any(p.get("summonerId") == mysid for p in t2) else t1)
     other = t2 if mine is t1 else t1
@@ -299,7 +352,71 @@ def _wincons(dd, my, en):
             "lose": t("coin-flipping 5v5s without vision or a numbers edge")}
 
 
-def brief(dd, key=None, scout=True, on_progress=None):
+def _brief_shape(dd, my, en, scouted=False, key_prefix=""):
+    base = {"plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en),
+            "scouted": bool(scouted),
+            "_lobby_key": key_prefix + _key_for_rows(my, en)}
+
+    def blank(row):
+        cid = row["champ_id"]
+        return {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid,
+                "role": row["role"], "dmg": ltag.dmg_type(dd, cid),
+                "phrases": ltag.phrases(dd, cid), "me": row["me"],
+                "player": "", "scouted": False, "tags": [], "rank_full": None,
+                "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0, "kdar": None,
+                "kavg": "", "dpg": None, "perf": None, "pts": 0, "mlevel": 0,
+                "main_pos": "", "mids": [], "recent": [], "level": None,
+                "puuid": None}
+
+    return dict(base, allies=[blank(row) for row in my],
+                enemies=[blank(row) for row in en])
+
+
+def brief_from_live(dd, request_timeout=0.3, on_timing=None):
+    """Anonymous minimal roster fallback once Live Client appears at clock zero."""
+    try:
+        data = _timed_lcu(
+            "live-allgamedata", "https://127.0.0.1:2999/liveclientdata/allgamedata",
+            {}, request_timeout, on_timing,
+        )
+    except Exception:
+        return None
+    players = data.get("allPlayers") or []
+    if not players:
+        return None
+    active = data.get("activePlayer") or {}
+    active_name = (active.get("riotId") or active.get("summonerName") or
+                   active.get("riotIdGameName") or "")
+    mine_name = lg._gname(active_name)
+
+    def player_name(player):
+        return lg._gname(player.get("riotId") or player.get("summonerName") or
+                         player.get("riotIdGameName") or "")
+
+    me = next((player for player in players
+               if mine_name and player_name(player) == mine_name), None)
+    my_team = me.get("team") if me else "ORDER"
+
+    def rows(team):
+        out = []
+        for player in players:
+            if player.get("team") != team:
+                continue
+            cid = dd.get("name2id", {}).get(dd["norm"](player.get("championName", ""))) or 0
+            if cid:
+                out.append({"sid": None, "champ_id": int(cid),
+                            "role": _ROLE.get((player.get("position") or "").upper(), ""),
+                            "me": player is me})
+        return out
+
+    my, en = rows(my_team), rows("CHAOS" if my_team == "ORDER" else "ORDER")
+    if not (my and en):
+        return None
+    return _brief_shape(dd, my, en, scouted=False, key_prefix="live-")
+
+
+def brief(dd, key=None, scout=True, on_progress=None, mysid=None,
+          roster_timeout=4.0, on_timing=None):
     """The loading brief. scout=False returns FAST (champs + tags + damage + plan, no Riot API)
     so the overlay can appear instantly; scout=True additionally pulls each player's rank/form/
     OTP tags. None if no roster is readable.
@@ -309,25 +426,13 @@ def brief(dd, key=None, scout=True, on_progress=None):
     landed. `on_progress(brief)` (optional) is called with a fresh, fully-shaped brief each
     time a player resolves, so a surface can paint cards as they fill in instead of waiting
     for the slowest account."""
-    r = _roster()
+    r = _roster(mysid=mysid, request_timeout=roster_timeout, on_timing=on_timing)
     if not r:
         return None
     my, en, (port, hdr) = r
     key = (key or ls.read_key()) if scout else None
-    base = {"plan": _plan(dd, my, en), "wincons": _wincons(dd, my, en), "scouted": bool(key)}
-
-    def blank(row):
-        cid = row["champ_id"]
-        return {"champ": dd.get("id2name", {}).get(cid, "?"), "cid": cid, "role": row["role"],
-                "dmg": ltag.dmg_type(dd, cid), "phrases": ltag.phrases(dd, cid),
-                "me": row["me"], "player": "", "scouted": False, "tags": [],
-                "rank_full": None, "form": [], "n": 0, "w": 0, "cg": 0, "cw": 0,
-                "kdar": None, "kavg": "", "dpg": None, "perf": None,
-                "pts": 0, "mlevel": 0, "main_pos": "", "mids": [], "recent": [],
-                "level": None, "puuid": None}
-
-    allies = [blank(row) for row in my]
-    enemies = [blank(row) for row in en]
+    shaped = _brief_shape(dd, my, en, scouted=bool(key))
+    allies, enemies = shaped["allies"], shaped["enemies"]
 
     def fill(rec, row, ally):
         try:
@@ -353,13 +458,13 @@ def brief(dd, key=None, scout=True, on_progress=None):
                 if not on_progress:
                     continue
                 with lock:                       # one player landed -> hand out a paintable copy
-                    snap = dict(base, allies=[dict(a) for a in allies],
+                    snap = dict(shaped, allies=[dict(a) for a in allies],
                                 enemies=[dict(e) for e in enemies])
                 try:
                     on_progress(snap)
                 except Exception:
                     pass
-    return dict(base, allies=allies, enemies=enemies)
+    return dict(shaped, allies=allies, enemies=enemies)
 
 
 # ---------- ONE scout per lobby, shared by every surface ----------
@@ -376,29 +481,111 @@ LOCK_STALE = 120            # a builder holding the lock longer than this is pre
 _LOCAL = {"key": None, "brief": None}      # in-process memo, so repeat calls are free
 
 
-def _lobby_key():
-    """Stable id for THIS lobby: the ten (summonerId, championId) pairs. Changes the moment a
-    new game forms, which is what expires the snapshot — no time-based guessing."""
-    r = _roster()
-    if not r:
-        return None
-    my, en, _ = r
+def _key_for_rows(my, en):
     sig = sorted(f"{x.get('sid')}:{x.get('champ_id')}" for x in (my + en))
     return hashlib.sha1("|".join(sig).encode()).hexdigest()[:16]
 
 
-def _snap_read(want_key):
+def _lobby_key(mysid=None, request_timeout=4.0, on_timing=None):
+    """Stable id for THIS lobby: the ten (summonerId, championId) pairs. Changes the moment a
+    new game forms, which is what expires the snapshot — no time-based guessing."""
+    r = _roster(mysid=mysid, request_timeout=request_timeout, on_timing=on_timing)
+    if not r:
+        return None
+    my, en, _ = r
+    return _key_for_rows(my, en)
+
+
+def _snap_read(want_key, require_scouted=False):
     try:
         c = json.load(open(SNAP_FILE, encoding="utf-8"))
     except Exception:
         return None
     if c.get("key") != want_key or time.time() - c.get("ts", 0) > SNAP_TTL:
         return None
-    return c.get("brief") or None
+    brief_data = c.get("brief") or None
+    if require_scouted and not (brief_data or {}).get("scouted"):
+        return None
+    return brief_data
 
 
-def _snap_write(lkey, brief):
+def coach_snapshot(brief_data=None, lifecycle_key=None, max_age=SNAP_TTL):
+    """Read and bound the shared loading scout without triggering any player refetch."""
+    age = 0
+    if brief_data is None:
+        try:
+            cached = json.load(open(SNAP_FILE, encoding="utf-8"))
+        except Exception:
+            return None
+        age = max(0, int(time.time() - float(cached.get("ts") or 0)))
+        if age > max_age or (lifecycle_key and cached.get("key") != lifecycle_key):
+            return {"_unavailable": "stale", "source_age_ms": age * 1000}
+        brief_data = cached.get("brief")
+    if not brief_data:
+        return None
+
+    def team(rows, enemy=False):
+        out = []
+        next_ally = 1
+        for index, row in enumerate((rows or [])[:5], 1):
+            tags = []
+            for tag in (row.get("tags") or [])[:4]:
+                text = (tag.get("text") if isinstance(tag, dict) else
+                        (tag[0] if isinstance(tag, (list, tuple)) and tag else tag))
+                low = str(text or "").lower()
+                this_game = ("first ", "primeira ", "off-champ", "fora do campeão",
+                             "cold on ", "frio de ", "comfort", "conforto",
+                             " otp", " main")
+                scope = (tag.get("evidence_scope") if isinstance(tag, dict) else None)
+                scope = scope if scope in ("this_game", "account_history") else (
+                    "this_game" if any(mark in low for mark in this_game)
+                    else "account_history")
+                tags.append({"text": str(text or "")[:120],
+                             "evidence_scope": scope})
+            out.append({
+                "slot": (f"enemy_{index}" if enemy else
+                         ("self" if row.get("me") else f"ally_{next_ally}")),
+                "champion": row.get("champ"), "role": row.get("role"),
+                "rank": row.get("rank_full"), "recent_games": row.get("n", 0),
+                "recent_wins": row.get("w", 0), "performance": row.get("perf"),
+                "tags": tags, "scouted": bool(row.get("scouted")),
+            })
+            if not enemy and not row.get("me"):
+                next_ally += 1
+        return out
+
+    return {"plan": brief_data.get("plan"), "win_conditions": brief_data.get("wincons"),
+            "scouted": bool(brief_data.get("scouted")),
+            "allies": team(brief_data.get("allies")),
+            "enemies": team(brief_data.get("enemies"), enemy=True),
+            "source_age_ms": age * 1000}
+
+
+def _snap_write(lkey, brief, preserve_scouted=False):
     try:
+        if preserve_scouted:
+            current = _snap_read(lkey)
+            if current and current.get("scouted"):
+                return
+            # The Live Client fallback has no summoner IDs, so its key intentionally differs
+            # from the full gameflow key.  Still avoid downgrading a fresh full scout when the
+            # two team/champion shapes prove it is already this match.
+            try:
+                with open(SNAP_FILE, encoding="utf-8") as handle:
+                    cached = json.load(handle)
+                cached_brief = cached.get("brief") or {}
+
+                def champ_shape(value):
+                    return tuple(tuple(sorted(int(row.get("cid") or 0) for row in
+                                              value.get(team) or []))
+                                 for team in ("allies", "enemies"))
+
+                if time.time() - float(cached.get("ts") or 0) <= SNAP_TTL \
+                        and cached_brief.get("scouted") \
+                        and champ_shape(cached_brief) == champ_shape(brief):
+                    return
+            except Exception:
+                pass
         os.makedirs(os.path.dirname(SNAP_FILE), exist_ok=True)
         tmp = f"{SNAP_FILE}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -406,6 +593,51 @@ def _snap_write(lkey, brief):
         os.replace(tmp, SNAP_FILE)
     except Exception:
         pass
+
+
+def publish_minimal_snapshot(dd, brief_data=None):
+    """Publish the anonymous roster/comp brief before the full account scout finishes.
+
+    Fast loading screens can end the overlay process before the daemon scout completes.  This
+    snapshot gives cross-process coach consumers fresh champions, roles and composition reads
+    immediately, while ``brief_shared`` still owns the only full account-history fetch.
+    """
+    brief_data = brief_data or brief(dd, scout=False)
+    if not brief_data:
+        return None
+    lkey = brief_data.get("_lobby_key") or _lobby_key()
+    if not lkey:
+        return None
+    _snap_write(lkey, brief_data, preserve_scouted=True)
+    return brief_data
+
+
+def prepare_minimal_snapshot(dd, mysid=None, attempts=4, request_timeout=1.25,
+                             live_timeout=0.3, retry_delay=0.1,
+                             should_continue=None, on_timing=None):
+    """Retry the bounded anonymous roster read and persist it before any full scouting."""
+    should_continue = should_continue or (lambda: True)
+    for attempt in range(1, max(1, attempts) + 1):
+        if not should_continue():
+            return None
+        started = time.monotonic()
+        fast = (brief_from_live(dd, request_timeout=live_timeout, on_timing=on_timing)
+                if live_timeout is not None else None)
+        if not fast:
+            fast = brief(dd, scout=False, mysid=mysid, roster_timeout=request_timeout,
+                         on_timing=on_timing)
+        if on_timing:
+            try:
+                on_timing(f"minimal-attempt-{attempt}", time.monotonic() - started,
+                          "ready" if fast else "missing")
+            except Exception:
+                pass
+        if fast:
+            publish_minimal_snapshot(dd, fast)
+            return fast
+        if attempt < attempts and should_continue():
+            time.sleep(max(0, retry_delay))
+    return None
 
 
 def _lock_acquire():
@@ -433,7 +665,8 @@ def _lock_release():
         pass
 
 
-def brief_shared(dd, key=None, wait=40, on_progress=None):
+def brief_shared(dd, key=None, wait=40, on_progress=None, mysid=None,
+                 on_timing=None):
     """The full scouted brief for this lobby, built ONCE and shared by every surface.
 
     Returns the snapshot if someone already built it; otherwise builds it (holding a lock) and
@@ -445,18 +678,20 @@ def brief_shared(dd, key=None, wait=40, on_progress=None):
     `on_progress` is forwarded to brief() when WE are the builder, so the surface that pays for
     the read gets to paint it as it fills. A caller that lands on an existing snapshot gets the
     finished thing in one shot and never needs progress."""
-    lkey = _lobby_key()
+    lkey = _lobby_key(mysid=mysid, on_timing=on_timing)
     if not lkey:
         return None
     if _LOCAL["key"] == lkey and _LOCAL["brief"]:
         return _LOCAL["brief"]
-    snap = _snap_read(lkey)
+    # A minimal snapshot is useful to the coach, but must never satisfy the full-scout path.
+    snap = _snap_read(lkey, require_scouted=True)
     if snap:
         _LOCAL.update(key=lkey, brief=snap)
         return snap
     if _lock_acquire():
         try:
-            b = brief(dd, key=key, scout=True, on_progress=on_progress)
+            b = brief(dd, key=key, scout=True, on_progress=on_progress,
+                      mysid=mysid, on_timing=on_timing)
             if b and b.get("scouted"):
                 _snap_write(lkey, b)
                 _LOCAL.update(key=lkey, brief=b)
@@ -466,13 +701,14 @@ def brief_shared(dd, key=None, wait=40, on_progress=None):
     deadline = time.time() + wait                  # someone else is building -> use THEIR result
     while time.time() < deadline:
         time.sleep(1.0)
-        snap = _snap_read(lkey)
+        snap = _snap_read(lkey, require_scouted=True)
         if snap:
             _LOCAL.update(key=lkey, brief=snap)
             return snap
         if not os.path.exists(SNAP_LOCK):          # builder finished (or died) -> stop waiting
             break
-    b = brief(dd, key=key, scout=True, on_progress=on_progress)   # last resort: build it ourselves
+    b = brief(dd, key=key, scout=True, on_progress=on_progress,
+              mysid=mysid, on_timing=on_timing)   # last resort: build it ourselves
     if b and b.get("scouted"):
         _snap_write(lkey, b)
         _LOCAL.update(key=lkey, brief=b)

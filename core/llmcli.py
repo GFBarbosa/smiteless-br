@@ -29,14 +29,17 @@ def availability():
     return {provider: find(provider) for provider in PROVIDERS}
 
 
-def call(prompt, provider, allow_web=False, timeout=None, model=None):
+def call(prompt, provider, allow_web=False, timeout=None, model=None,
+         cancel_handle=None):
     """Call only the selected provider; provider failures never trigger failover."""
     provider = normalize_provider(provider)
     if provider == "codex":
         return codexcli.call_codex(
             prompt, timeout=timeout, model=model, allow_web=allow_web,
+            cancel_handle=cancel_handle,
         )
     tools = "WebSearch,WebFetch" if allow_web else None
     return claudecli.call_claude(
         prompt, allow_tools=tools, timeout=timeout, model=model,
+        cancel_handle=cancel_handle,
     )

@@ -28,9 +28,11 @@ import lolgold as lgd
 import lolward as lwd
 import lolout as lot
 import loltempo as lt
+import lolcoachproactive as proactive
 import phasecheck
+import smiteaudio
 import smiteconfig as cfg
-from smitei18n import coach, t, tf
+from smitei18n import coach, lang, t, tf
 from smiteoverlay import (make_no_activate, show_no_activate, toplevel_hwnd,
                           monitors, _kernel32)
 
@@ -235,6 +237,30 @@ def _say(name, text, vol=30):
             winsound.PlaySound(p, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
     except Exception:
         pass
+
+
+# Phase 3 compatibility shims. The shared implementation in core/smiteaudio owns locale,
+# cache identity, playback and coordinator fallback; legacy helpers above remain import-safe
+# for an in-flight source upgrade but all public calls below route through the shared owner.
+def _cue_path(thr, vol=30):
+    return smiteaudio.chime_path(thr, vol)
+
+
+def _beep(thr, vol=30):
+    return smiteaudio.deterministic_chime(thr, vol)
+
+
+def _tts_salli(name, text, locale=None, vol=30):
+    return smiteaudio.render_online(name, text, locale or lang(), vol, "cue")
+
+
+def _tts_path(name, text, vol=30, locale=None):
+    result = smiteaudio.render_sapi(name, text, locale or lang(), vol, "cue")
+    return result.get("path") if result.get("ok") else None
+
+
+def _say(name, text, vol=30, locale=None):
+    return smiteaudio.deterministic_speech(name, text, vol, locale or lang())
 
 
 # phase -> (cache name, spoken line). MOVE gets a per-objective callout.
@@ -1158,7 +1184,7 @@ def main():
         except Exception:
             pass
         if st["vol"] > 0 and not st.get("muted", False):   # hear the new level immediately
-            threading.Thread(target=_say, args=("hello", "Tempo online.", st["vol"]),
+            threading.Thread(target=_say, args=("hello", t("Tempo online."), st["vol"], lang()),
                              daemon=True).start()
     vol.bind("<ButtonRelease-1>", _vol_done)
 
@@ -1356,15 +1382,15 @@ def main():
         if audio_on and dvol > 0:                         # warm the chime cache so the first cue is instant
             threading.Thread(target=lambda: [_cue_path(t, dvol) for t in (45, 30, 15)], daemon=True).start()
         if tempo_on and voice_on and dvol > 0:            # pre-render the voice lines (one-time)
-            threading.Thread(target=lambda: [_tts_salli(nm, tx) for nm, tx in
+            threading.Thread(target=lambda: [_tts_salli(nm, t(tx), lang(), dvol) for nm, tx in
                                              list(_TEMPO_SPEECH.values()) + list(_TEMPO_ROTATE.values())
                                              + [("rotate", "Rotate now."), ("hello", "Tempo online.")]],
                              daemon=True).start()
         if bleed_on and voice_on and dvol > 0:            # pre-render the BLEED line (one-time)
-            threading.Thread(target=lambda: _tts_salli("backoff", t("Back off.")),
+            threading.Thread(target=lambda: _tts_salli("backoff", t("Back off."), lang(), dvol),
                              daemon=True).start()
         if ward_on and voice_on and dvol > 0:             # ...and the WARD CLOCK's (one-time)
-            threading.Thread(target=lambda: _tts_salli("wardit", t("Ward it.")), daemon=True).start()
+            threading.Thread(target=lambda: _tts_salli("wardit", t("Ward it."), lang(), dvol), daemon=True).start()
 
         def dragon_audio(secs):
             if secs is None:
@@ -1493,6 +1519,20 @@ def main():
                                              (pulse or {}).get("winprob"))
                 except Exception:
                     ward = None
+            # The proactive coordinator never starts another one-second Live Client poll.
+            # Publish only typed transitions/counters from this already-shared frame; detector
+            # state advances regardless of either audio mute or proactive opt-in.
+            if raw is not None:
+                try:
+                    proactive.publish_widget_state(
+                        (raw.get("gameData") or {}).get("gameTime") or 0.0,
+                        tempo=(pulse or {}).get("tempo"),
+                        guards={"bleed": bleed, "ward": ward, "closer": close,
+                                "gold": gold, "out": out, "reentry": reentry},
+                        events=((raw.get("events") or {}).get("Events") or []),
+                    )
+                except Exception:
+                    pass
             # Spoken once per window, and never more than BLEED_SAY times a game: this fires
             # while your eyes are on the lane, which is the whole point of saying it out loud,
             # but a voice that repeats is a voice you learn to ignore.
@@ -1528,7 +1568,7 @@ def main():
                 if not seen and voice_on and st["vol"] > 0 and not st.get("muted", False):
                     # first live data of the game: a short hello — confirms the whole audio
                     # pipeline (render + playback) is working instead of failing silently.
-                    threading.Thread(target=_say, args=("hello", "Tempo online.", st["vol"]),
+                    threading.Thread(target=_say, args=("hello", t("Tempo online."), st["vol"], lang()),
                                      daemon=True).start()
                 seen, last_ok = True, now
                 q.put({"rec": rec, "pulse": pulse if intel_on else None, "recall": recall,

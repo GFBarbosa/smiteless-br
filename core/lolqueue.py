@@ -41,6 +41,11 @@ _INSTRUCTION = {"streak": ("STOP", "LOG OFF WITH THE LP"),
 
 _LOG = os.path.expanduser("~/.claude/smiteless_queue.log")
 _LEDGER = os.path.expanduser("~/.claude/cache/riot/behavior_ledger.json")
+_QUEUE_NAMES = {420: "Ranked Solo/Duo", 440: "Ranked Flex", 400: "Normal Draft",
+                430: "Normal Blind", 450: "ARAM", 480: "Swiftplay", 490: "Quickplay",
+                700: "Clash", 1700: "Arena", 1900: "URF"}
+_POSITIONS = {"TOP": "TOP", "JUNGLE": "JUNGLE", "MIDDLE": "MID", "BOTTOM": "ADC",
+              "UTILITY": "SUPPORT"}
 
 
 def log(msg):
@@ -338,6 +343,63 @@ def session_line(st):
         bits.append(tf("last game {minutes}m ago", minutes=m) if m < 90
                     else tf("last game {hours}h ago", hours=m // 60))
     return "  ·  ".join(bits)
+
+
+def _coach_queue_state(phase=None):
+    """Cheap local queue state, kept here so the coach does not import smitecard UI locals."""
+    import lolbuild as lb
+    import lolgame as lg
+    if phase is None:
+        try:
+            import phasecheck
+            phase = phasecheck.phase()
+        except Exception:
+            phase = ""
+    out = {"phase": phase, "queue": "", "roles": [], "elapsed_seconds": None,
+           "estimated_seconds": None, "ready_check_seconds": None}
+    lc = lg._lcu()
+    if not lc:
+        return out
+    port, hdr = lc
+
+    def get(path):
+        try:
+            return lb.http(f"https://127.0.0.1:{port}{path}", headers=hdr,
+                           timeout=1, insecure=True)
+        except Exception:
+            return None
+
+    lobby = get("/lol-lobby/v2/lobby") or {}
+    config = lobby.get("gameConfig") or {} if isinstance(lobby, dict) else {}
+    out["queue"] = _QUEUE_NAMES.get(config.get("queueId"), "")
+    member = lobby.get("localMember") or {} if isinstance(lobby, dict) else {}
+    for role in (member.get("firstPositionPreference"), member.get("secondPositionPreference")):
+        if role and role != "UNSELECTED":
+            out["roles"].append(_POSITIONS.get(role, role))
+    search = get("/lol-matchmaking/v1/search")
+    if isinstance(search, dict):
+        out["elapsed_seconds"] = search.get("timeInQueue")
+        out["estimated_seconds"] = search.get("estimatedQueueTime")
+    if phase == "ReadyCheck":
+        ready = get("/lol-matchmaking/v1/ready-check")
+        if isinstance(ready, dict):
+            out["ready_check_seconds"] = ready.get("timer")
+    return out
+
+
+def coach_snapshot(games=None, now=None, state=None, phase=None):
+    """Cached-first Queue Call facts for the coach, without a synchronous history refresh."""
+    games = _from_ledger(80) if games is None else list(games)
+    verdict = call(games, now=now)
+    return {
+        "state": _coach_queue_state(phase=phase) if state is None else state,
+        "verdict": verdict.get("verdict"),
+        "headline": verdict.get("headline"),
+        "summary": verdict.get("sub"),
+        "evidence": [row.get("text") for row in (verdict.get("lines") or [])[:3]],
+        "sample_games": verdict.get("n", 0),
+        "session": verdict.get("session") or {},
+    }
 
 
 def demo(kind="stop", now=None):
