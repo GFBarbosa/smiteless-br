@@ -32,7 +32,7 @@ def find_claude():
     return shutil.which("claude")
 
 
-def call_claude(prompt, allow_tools=None, timeout=None, model=None):
+def call_claude(prompt, allow_tools=None, timeout=None, model=None, cancel_handle=None):
     """Return (text, error). Uses the logged-in claude CLI; no API key needed.
     Pass allow_tools="WebSearch,WebFetch" to let it pull up-to-date info."""
     claude = find_claude()
@@ -49,11 +49,18 @@ def call_claude(prompt, allow_tools=None, timeout=None, model=None):
         )
     except (FileNotFoundError, OSError) as e:
         return None, f"couldn't launch claude ({e})"
+    if cancel_handle and not cancel_handle.attach(p):
+        return None, "cancelled"
     try:
         out, err = p.communicate(input=prompt, timeout=(timeout or TIMEOUT))
     except subprocess.TimeoutExpired:
         llmprocess.terminate_tree(p)
         return None, "timed out"
+    finally:
+        if cancel_handle:
+            cancel_handle.detach(p)
+    if cancel_handle and cancel_handle.cancelled:
+        return None, "cancelled"
     out = (out or "").strip()
     err = (err or "").strip()
     blob = (out + "\n" + err).lower()

@@ -2,7 +2,25 @@
 
 ## Próximas versões
 
+- Perguntas manuais do Coach agora preemptam uma dica proativa em geração ou fala com uma única
+  pressão de `Ctrl+Alt+C`. Estados visuais falsamente ocupados voltam diretamente à escuta; uma
+  segunda pressão continua cancelando explicitamente um turno manual real.
+- Removidos os tetos acumulados das dicas proativas, inclusive limites legados salvos. O cooldown
+  global de 60 segundos e os cooldowns por tipo, dedupe, TTL, mute, guards de estado e backoff
+  de falha permanecem.
 - Interface, boards e coaching respeitam o idioma selecionado.
+- Coach conversacional opcional em `Ctrl+Alt+C`, da pré-fila ao pós-jogo, com memória textual,
+  cancelamento, card sem roubar foco e voz localizada em inglês/PT-BR.
+- Transcrição local com Whisper `small` multilíngue: download inicial consentido, hashes
+  validados, cache compartilhado, CPU/NVIDIA explícitos, políticas de manter carregado/por pergunta
+  e remoção completa no uninstall. Os pesos não entram no instalador.
+- Coaching proativo esparso e opt-in para draft/loading/partida/pós-jogo, mantendo prioridade do
+  coach manual e alertas determinísticos, silêncio no loading e mute por partida.
+- Fronteira de privacidade por fase e descoberta read-only de uma rodada. Prompts removem
+  credenciais, Riot IDs, PUUIDs e caminhos locais e não expõem shell, arquivos, navegador ou escrita
+  LCU.
+- Claude/Codex agora é uma escolha única, sem failover silencioso. O TTS usa Salli em inglês e
+  Camila em português brasileiro, com fallback Windows da mesma cultura.
 
 ## v0.9.72 — THE OUT: a partida que vocês estão PERDENDO e os quatorze minutos que ninguém conta
 

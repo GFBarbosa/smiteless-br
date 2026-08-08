@@ -579,7 +579,20 @@ def main():
     _make_click_through(toplevel_hwnd(root.winfo_id()))
 
     state = {"run": True, "brief": None, "shown": False, "want": False, "fetching": False,
+             "live_fallback": False, "mysid": None,
              "deadline": time.monotonic() + 1200}         # spawned at champ select: cover it + load
+
+    def _roster_timing(stage, elapsed, outcome):
+        _log(f"roster {stage} {elapsed * 1000:.0f}ms {outcome}")
+
+    def _warm_identity():
+        state["mysid"] = ll.current_summoner_id(
+            request_timeout=2.0, on_timing=_roster_timing)
+        _log(f"roster identity warm {'READY' if state['mysid'] else 'missing'}")
+
+    # This endpoint is available throughout ChampSelect.  Reading it now removes the second
+    # blocking LCU request from the much shorter Loading window.
+    threading.Thread(target=_warm_identity, daemon=True).start()
 
     def _done(why):
         _log(f"EXIT {why}")
@@ -603,6 +616,20 @@ def main():
         with _futures.ThreadPoolExecutor(max_workers=max(1, len(cids))) as ex:
             list(ex.map(one, cids))
 
+    def _live_minimal_fallback():
+        # :2999 becomes available only at the very end of Loading on fast machines.  Keep this
+        # independent of a possibly blocked LCU session read so clock-zero still has a chance
+        # to publish the ten anonymous champions before gt crosses 1.0.
+        while state["run"] and state["brief"] is None:
+            fast = ll.brief_from_live(dd, request_timeout=0.25,
+                                      on_timing=_roster_timing)
+            if fast:
+                ll.publish_minimal_snapshot(dd, fast)
+                state["brief"] = fast
+                _log("live fallback brief READY (anonymous champs/roles) -> showing")
+                return
+            time.sleep(0.1)
+
     def _fetch():
         # ALL network work lives here, OFF the poll/render loop, so the overlay is never blocked.
         # Phase 1: champs + tags + plan (fast, no Riot API) -> the overlay appears immediately.
@@ -610,7 +637,13 @@ def main():
         # Phase 3: the ONE shared per-lobby account scout — cards fill in as players land
         #          (on_progress), instead of the whole board waiting on the slowest account.
         try:
-            fast = ll.brief(dd, scout=False)
+            fast = ll.prepare_minimal_snapshot(
+                dd, mysid=state.get("mysid"), attempts=5, request_timeout=1.0,
+                live_timeout=None, retry_delay=0.1,
+                should_continue=lambda: state["run"] and state["brief"] is None,
+                on_timing=_roster_timing,
+            )
+            fast = fast or state["brief"]
             if fast:
                 state["brief"] = fast
                 _log("fast brief READY (champs/tags/plan) -> showing")
@@ -618,8 +651,13 @@ def main():
                 if state["run"]:
                     state["brief"] = dict(fast)              # new object -> tick re-renders w/ art
                     _log("art warmed -> redraw")
+            else:
+                _log("fast brief MISSING after bounded retries")
         except Exception as e:
             _log(f"fast brief ERROR {type(e).__name__}: {e}")
+
+        if not state["run"]:
+            return
 
         landed = {"n": 0}
         def _progress(partial):
@@ -631,7 +669,8 @@ def main():
         try:
             # ONE scout per lobby, shared with the web board + in-game scoreboard (lolload
             # publishes a snapshot the other surfaces read instead of re-scouting).
-            full = ll.brief_shared(dd, on_progress=_progress)
+            full = ll.brief_shared(dd, on_progress=_progress,
+                                   mysid=state.get("mysid"), on_timing=_roster_timing)
             if full and state["run"]:
                 state["brief"] = full
                 _log("scout brief READY (ranks/tags) -> enriched")
@@ -658,6 +697,9 @@ def main():
                 return
             if loading:
                 state["want"] = True
+                if not state["live_fallback"]:
+                    state["live_fallback"] = True
+                    threading.Thread(target=_live_minimal_fallback, daemon=True).start()
                 if not state["fetching"]:                  # kick the fetch ONCE, on a worker thread
                     state["fetching"] = True
                     threading.Thread(target=_fetch, daemon=True).start()

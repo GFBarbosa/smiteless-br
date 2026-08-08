@@ -83,6 +83,30 @@ def get_tip(my_key, opp_key, role, patch):
     return None
 
 
+def coach_snapshot(dd, my_name, opp_name, role, locale="en"):
+    """Read one exact cached matchup without generating, searching, writing or self-healing."""
+    try:
+        my_cid = dd["name2id"].get(dd["norm"](my_name))
+        opp_cid = dd["name2id"].get(dd["norm"](opp_name))
+        if not my_cid or not opp_cid:
+            return None
+        my_key = dd["id2key"][my_cid]
+        opp_key = dd["id2key"][opp_cid]
+        patch = patch_of(dd.get("ver"))
+        filename = (f"{_safe(my_key)}_vs_{_safe(opp_key)}_{_safe(role)}_"
+                    f"{_safe(patch)}_{'pt_BR' if locale == 'pt_BR' else 'en'}.txt")
+        path = os.path.join(CACHE, filename)
+        text = open(path, encoding="utf-8").read().strip()
+        if not text or _looks_bad(text):
+            return None
+        return {"self_champion": dd["id2name"].get(my_cid, my_name),
+                "opponent": dd["id2name"].get(opp_cid, opp_name),
+                "role": str(role or "")[:12], "patch": patch,
+                "cached_guidance": text[:2400], "source_age_ms": 0}
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+
+
 def _cs_slug(name):
     """ddragon display name -> counterstats URL slug: 'Kha'Zix'->'khazix',
     'Lee Sin'->'lee-sin', 'Dr. Mundo'->'dr-mundo', 'Nunu & Willump'->'nunu-willump'."""
@@ -225,7 +249,7 @@ def generate_tip(my_name, my_key, opp_name, opp_key, role, patch):
 
 def _generate_tip_llm(my_name, my_key, opp_name, opp_key, role, patch):
     """Fallback: generate with the logged-in CLI (web search) + cache. Returns (text, error)."""
-    provider = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
+    provider = cfg.load().get("llm_provider", cfg.LLM_PROVIDER_DEFAULT)
     try:
         from smitei18n import lang
         language = "Brazilian Portuguese" if lang() == "pt_BR" else "English"

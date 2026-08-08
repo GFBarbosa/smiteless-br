@@ -4,7 +4,7 @@
 A normal (focusable) window - unlike the overlay - so you can tweak it like any dialog.
 Everything it saves is read live by the overlay (smitecard.apply_settings each frame).
 """
-import sys, os, ctypes, webbrowser
+import sys, os, ctypes, webbrowser, threading
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _d in ("core", "ui", "tools"):            # cross-folder flat imports
     sys.path.insert(0, os.path.join(_ROOT, _d))
@@ -15,6 +15,10 @@ for _s in ("stdout", "stderr"):                # pythonw / bundled exe: no conso
         except Exception:
             pass
 import smiteconfig as cfg
+import smiteaudio
+import smitestt
+import smitewhispermodel
+import lolcoachipc
 import lolscout as ls
 from smitei18n import set_lang, t, tf
 
@@ -32,6 +36,157 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KEY_FILES = [os.path.expanduser("~/.riot_api_key"), os.path.expanduser("~/.riot_api_key.txt")]
 
 
+def _format_bytes(value):
+    amount = max(0, int(value or 0))
+    if amount >= 1024 * 1024:
+        return f"{amount / (1024 * 1024):.1f} MB"
+    if amount >= 1024:
+        return f"{amount / 1024:.1f} KB"
+    return f"{amount} B"
+
+
+def coach_error_message(code):
+    """Return actionable local-Whisper copy without paths or legacy STT advice."""
+    messages = {
+        "model_missing": "Whisper small is not installed. Download it once to use voice coaching.",
+        "model_incomplete": "The Whisper model download is incomplete. Retry to resume it.",
+        "model_hash_mismatch": "The Whisper model failed validation. Retry the trusted download.",
+        "model_root_invalid": "The Whisper model folder is invalid. Retry the trusted download.",
+        "model_locked": "Another Smiteless process is downloading the model. Wait and refresh.",
+        "download_http_error": "The model download could not reach its trusted source. Check the connection and retry.",
+        "download_file_invalid": "A downloaded model file failed validation. Retry the download.",
+        "download_failed": "The model download was interrupted. Retry to resume it.",
+        "cancelled": "The model download was cancelled. Voice coaching remains off.",
+        "whisper_runtime_missing": "The local Whisper runtime is unavailable. Reinstall Smiteless and retry.",
+        "worker_unavailable": "The local Whisper worker could not start. Restart Smiteless and retry.",
+        "worker_crash": "The local Whisper worker stopped unexpectedly. Retry the question.",
+        "worker_shutdown_failed": "The Whisper worker did not close cleanly. Restart Smiteless.",
+        "cuda_unavailable": "GPU NVIDIA was selected, but CUDA is unavailable. Install the supported CUDA runtime or select CPU.",
+        "unsupported_compute_type": "This GPU does not support the required Whisper compute type. Select CPU.",
+        "cuda_runtime_missing": "GPU NVIDIA needs the CUDA 12 cuBLAS and cuDNN 9 runtime. Install them or explicitly select CPU.",
+        "incompatible_runtime": "The selected Whisper runtime is incompatible. Reinstall Smiteless or select CPU.",
+        "model_memory_error": "There is not enough memory to load Whisper. Unload it, close other apps, or select CPU.",
+        "microphone_unavailable": "No available Windows default microphone was found.",
+        "permission_denied": "Microphone access is blocked in Windows privacy settings.",
+        "default_microphone_no_signal": "The Windows default microphone produced no signal. Check Windows Sound settings and retry.",
+        "no_speech": "No speech was detected. Check the Windows default microphone and retry.",
+        "low_confidence": "I could not hear that clearly. Check the Windows default microphone and try again.",
+        "timeout": "The voice operation timed out. Retry when the microphone is available.",
+        "malformed_json": "The local Whisper worker returned an invalid response. Restart Smiteless.",
+        "response_too_large": "The local Whisper worker returned too much data. Restart Smiteless.",
+        "stale_worker_response": "An old Whisper worker replied after replacement. Retry the question.",
+        "local_appdata_unavailable": "The local Smiteless model directory is unavailable.",
+        "local_appdata_redirected": "The local model directory failed its safety check.",
+        "manifest_missing": "The trusted Whisper model manifest is missing. Reinstall Smiteless.",
+        "manifest_unreadable": "The trusted Whisper model manifest is invalid. Reinstall Smiteless.",
+    }
+    return t(messages.get(str(code or ""),
+                          "Local speech recognition is unavailable: {error}")).format(
+                              error=str(code or "unknown"))
+
+
+def audio_test_message(result):
+    """Use the same safe terminal audio classification shown by the Coach."""
+    if isinstance(result, dict) and result.get("ok"):
+        renderer = result.get("renderer") or "audio"
+        voice = result.get("voice") or result.get("culture") or ""
+        return t("Played with {renderer}{voice}.").format(
+            renderer=renderer, voice=(f" - {voice}" if voice else ""))
+    return smiteaudio.audio_error_message(result, t)
+
+
+def coach_settings_state(result, settings, progress=None, compute_resolver=None):
+    """Pure Settings view-model for model, device, download and worker state."""
+    result = result or {}
+    settings = settings or {}
+    model = dict(result.get("model") or {})
+    worker = dict(result.get("worker") or {})
+    active_progress = dict(progress or model.get("download") or {})
+    resolver = compute_resolver or smitestt.runtime_configuration
+    configuration = {}
+    configuration_error = ""
+    try:
+        configuration = resolver(settings)
+    except smitestt.SttError as exc:
+        configuration_error = exc.code
+    state = str(model.get("state") or "unavailable")
+    model_labels = {
+        "ready": t("installed and validated"),
+        "missing": t("not installed"),
+        "partial": t("incomplete"),
+        "invalid": t("invalid"),
+        "unavailable": t("unavailable"),
+    }
+    download_state = str(active_progress.get("state") or "")
+    downloading = download_state == "downloading" or bool(model.get("download_started"))
+    if active_progress and (active_progress.get("bytes_total") or downloading):
+        download_text = t("Download: {percent:.1f}% ({done} / {total})").format(
+            percent=float(active_progress.get("percent") or 0.0),
+            done=_format_bytes(active_progress.get("bytes_downloaded")),
+            total=_format_bytes(active_progress.get("bytes_total")))
+    elif active_progress.get("resumable"):
+        download_text = t("Download can be resumed.")
+    else:
+        download_text = t("No download is running.")
+    device = cfg.normalize_coach_stt_device(settings.get("coach_stt_device"))
+    compute_type = configuration.get("compute_type") or t("unavailable")
+    loaded = bool(worker.get("model_loaded"))
+    worker_text = t("loaded") if loaded else t("unloaded")
+    error = (active_progress.get("error") or worker.get("last_error")
+             or configuration_error or model.get("error") or result.get("error") or "")
+    lines = [
+        t("Whisper small: {state}").format(state=model_labels.get(state, state)),
+        download_text,
+        t("Device: {device}  ·  compute: {compute}  ·  worker: {worker}").format(
+            device=(t("GPU NVIDIA") if device == "cuda" else t("CPU")),
+            compute=compute_type, worker=worker_text),
+    ]
+    if error:
+        lines.append(coach_error_message(error))
+    return {
+        "text": "\n".join(lines), "model_state": state,
+        "model_ready": bool(model.get("ready")), "downloading": downloading,
+        "percent": float(active_progress.get("percent") or 0.0),
+        "device": device, "compute_type": configuration.get("compute_type"),
+        "worker_loaded": loaded, "error": error,
+        "tone": "good" if model.get("ready") and not error else ("bad" if error else "warn"),
+    }
+
+
+def run_coach_onboarding(consent, settings, cancellation=None, progress=None,
+                         downloader=None, readiness_fn=None):
+    """Run the non-UI first-use transaction; callers own confirmation and test prompts."""
+    if not consent:
+        return {"ok": False, "declined": True, "enable_voice": False,
+                "error": "consent_declined"}
+    cancellation = cancellation or smitewhispermodel.DownloadCancellation()
+    download = downloader or smitewhispermodel.download_model
+    ready = readiness_fn or smitestt.readiness
+    result = download(cancellation=cancellation, progress=progress)
+    if not result.get("ok"):
+        return {**result, "ok": False, "enable_voice": False,
+                "offer_microphone_test": False}
+    readiness = ready()
+    if not (readiness.get("model") or {}).get("ready"):
+        error = (readiness.get("model") or {}).get("error") or "model_validation_failed"
+        return {"ok": False, "error": error, "enable_voice": False,
+                "offer_microphone_test": False, "readiness": readiness}
+    return {"ok": True, "enable_voice": True, "offer_microphone_test": True,
+            "download": result, "readiness": readiness}
+
+
+def needs_coach_onboarding(saved_settings, requested_voice, model_ready):
+    """Only a new opt-in with no valid model may trigger the consent flow."""
+    return bool(requested_voice and not (saved_settings or {}).get("voice_coach", False)
+                and not model_ready)
+
+
+def speech_readiness_summary(result):
+    """Compatibility wrapper while Settings uses the richer local-Whisper view-model."""
+    state = coach_settings_state(result, cfg.load())
+    return state["text"], state["tone"]
+
+
 def _single_instance():
     k = ctypes.windll.kernel32
     k.CreateMutexW(None, False, "Global\\SmitelessSettings")
@@ -44,6 +199,8 @@ def main():
     import tkinter as tk
     s = cfg.load()
     root = tk.Tk()
+    lang_var = tk.StringVar(root, value=s.get("ui_lang", "en")
+                            if s.get("ui_lang") in ("pt_BR", "en") else "en")
     cfg.watch_tray(root)                        # close with the tray (no orphan settings window)
     root.title(f"Smiteless {t('Settings')}")
     root.configure(bg=VOID)
@@ -113,6 +270,9 @@ def main():
                 foreground=[("readonly", TXT)],
                 selectbackground=[("readonly", SUNKEN)],
                 selectforeground=[("readonly", TXT)])
+        _st.configure("Coach.Horizontal.TProgressbar", troughcolor=SUNKEN,
+                      background=EMBER, bordercolor=LINE_SOFT,
+                      lightcolor=EMBER, darkcolor=EMBER)
         root.option_add("*TCombobox*Listbox.background", SUNKEN)
         root.option_add("*TCombobox*Listbox.foreground", TXT)
         root.option_add("*TCombobox*Listbox.selectBackground", HOVER)
@@ -278,21 +438,30 @@ def main():
                      0, 100, 5, s.get("dragon_volume", 30), lambda v: f"{int(v)}")
 
     def _test_audio():
-        # hear the chime + a voice line at the CURRENT slider value — no game required
         import threading
         v = int(dvol.get())
+        locale = lang_var.get()
+        sentence = ("Pegue. Vocês vencem esta luta." if locale == "pt_BR"
+                    else "Take it. You win this fight.")
+        audio_test_status.config(text=t("Testing selected audio..."), fg=MUTED)
 
         def work():
             try:
                 import time as _t
-                import smitewidget as sw
-                sw._beep(15, v)
+                smiteaudio.play_chime(15, v)
                 _t.sleep(1.8)                     # let the jingle ring before the voice
-                sw._say("test", "Take it. You win this fight.", v)
+                result = smiteaudio.speak("settings", sentence, v, locale, "test")
+                message = audio_test_message(result)
+                root.after(0, lambda: audio_test_status.config(
+                    text=message, fg=GOOD if result.get("ok") else BAD))
             except Exception:
-                pass
+                message = audio_test_message({"ok": False, "error": "speaker_error"})
+                root.after(0, lambda: audio_test_status.config(text=message, fg=BAD))
         threading.Thread(target=work, daemon=True).start()
     skin.button(body, t("♪ Test audio"), _test_audio, size=SMALL).pack(anchor="w", padx=18, pady=(0, 4))
+    audio_test_status = tk.Label(body, text="", bg=VOID, fg=MUTED, font=skin.body(SMALL),
+                                 anchor="w", justify="left", wraplength=430)
+    audio_test_status.pack(fill="x", padx=18, pady=(0, 4))
 
     auto = tk.BooleanVar(value=cfg.auto_open_enabled())
     homeonstart = tk.BooleanVar(value=cfg.home_on_start_enabled())
@@ -304,11 +473,28 @@ def main():
                               bd=0, highlightthickness=0)
 
     tips = tk.BooleanVar(value=s["matchup_tips"])
+    voicecoach = tk.BooleanVar(value=s.get("voice_coach", False))
+    proactivecoach = tk.BooleanVar(value=s.get("proactive_coach", False))
+    proactivemute = tk.BooleanVar(value=False)
+    _stt_device_labels = {
+        "cpu": t("CPU"),
+        "cuda": t("GPU NVIDIA"),
+    }
+    _stt_device_ids = {label: value for value, label in _stt_device_labels.items()}
+    stt_device = tk.StringVar(value=_stt_device_labels[
+        cfg.normalize_coach_stt_device(s.get("coach_stt_device"))])
+    _stt_policy_labels = {
+        "keep_loaded": t("Keep loaded"),
+        "per_question": t("Per question"),
+    }
+    _stt_policy_ids = {label: value for value, label in _stt_policy_labels.items()}
+    stt_policy = tk.StringVar(value=_stt_policy_labels[
+        cfg.normalize_coach_stt_load_policy(s.get("coach_stt_load_policy"))])
     _tip_provider_labels = {p: t("Claude" if p == "claude" else "Codex")
-                            for p in cfg.MATCHUP_TIP_PROVIDERS}
+                            for p in cfg.LLM_PROVIDERS}
     _tip_provider_ids = {label: provider for provider, label in _tip_provider_labels.items()}
     tip_provider = tk.StringVar(value=_tip_provider_labels[
-        cfg.normalize_matchup_tip_provider(s.get("matchup_tip_provider"))])
+        cfg.normalize_llm_provider(s.get("llm_provider"))])
     widget = tk.BooleanVar(value=s["item_widget"])
     autoq = tk.BooleanVar(value=s.get("auto_accept", False))
     intel = tk.BooleanVar(value=s.get("game_intel", True))
@@ -451,19 +637,256 @@ def main():
     tipfr.pack(fill="x", padx=14, pady=(0, 4))
     tiprow = tk.Frame(tipfr.body, bg=SURFACE)
     tiprow.pack(fill="x", padx=10, pady=(7, 2))
-    tk.Label(tiprow, text=t("Matchup AI fallback:"), bg=SURFACE, fg=TXT,
+    tk.Label(tiprow, text=t("AI provider:"), bg=SURFACE, fg=TXT,
              font=skin.body(SMALL, bold=True)).pack(side="left")
     tipcb = ttk.Combobox(
         tiprow, textvariable=tip_provider,
-        values=[_tip_provider_labels[p] for p in cfg.MATCHUP_TIP_PROVIDERS],
+        values=[_tip_provider_labels[p] for p in cfg.LLM_PROVIDERS],
         state="readonly", width=10, style="Fav.TCombobox", font=skin.body(SMALL),
     )
     tipcb.pack(side="left", padx=(8, 0))
+    _chk(tipfr.body, t("Enable contextual coach (sends redacted game context)"),
+         voicecoach, SURFACE).pack(anchor="w", padx=8, pady=(4, 1))
+    _chk(tipfr.body, t("Enable sparse proactive AI tips (opt-in)"),
+         proactivecoach, SURFACE).pack(anchor="w", padx=8, pady=(1, 1))
+
+    def _set_proactive_mute():
+        try:
+            result = lolcoachipc.request(
+                {"type": "proactive_mute", "muted": bool(proactivemute.get())}, timeout=3)
+            if not result.get("ok"):
+                raise lolcoachipc.IpcError(result.get("error") or "mute failed")
+            coach_action_status.config(
+                text=(t("Proactive coaching is muted for this game.")
+                      if proactivemute.get()
+                      else t("Proactive coaching can speak again this game.")), fg=MUTED)
+        except lolcoachipc.IpcError:
+            proactivemute.set(False)
+            coach_action_status.config(
+                text=t("Coach is not running; the one-game mute was not changed."), fg=MUTED)
+
+    proactive_mute_check = _chk(
+        tipfr.body, t("Mute proactive AI for this game (manual coach stays on)"),
+        proactivemute, SURFACE)
+    proactive_mute_check.configure(command=_set_proactive_mute)
+    proactive_mute_check.pack(anchor="w", padx=8, pady=(1, 3))
     tk.Label(tipfr.body,
-             text=t("Used only when no written matchup tip is available. The selected local "
+             text=t("Used by the coach and as the matchup-tip fallback. The selected local "
                     "CLI is authoritative; failures never switch providers automatically."),
              bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
              anchor="w", wraplength=420).pack(fill="x", padx=10, pady=(0, 8))
+    tk.Label(tipfr.body,
+             text=t("Proactive tips use only high-value lifecycle transitions, never conversation "
+                    "history. They are rate-limited to at least 60 seconds apart and at most six "
+                    "AI calls per game. Manual questions and deterministic alerts keep priority."),
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=420).pack(fill="x", padx=10, pady=(0, 8))
+    tk.Label(tipfr.body,
+             text=t("Microphone privacy: one hotkey press opens the default microphone for one "
+                    "bounded utterance. Audio and transcripts are not saved. Only the recognized "
+                    "text and phase-redacted context are sent to the selected local CLI."),
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=420).pack(fill="x", padx=10, pady=(0, 5))
+    stt_row = tk.Frame(tipfr.body, bg=SURFACE)
+    stt_row.pack(fill="x", padx=10, pady=(3, 3))
+    tk.Label(stt_row, text=t("Whisper device:"), bg=SURFACE, fg=TXT,
+             font=skin.body(SMALL, bold=True)).grid(row=0, column=0, sticky="w", pady=1)
+    stt_device_cb = ttk.Combobox(
+        stt_row, textvariable=stt_device, values=list(_stt_device_labels.values()),
+        state="readonly", width=18, style="Fav.TCombobox", font=skin.body(SMALL))
+    stt_device_cb.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=1)
+    tk.Label(stt_row, text=t("Load policy:"), bg=SURFACE, fg=TXT,
+             font=skin.body(SMALL, bold=True)).grid(row=1, column=0, sticky="w", pady=1)
+    stt_policy_cb = ttk.Combobox(
+        stt_row, textvariable=stt_policy, values=list(_stt_policy_labels.values()),
+        state="readonly", width=18, style="Fav.TCombobox", font=skin.body(SMALL))
+    stt_policy_cb.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=1)
+    tk.Label(tipfr.body,
+             text=t("CPU uses int8. GPU NVIDIA is explicit and never falls back to CPU. "
+                    "Keep loaded is faster after the first question; per question releases "
+                    "RAM or VRAM after every turn."),
+             bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+             anchor="w", wraplength=420).pack(fill="x", padx=10, pady=(0, 5))
+    model_progress = ttk.Progressbar(tipfr.body, orient="horizontal", mode="determinate",
+                                     maximum=100, style="Coach.Horizontal.TProgressbar")
+    model_progress.pack(fill="x", padx=10, pady=(2, 4))
+    speech_ready = tk.Label(tipfr.body, text=t("Checking local Whisper readiness..."),
+                            bg=SURFACE, fg=MUTED, font=skin.body(SMALL), justify="left",
+                            anchor="w", wraplength=420)
+    speech_ready.pack(fill="x", padx=10, pady=(0, 5))
+    coach_action_status = tk.Label(tipfr.body, text="", bg=SURFACE, fg=MUTED,
+                                   font=skin.body(SMALL), justify="left", anchor="w",
+                                   wraplength=420)
+    coach_action_status.pack(fill="x", padx=10, pady=(0, 4))
+    coach_actions = tk.Frame(tipfr.body, bg=SURFACE)
+    coach_actions.pack(fill="x", padx=10, pady=(0, 8))
+    coach_state = {"readiness": None, "progress": None, "cancellation": None,
+                   "download_active": False}
+
+    def _selected_stt_settings():
+        return {
+            "coach_stt_device": _stt_device_ids.get(
+                stt_device.get(), cfg.COACH_STT_DEVICE_DEFAULT),
+            "coach_stt_load_policy": _stt_policy_ids.get(
+                stt_policy.get(), cfg.COACH_STT_LOAD_POLICY_DEFAULT),
+            "coach_stt_model": "small",
+        }
+
+    def _render_coach_state():
+        result = coach_state.get("readiness") or {
+            "model": {"state": "unavailable", "ready": False}}
+        view = coach_settings_state(
+            result, _selected_stt_settings(), progress=coach_state.get("progress"))
+        color = {"good": GOOD, "warn": WARN, "bad": BAD}[view["tone"]]
+        speech_ready.config(text=view["text"], fg=color)
+        model_progress["value"] = view["percent"]
+        active = bool(coach_state.get("download_active"))
+        download_button.config(state="disabled" if active else "normal")
+        cancel_download_button.config(state="normal" if active else "disabled")
+        unload_button.config(state="normal" if view["worker_loaded"] else "disabled")
+        microphone_button.config(
+            state="normal" if view["model_ready"] and not active else "disabled")
+        return view
+
+    def _readiness_snapshot():
+        try:
+            return lolcoachipc.request({"type": "readiness"}, timeout=3)
+        except lolcoachipc.IpcError:
+            result = smitestt.readiness()
+            result["worker"] = {"model_loaded": False, "worker_alive": False,
+                                "last_error": ""}
+            return result
+
+    def _refresh_coach_readiness():
+        def work():
+            result = _readiness_snapshot()
+            proactive_muted = None
+            try:
+                status_result = lolcoachipc.request({"type": "status"}, timeout=3)
+                proactive_muted = bool((status_result.get("proactive") or {}).get("muted"))
+            except lolcoachipc.IpcError:
+                pass
+            def apply():
+                coach_state["readiness"] = result
+                if proactive_muted is not None:
+                    proactivemute.set(proactive_muted)
+                if not coach_state.get("download_active"):
+                    coach_state["progress"] = None
+                _render_coach_state()
+            root.after(0, apply)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _download_progress(value):
+        coach_state["progress"] = dict(value or {})
+        root.after(0, _render_coach_state)
+
+    def _test_microphone():
+        coach_action_status.config(text=t("Listening for a short microphone test..."), fg=MUTED)
+        microphone_button.config(state="disabled")
+
+        def work():
+            result = smitestt.recognize(lang_var.get(), settings=_selected_stt_settings())
+            def apply():
+                if result.get("ok"):
+                    coach_action_status.config(
+                        text=t("Microphone test heard: {text}").format(
+                            text=str(result.get("text") or "")[:180]), fg=GOOD)
+                else:
+                    coach_action_status.config(
+                        text=coach_error_message(result.get("error")), fg=BAD)
+                _refresh_coach_readiness()
+            root.after(0, apply)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _begin_model_download(enable_after=False):
+        from tkinter import messagebox
+        disclosure = t(
+            "Voice coaching needs one trusted Whisper small download of about 500 MB. "
+            "The model is stored in LocalAppData and reused by source and installed Smiteless. "
+            "After this download, transcription is local and works offline; microphone audio "
+            "is never uploaded. Download now?")
+        consent = messagebox.askyesno(t("Download Whisper small"), disclosure, parent=root)
+        if not consent:
+            if enable_after:
+                voicecoach.set(False)
+                cfg.save({"voice_coach": False})
+            coach_action_status.config(
+                text=t("Download declined. Voice coaching remains off."), fg=MUTED)
+            return
+        cancellation = smitewhispermodel.DownloadCancellation()
+        coach_state.update(cancellation=cancellation, download_active=True,
+                           progress={"state": "downloading", "percent": 0.0,
+                                     "bytes_downloaded": 0, "bytes_total": 0})
+        coach_action_status.config(text=t("Downloading and validating Whisper small..."),
+                                   fg=MUTED)
+        _render_coach_state()
+
+        def work():
+            outcome = run_coach_onboarding(
+                True, _selected_stt_settings(), cancellation=cancellation,
+                progress=_download_progress)
+            def apply():
+                coach_state["download_active"] = False
+                coach_state["cancellation"] = None
+                if outcome.get("ok"):
+                    if enable_after:
+                        cfg.save({"voice_coach": True, **_selected_stt_settings()})
+                        voicecoach.set(True)
+                    coach_action_status.config(
+                        text=t("Whisper small is ready for local offline transcription."),
+                        fg=GOOD)
+                    if outcome.get("offer_microphone_test") and messagebox.askyesno(
+                            t("Test the default microphone?"),
+                            t("The model is ready. Run one short local microphone test now?"),
+                            parent=root):
+                        _test_microphone()
+                else:
+                    if enable_after:
+                        voicecoach.set(False)
+                        cfg.save({"voice_coach": False})
+                    coach_action_status.config(
+                        text=coach_error_message(outcome.get("error")), fg=BAD)
+                _refresh_coach_readiness()
+            root.after(0, apply)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cancel_model_download():
+        cancellation = coach_state.get("cancellation")
+        if cancellation:
+            smitewhispermodel.cancel_download(cancellation)
+            coach_action_status.config(text=t("Cancelling model download..."), fg=MUTED)
+
+    def _unload_model():
+        try:
+            result = lolcoachipc.request({"type": "unload_model"}, timeout=8)
+            if result.get("ok"):
+                coach_action_status.config(text=t("Whisper model unloaded."), fg=GOOD)
+            else:
+                coach_action_status.config(
+                    text=coach_error_message(result.get("error")), fg=BAD)
+        except lolcoachipc.IpcError:
+            coach_action_status.config(text=t("Coach is not running; no model is loaded."),
+                                       fg=MUTED)
+        _refresh_coach_readiness()
+
+    download_button = skin.button(
+        coach_actions, t("Download / retry"), lambda: _begin_model_download(False), size=SMALL)
+    download_button.grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=(0, 3))
+    cancel_download_button = skin.button(
+        coach_actions, t("Cancel download"), _cancel_model_download, size=SMALL)
+    cancel_download_button.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 3))
+    unload_button = skin.button(
+        coach_actions, t("Unload model now"), _unload_model, size=SMALL)
+    unload_button.grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=(3, 0))
+    microphone_button = skin.button(
+        coach_actions, t("Test microphone"), _test_microphone, size=SMALL)
+    microphone_button.grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=(3, 0))
+    coach_actions.columnconfigure(0, weight=1, uniform="coach_action")
+    coach_actions.columnconfigure(1, weight=1, uniform="coach_action")
+    stt_device_cb.bind("<<ComboboxSelected>>", lambda _event: _render_coach_state())
+    stt_policy_cb.bind("<<ComboboxSelected>>", lambda _event: _render_coach_state())
+    _render_coach_state()
+    _refresh_coach_readiness()
     _feat_group("CHAMP-SELECT AUTOMATION", [
         ("Auto-accept queue", autoq),
         ("Auto-import runes + summs on lock", autoimp),
@@ -608,7 +1031,6 @@ def main():
         pass
 
     # ---------- one-click Riot login (saved "Stay signed in" sessions, no passwords) ----------
-    import threading
     import lolaccounts as la
     skin.section_rule(body, t("ONE-CLICK RIOT LOGIN")).pack(fill="x", padx=18, pady=(12, 2))
     tk.Label(body, text=t("Setup, once per account: in the Riot Client log in with \"Stay signed in\" "
@@ -731,7 +1153,6 @@ def main():
     _upd_flash()
 
     skin.section_rule(body, t("STARTUP")).pack(fill="x", padx=18, pady=(10, 2))
-    lang_var = tk.StringVar(value=s.get("ui_lang", "en") if s.get("ui_lang") in ("pt_BR", "en") else "en")
     langfr = tk.Frame(body, bg=VOID)
     langfr.pack(fill="x", padx=16, pady=(0, 2))
     tk.Label(langfr, text=t("LANGUAGE"), bg=VOID, fg=EMBER, font=skin.body(SMALL, bold=True)).pack(side="left")
@@ -876,6 +1297,18 @@ def main():
 
     def save():
         bans = [ban_list.get(i) for i in range(ban_list.size())]
+        saved_before = cfg.load()
+        requested_voice = bool(voicecoach.get())
+        readiness = coach_state.get("readiness")
+        if readiness is None:
+            readiness = smitestt.readiness()
+            readiness["worker"] = {"model_loaded": False, "worker_alive": False,
+                                   "last_error": ""}
+            coach_state["readiness"] = readiness
+        model_ready = bool((readiness.get("model") or {}).get("ready"))
+        needs_onboarding = needs_coach_onboarding(
+            saved_before, requested_voice, model_ready)
+        voice_to_save = False if needs_onboarding else requested_voice
         try:
             ls.save_accounts([ln.strip() for ln in acc_text.get("1.0", "end").splitlines() if ln.strip()])
         except Exception:
@@ -887,8 +1320,11 @@ def main():
                   "scout_games": int(scout.get()), "profile_games": int(pgames.get()),
                   "dragon_volume": int(dvol.get()), "board_size": int(bsize.get()),
                   "matchup_tips": tips.get(),
-                  "matchup_tip_provider": _tip_provider_ids.get(
-                      tip_provider.get(), cfg.MATCHUP_TIP_PROVIDER_DEFAULT),
+                  "voice_coach": voice_to_save,
+                  "proactive_coach": proactivecoach.get(),
+                  **_selected_stt_settings(),
+                  "llm_provider": _tip_provider_ids.get(
+                      tip_provider.get(), cfg.LLM_PROVIDER_DEFAULT),
                   "item_widget": widget.get(),
                   "game_intel": intel.get(), "tempo_coach": tempo.get(), "free_alarm": freev.get(),
                   "tempo_voice": tempov.get(),
@@ -917,6 +1353,11 @@ def main():
         cfg.set_home_on_start(homeonstart.get())
         cfg.set_autostart(startwin.get())
         status.config(text=t("saved ✓  (overlay updates live; widget toggle applies next game)"), fg=GOOD)
+        if needs_onboarding:
+            voicecoach.set(False)
+            _begin_model_download(enable_after=True)
+        else:
+            _refresh_coach_readiness()
 
     def reset():
         # EVERY control returns to its default — the old body listed a subset, so "Reset"
@@ -932,9 +1373,14 @@ def main():
             v.set(True)
         for v in (autoq, autoimp, autoban):      # off-by-default automations stay off
             v.set(False)
+        voicecoach.set(False)
+        proactivecoach.set(False)
+        proactivemute.set(False)
+        stt_device.set(_stt_device_labels[cfg.COACH_STT_DEVICE_DEFAULT])
+        stt_policy.set(_stt_policy_labels[cfg.COACH_STT_LOAD_POLICY_DEFAULT])
         flash_side.set(0)
         lang_var.set("en")
-        tip_provider.set(_tip_provider_labels[cfg.MATCHUP_TIP_PROVIDER_DEFAULT])
+        tip_provider.set(_tip_provider_labels[cfg.LLM_PROVIDER_DEFAULT])
         _upd_flash()
         try:
             for var in swapvars.values():

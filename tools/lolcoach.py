@@ -222,7 +222,7 @@ def _takeflag(argv, name):
 
 def _call_ai(prompt):
     """Dispatch through the persisted provider without changing verified coach data."""
-    provider = cfg.load().get("matchup_tip_provider", cfg.MATCHUP_TIP_PROVIDER_DEFAULT)
+    provider = cfg.load().get("llm_provider", cfg.LLM_PROVIDER_DEFAULT)
     return llmcli.call(prompt, provider)
 
 

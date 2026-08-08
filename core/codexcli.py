@@ -47,7 +47,7 @@ def _error_from(blob):
     return None
 
 
-def call_codex(prompt, timeout=None, model=None, allow_web=False):
+def call_codex(prompt, timeout=None, model=None, allow_web=False, cancel_handle=None):
     """Return ``(text, error)`` from an ephemeral, read-only Codex invocation."""
     codex = find_codex()
     if not codex:
@@ -84,6 +84,9 @@ def call_codex(prompt, timeout=None, model=None, allow_web=False):
         except (FileNotFoundError, OSError) as exc:
             return None, f"couldn't launch codex ({exc})"
 
+        if cancel_handle and not cancel_handle.attach(process):
+            return None, "cancelled"
+
         try:
             stdout, stderr = process.communicate(
                 input=prompt, timeout=(timeout or TIMEOUT),
@@ -91,6 +94,12 @@ def call_codex(prompt, timeout=None, model=None, allow_web=False):
         except subprocess.TimeoutExpired:
             llmprocess.terminate_tree(process)
             return None, "timed out"
+        finally:
+            if cancel_handle:
+                cancel_handle.detach(process)
+
+        if cancel_handle and cancel_handle.cancelled:
+            return None, "cancelled"
 
         stdout = (stdout or "").strip()
         stderr = (stderr or "").strip()
