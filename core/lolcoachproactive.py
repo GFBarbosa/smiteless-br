@@ -173,11 +173,11 @@ class ProactiveDetector:
 
 
 class ProactivePolicy:
-    """Pure one-item scheduler with cooldown, dedupe, limits and failure backoff."""
+    """Pure one-item scheduler with cooldown, dedupe, optional limits and failure backoff."""
 
     def __init__(self, clock=time.monotonic, global_cooldown=60.0,
-                 per_kind_cooldown=120.0, max_per_lifecycle=6,
-                 max_per_phase=3, backoff_base=30.0, backoff_cap=900.0):
+                 per_kind_cooldown=120.0, max_per_lifecycle=0,
+                 max_per_phase=0, backoff_base=30.0, backoff_cap=900.0):
         self.clock = clock
         self.global_cooldown = float(global_cooldown)
         self.per_kind_cooldown = float(per_kind_cooldown)
@@ -227,9 +227,10 @@ class ProactivePolicy:
         ) if blocked), None)
         if reason:
             return reason
-        if self.calls >= self.max_per_lifecycle:
+        # A zero cap means unlimited; positive injected caps remain useful for fixtures.
+        if self.max_per_lifecycle > 0 and self.calls >= self.max_per_lifecycle:
             return "max_lifecycle"
-        if self.phase_calls.get(intent.phase, 0) >= self.max_per_phase:
+        if self.max_per_phase > 0 and self.phase_calls.get(intent.phase, 0) >= self.max_per_phase:
             return "max_phase"
         if self.queued is None or (intent.priority, intent.created_at) >= \
                 (self.queued.priority, self.queued.created_at):

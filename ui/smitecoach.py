@@ -103,7 +103,11 @@ class Coordinator:
         self.session = CoachSession()
         self.lock = threading.RLock()
         self.cancel_handle = None
+        # This changes whenever a manual turn is reserved or explicitly cancelled.
+        # It lets delayed UI/audio callbacks prove that they still own the card.
+        self.manual_turn_token = 0
         self.proactive_handle = None
+        self.proactive_turn_token = 0
         self.proactive_muted_lifecycle = None
         self.proactive_spoken = 0
         self.proactive_stop = threading.Event()
@@ -111,7 +115,7 @@ class Coordinator:
         self.proactive_detector = lolcoachproactive.ProactiveDetector()
         self.proactive_policy = lolcoachproactive.ProactivePolicy(
             global_cooldown=settings.get("proactive_global_cooldown", 60),
-            max_per_lifecycle=settings.get("proactive_max_per_game", 6))
+            max_per_lifecycle=settings.get("proactive_max_per_game", 0))
         self._coach_dd = None
         self.state = "idle"
         self.user_text = ""
@@ -229,12 +233,84 @@ class Coordinator:
         y = max(28, screen_height - height - bottom_clearance)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _set(self, **values):
+    def _set(self, _turn_token=None, _proactive_token=None, **values):
         def apply():
+            if _turn_token is not None:
+                with self.lock:
+                    if getattr(self, "manual_turn_token", 0) != _turn_token:
+                        return
+            if _proactive_token is not None:
+                with self.lock:
+                    if getattr(self, "proactive_turn_token", 0) != _proactive_token:
+                        return
             for key, value in values.items():
                 setattr(self, key, value)
             self._render()
         self.root.after(0, apply)
+
+    def _reserve_manual_turn(self):
+        """Reserve the authoritative owner before preempting proactive work."""
+        with self.lock:
+            if self.cancel_handle is not None:
+                return None
+            handle = llmprocess.CancellationHandle()
+            self.cancel_handle = handle
+            self.manual_turn_token = getattr(self, "manual_turn_token", 0) + 1
+            # Also invalidate a proactive callback that completed just before this reservation
+            # but is still waiting for Tk's event queue.
+            self.proactive_turn_token = getattr(self, "proactive_turn_token", 0) + 1
+            return handle
+
+    def _manual_token(self, handle):
+        with self.lock:
+            if self.cancel_handle is handle:
+                return getattr(self, "manual_turn_token", 0)
+        return None
+
+    def _release_manual_turn(self, handle):
+        """Release only the owner that reached its normal terminal callback."""
+        with self.lock:
+            if self.cancel_handle is not handle:
+                return False
+            self.cancel_handle = None
+            return True
+
+    def _cancel_manual_turn(self):
+        """Invalidate the current owner so an old callback cannot repaint a new turn."""
+        with self.lock:
+            handle = self.cancel_handle
+            if handle is not None:
+                self.cancel_handle = None
+                self.manual_turn_token = getattr(self, "manual_turn_token", 0) + 1
+            return handle
+
+    def _set_manual(self, handle, **values):
+        token = self._manual_token(handle)
+        if token is None:
+            return False
+        self._set(_turn_token=token, **values)
+        return True
+
+    def _complete_manual(self, handle, **values):
+        """Publish a terminal state only if this is still the current manual turn."""
+        token = self._manual_token(handle)
+        if token is None or not self._release_manual_turn(handle):
+            return False
+        self._set(_turn_token=token, **values)
+        return True
+
+    def _current_proactive_token(self, handle):
+        with self.lock:
+            if self.proactive_handle is handle and self.cancel_handle is None:
+                return getattr(self, "proactive_turn_token", 0)
+        return None
+
+    def _set_proactive(self, handle, **values):
+        token = self._current_proactive_token(handle)
+        if token is None:
+            return False
+        self._set(_proactive_token=token, **values)
+        return True
 
     def dispatch(self, message):
         kind = str(message.get("type") or "")
@@ -283,8 +359,7 @@ class Coordinator:
             return self.cancel()
         if kind == "toggle":
             with self.lock:
-                busy = self.state in ("listening", "thinking", "speaking") or \
-                    self.cancel_handle is not None
+                busy = self.cancel_handle is not None
             if busy:
                 return self.cancel()
             return self.start_listening()
@@ -301,16 +376,13 @@ class Coordinator:
 
     def cancel(self):
         proactive_cancelled = self._cancel_proactive("manual_cancel")
-        with self.lock:
-            handle = self.cancel_handle
-            self.cancel_handle = None
+        handle = self._cancel_manual_turn()
         if handle:
             handle.cancel()
         self.audio.stop_listening()
         self.audio.finish_listening()
         self._set(state="cancelled", error=t("Coach request cancelled."))
-        return {"ok": True, "cancelled": bool(handle) or proactive_cancelled or
-                self.state == "speaking"}
+        return {"ok": True, "cancelled": bool(handle) or proactive_cancelled}
 
     def start_listening(self):
         settings = cfg.load()
@@ -319,15 +391,13 @@ class Coordinator:
             self._set(state="error", error=message)
             self.show()
             return {"ok": False, "error": message, "disabled": True}
+        handle = self._reserve_manual_turn()
+        if handle is None:
+            return {"ok": False, "error": t("Coach is busy. Press the hotkey again to cancel.")}
         self._cancel_proactive("manual_listening")
-        with self.lock:
-            if self.cancel_handle is not None or self.state in ("listening", "thinking", "speaking"):
-                return {"ok": False, "error": t("Coach is busy. Press the hotkey again to cancel.")}
-            handle = llmprocess.CancellationHandle()
-            self.cancel_handle = handle
         self.audio.stop_listening()
-        self._set(state="listening", user_text=t("Listening…"),
-                  answer=t("Speak now. Listening stops after silence."), error="")
+        self._set_manual(handle, state="listening", user_text=t("Listening…"),
+                         answer=t("Speak now. Listening stops after silence."), error="")
         self.show()
 
         def work():
@@ -340,20 +410,15 @@ class Coordinator:
             finally:
                 self.audio.finish_listening()
             if handle.cancelled:
-                with self.lock:
-                    if self.cancel_handle is handle:
-                        self.cancel_handle = None
                 return
             if not result.get("ok"):
                 error = result.get("error") or "recognition_error"
                 message = recognition_error_message(error)
-                self._set(state="error", user_text=result.get("text") or "", error=message)
-                with self.lock:
-                    if self.cancel_handle is handle:
-                        self.cancel_handle = None
+                self._complete_manual(handle, state="error",
+                                      user_text=result.get("text") or "", error=message)
                 return
             question = result.get("text") or ""
-            self._set(state="thinking", user_text=question, answer="", error="")
+            self._set_manual(handle, state="thinking", user_text=question, answer="", error="")
             self.ask(question, handle=handle)
 
         threading.Thread(target=work, daemon=True).start()
@@ -379,24 +444,33 @@ class Coordinator:
     def ask(self, question, handle=None):
         question = question.strip()
         if not question:
+            if handle is not None:
+                self._complete_manual(handle, state="error",
+                                      error=t("A text question is required."))
             return {"ok": False, "error": t("A text question is required.")}
-        self._cancel_proactive("manual_question")
         settings = cfg.load()
         if not settings.get("voice_coach", False):
             message = t("Coach is disabled. Enable it in Settings before sending game context.")
-            self._set(state="error", error=message, user_text=question)
+            if handle is not None:
+                self._complete_manual(handle, state="error", error=message, user_text=question)
+            else:
+                self._set(state="error", error=message, user_text=question)
             self.show()
             return {"ok": False, "error": message, "disabled": True}
         owns_handle = handle is None
-        with self.lock:
-            if owns_handle and self.cancel_handle is not None:
+        if owns_handle:
+            handle = self._reserve_manual_turn()
+            if handle is None:
                 return {"ok": False, "error": t("Coach is already thinking. Cancel it first.")}
-            if owns_handle:
-                handle = llmprocess.CancellationHandle()
-                self.cancel_handle = handle
+        if self._manual_token(handle) is None:
+            return {"ok": False, "error": t("Coach request cancelled.")}
+        self._cancel_proactive("manual_question")
+        with self.lock:
             self.provider = settings.get("llm_provider", cfg.LLM_PROVIDER_DEFAULT)
-        self._set(state="thinking", user_text=question, answer="", error="")
+        self._set_manual(handle, state="thinking", user_text=question, answer="", error="")
         self.show()
+        audio_accepted = False
+        terminal = None
         try:
             locale = lang()
             phase = phasecheck.phase_detailed()
@@ -418,9 +492,11 @@ class Coordinator:
                 dd=dd, cancelled=lambda: handle.cancelled,
             )
             text, error = result.get("text"), result.get("error")
+            if handle.cancelled:
+                return {"ok": False, "error": t("Coach request cancelled.")}
             if error or not text:
                 message = error or t("Coach returned no text.")
-                self._set(state="error", error=message)
+                terminal = {"state": "error", "error": message}
                 return {"ok": False, "error": message}
             text = " ".join(str(text).split())[:6000]
             with self.lock:
@@ -428,23 +504,25 @@ class Coordinator:
             volume = int(settings.get("dragon_volume", 30))
 
             def spoken(result):
-                self._set(**coach_audio_state(text, result))
-            self._set(state="speaking", answer=text, error="")
+                self._complete_manual(handle, **coach_audio_state(text, result))
+            self._set_manual(handle, state="speaking", answer=text, error="")
             accepted = self.audio.submit(smiteaudio.AudioJob(
                 priority=smiteaudio.Priority.MANUAL_RESPONSE, name="answer", text=text,
                 locale=locale, volume=volume, callback=spoken))
             if not accepted:
-                spoken({"ok": False, "error": "speaker_error",
-                        "stage": "scheduler_submit"})
+                terminal = coach_audio_state(text, {"ok": False, "error": "speaker_error",
+                                                    "stage": "scheduler_submit"})
+            else:
+                audio_accepted = True
             return {"ok": True, "text": text, "phase": envelope["phase"]}
         except Exception as exc:
             message = t("Coach unavailable: {error}").format(error=str(exc)[:160])
-            self._set(state="error", error=message)
+            terminal = {"state": "error", "error": message}
             return {"ok": False, "error": message}
         finally:
-            with self.lock:
-                if self.cancel_handle is handle:
-                    self.cancel_handle = None
+            if not audio_accepted:
+                self._complete_manual(handle, **(terminal or {
+                    "state": "cancelled", "error": t("Coach request cancelled.")}))
 
     def _cancel_proactive(self, reason):
         if not hasattr(self, "proactive_policy"):
@@ -452,6 +530,8 @@ class Coordinator:
         with self.lock:
             handle = self.proactive_handle
             self.proactive_handle = None
+            if handle is not None:
+                self.proactive_turn_token = getattr(self, "proactive_turn_token", 0) + 1
             queued = self.proactive_policy.drop_queued()
         if handle:
             handle.cancel()
@@ -459,14 +539,13 @@ class Coordinator:
         if queued:
             lolcoachproactive.log_event("suppressed", queued, reason)
         cancelled = bool(handle or queued or audio_cancelled)
-        if cancelled:
+        if cancelled and not self._manual_busy():
             self._set(state="idle", error="")
         return cancelled
 
     def _manual_busy(self):
         with self.lock:
-            return self.cancel_handle is not None or self.state in (
-                "listening", "thinking", "speaking")
+            return getattr(self, "cancel_handle", None) is not None
 
     def _proactive_snapshot(self):
         raw_phase = phasecheck.phase_detailed()
@@ -580,9 +659,10 @@ class Coordinator:
             return
         handle = llmprocess.CancellationHandle()
         with self.lock:
-            if self.proactive_handle is not None:
+            if self.proactive_handle is not None or self.cancel_handle is not None:
                 return
             self.proactive_handle = handle
+            self.proactive_turn_token = getattr(self, "proactive_turn_token", 0) + 1
         lolcoachproactive.log_event("provider_started", intent)
         try:
             current_phase = lolcoachcontext.normalize_phase(phasecheck.phase_detailed())
@@ -606,7 +686,7 @@ class Coordinator:
             settings = cfg.load()
             provider = settings.get("llm_provider", cfg.LLM_PROVIDER_DEFAULT)
             text, error = llmcli.call(prompt, provider, timeout=90, cancel_handle=handle)
-            if handle.cancelled:
+            if handle.cancelled or self._manual_busy():
                 lolcoachproactive.log_event("suppressed", intent, "cancelled")
                 return
             if error or not text:
@@ -617,37 +697,52 @@ class Coordinator:
                 return
             text = " ".join(str(text).split())[:2000]
             volume = int(settings.get("dragon_volume", 30))
+            audio_accepted = False
 
             def spoken(result):
+                token = self._current_proactive_token(handle)
+                if token is None:
+                    return
                 if result.get("ok"):
                     with self.lock:
                         self.proactive_spoken += 1
                     self.proactive_policy.record_success()
-                    self._set(state="idle", answer=text, error="")
+                    self._set(_proactive_token=token, state="idle", answer=text, error="")
                     lolcoachproactive.log_event("spoken", intent, extra={"characters": len(text)})
                 else:
                     delay = self.proactive_policy.record_failure()
-                    self._set(**coach_audio_state(text, result))
+                    self._set(_proactive_token=token, **coach_audio_state(text, result))
                     lolcoachproactive.log_event(
                         "tts_failed", intent, str(result.get("error") or "unavailable")[:80],
                         {"backoff_seconds": delay})
+                with self.lock:
+                    if self.proactive_handle is handle:
+                        self.proactive_handle = None
 
-            self._set(state="speaking", user_text=t("Proactive tip"), answer=text, error="")
+            if handle.cancelled or self._manual_busy():
+                lolcoachproactive.log_event("suppressed", intent, "manual_busy")
+                return
+            if not self._set_proactive(
+                    handle, state="speaking", user_text=t("Proactive tip"), answer=text, error=""):
+                lolcoachproactive.log_event("suppressed", intent, "manual_busy")
+                return
             self.show()
             accepted = self.audio.submit(smiteaudio.AudioJob(
                 priority=smiteaudio.Priority.PROACTIVE_RESPONSE,
                 name=f"proactive_{intent.kind}"[:40], text=text,
                 locale=locale, volume=volume, callback=spoken))
             if not accepted:
-                self._set(state="idle", answer=text, error="")
+                self._set_proactive(handle, state="idle", answer=text, error="")
                 lolcoachproactive.log_event("suppressed", intent, "audio_priority")
+            else:
+                audio_accepted = True
         except Exception as exc:
             delay = self.proactive_policy.record_failure()
             lolcoachproactive.log_event(
                 "provider_failed", intent, type(exc).__name__, {"backoff_seconds": delay})
         finally:
             with self.lock:
-                if self.proactive_handle is handle:
+                if self.proactive_handle is handle and not locals().get("audio_accepted", False):
                     self.proactive_handle = None
 
     def close(self):

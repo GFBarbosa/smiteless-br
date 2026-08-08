@@ -112,11 +112,12 @@ def normalize_coach_stt_model(value):
 DEFAULTS = {"streak_influence": 50, "gank_threshold": 6.0, "scout_games": 10, "profile_games": 30,
             "dragon_volume": 30, "board_size": 70,
             "proactive_poll_seconds": 5, "proactive_live_poll_seconds": 2,
-            "proactive_global_cooldown": 60, "proactive_max_per_game": 6}
+            # Zero is the only supported product setting: no accumulated tip cap.
+            "proactive_global_cooldown": 60, "proactive_max_per_game": 0}
 RANGES = {"streak_influence": (0, 100), "gank_threshold": (3.0, 12.0), "scout_games": (5, 20),
           "profile_games": (5, 60), "dragon_volume": (0, 100), "board_size": (40, 100),
           "proactive_poll_seconds": (3, 30), "proactive_live_poll_seconds": (1, 10),
-          "proactive_global_cooldown": (60, 600), "proactive_max_per_game": (1, 6)}
+          "proactive_global_cooldown": (60, 600), "proactive_max_per_game": (0, 0)}
 # Feature toggles (read live by the relevant module).
 BOOLS = {"matchup_tips": True,    # generate the AI lane tip in champ-select/in-game
          "voice_coach": False,    # manual contextual coach (text now; microphone in Phase 3)

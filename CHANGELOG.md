@@ -2,6 +2,11 @@
 
 ## Unreleased — local voice coach and phase-aware proactive coaching
 
+- Manual Coach questions now preempt an in-flight or speaking proactive tip with one
+  `Ctrl+Alt+C` press. Stale visual busy states recover directly into listening; a second press
+  still explicitly cancels a real manual turn.
+- Removed accumulated proactive-tip caps, including legacy saved limits. The 60-second global
+  cooldown and per-kind cooldown, dedupe, TTL, mute, state guards and failure backoff remain.
 - Added an optional `Ctrl+Alt+C` conversational coach from pre-queue through post-game, with
   continuous text-only session memory, a non-activating answer card, cancellation and localized
   English/PT-BR speech.

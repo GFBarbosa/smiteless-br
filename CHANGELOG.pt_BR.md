@@ -2,6 +2,12 @@
 
 ## Próximas versões
 
+- Perguntas manuais do Coach agora preemptam uma dica proativa em geração ou fala com uma única
+  pressão de `Ctrl+Alt+C`. Estados visuais falsamente ocupados voltam diretamente à escuta; uma
+  segunda pressão continua cancelando explicitamente um turno manual real.
+- Removidos os tetos acumulados das dicas proativas, inclusive limites legados salvos. O cooldown
+  global de 60 segundos e os cooldowns por tipo, dedupe, TTL, mute, guards de estado e backoff
+  de falha permanecem.
 - Interface, boards e coaching respeitam o idioma selecionado.
 - Coach conversacional opcional em `Ctrl+Alt+C`, da pré-fila ao pós-jogo, com memória textual,
   cancelamento, card sem roubar foco e voz localizada em inglês/PT-BR.

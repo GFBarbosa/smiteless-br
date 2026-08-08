@@ -2231,7 +2231,7 @@ def c_coach_runtime():
     listener.state = "idle"
     listener.stt_runtime = object()
     listener.audio = ListeningAudio()
-    listener._cancel_proactive = lambda _reason: False
+    listener._cancel_proactive = mock.Mock(return_value=False)
     listener.show = mock.Mock()
     state_changed = threading.Event()
     asked = threading.Event()
@@ -2275,7 +2275,8 @@ def c_coach_runtime():
         bad.append("empty transcript handle/gate/recoverable Coach state")
     if not second_listen.get("ok") or listener.state != "thinking" \
             or getattr(listener, "asked_question", "") != "What is my next move?" \
-            or listener.audio.stopped != 2 or listener.audio.finished != 2:
+            or listener.audio.stopped != 2 or listener.audio.finished != 2 \
+            or listener._cancel_proactive.call_count != 2:
         bad.append("immediate valid retry after empty transcript")
 
     disabled = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
@@ -2305,7 +2306,8 @@ def c_coach_runtime():
                               return_value=(None, "provider failed")) as provider_call:
         failed = failing.ask("What now?")
     if failed.get("ok") or failing.session.history() \
-            or provider_call.call_args.args[1] != "codex":
+            or provider_call.call_args.args[1] != "codex" \
+            or failing.cancel_handle is not None:
         bad.append("provider failure/no-failover/no-answer-cache")
 
     rejected_audio = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
@@ -2338,8 +2340,146 @@ def c_coach_runtime():
     if not refused_submit.get("ok") or rejected_audio.state != "error" \
             or rejected_audio.answer != "Keep this visible answer" \
             or "unexpected audio error" not in rejected_audio.error.lower() \
-            or rejected_audio.audio.submit.call_count != 1:
+            or rejected_audio.audio.submit.call_count != 1 \
+            or rejected_audio.cancel_handle is not None:
         bad.append("rejected manual audio submit preserved answer/state")
+
+    class ImmediateRoot:
+        def after(self, _delay, callback):
+            callback()
+
+    class DeferredRoot:
+        def __init__(self):
+            self.callbacks = []
+
+        def after(self, _delay, callback):
+            self.callbacks.append(callback)
+
+    class HeldAudio:
+        def __init__(self):
+            self.jobs = []
+            self.stopped = 0
+            self.finished = 0
+
+        def submit(self, job):
+            self.jobs.append(job)
+            return True
+
+        def stop_listening(self):
+            self.stopped += 1
+            return True
+
+        def finish_listening(self):
+            self.finished += 1
+            return True
+
+    def manual_fixture(audio=None):
+        coordinator = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
+        coordinator.root = ImmediateRoot()
+        coordinator.lock = threading.RLock()
+        coordinator.cancel_handle = None
+        coordinator.manual_turn_token = 0
+        coordinator.proactive_handle = None
+        coordinator.proactive_turn_token = 0
+        coordinator.state = "idle"
+        coordinator.answer = ""
+        coordinator.error = ""
+        coordinator.user_text = ""
+        coordinator.session = session.CoachSession()
+        coordinator.audio = audio or HeldAudio()
+        coordinator._cancel_proactive = lambda _reason: False
+        coordinator.show = mock.Mock()
+        coordinator._render = lambda: None
+        return coordinator
+
+    visual_only = manual_fixture()
+    visual_only.state = "speaking"
+    visual_only.start_listening = mock.Mock(return_value={"ok": True, "state": "listening"})
+    visual_only.cancel = mock.Mock(return_value={"ok": True, "cancelled": True})
+    visual_toggle = visual_only.dispatch({"type": "toggle"})
+    visual_only.state = "thinking"
+    thinking_toggle = visual_only.dispatch({"type": "toggle"})
+    visual_only.state = "listening"
+    listening_toggle = visual_only.dispatch({"type": "toggle"})
+    if not all(row.get("ok") for row in (visual_toggle, thinking_toggle, listening_toggle)) \
+            or visual_only.start_listening.call_count != 3 or visual_only.cancel.called \
+            or visual_only._manual_busy():
+        bad.append("visual-only coach states recover into listening")
+
+    pending_proactive = manual_fixture()
+    pending_proactive.root = DeferredRoot()
+    pending_handle = object()
+    pending_proactive.proactive_handle = pending_handle
+    pending_proactive.proactive_turn_token = 1
+    pending_proactive._set_proactive(pending_handle, state="speaking")
+    pending_proactive._reserve_manual_turn()
+    for callback in pending_proactive.root.callbacks:
+        callback()
+    if pending_proactive.state != "idle":
+        bad.append("queued proactive UI callback cannot overwrite manual reservation")
+
+    active_toggle = manual_fixture()
+    active_handle = active_toggle._reserve_manual_turn()
+    active_toggle.start_listening = mock.Mock(return_value={"ok": True})
+    active_toggle.cancel = mock.Mock(return_value={"ok": True, "cancelled": True})
+    active_toggle.dispatch({"type": "toggle"})
+    if active_handle is None or not active_toggle.cancel.called or active_toggle.start_listening.called:
+        bad.append("real manual turn toggles to explicit cancellation")
+
+    held_audio = HeldAudio()
+    answering = manual_fixture(held_audio)
+    with mock.patch.object(smitecoach.cfg, "load", return_value={
+                "voice_coach": True, "llm_provider": "codex", "dragon_volume": 30}), \
+            mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=fake_env), \
+            mock.patch.object(smitecoach.lolcoachtools, "answer",
+                              return_value={"text": "Manual answer"}):
+        accepted_audio = answering.ask("What now?")
+    manual_handle = answering.cancel_handle
+    if not accepted_audio.get("ok") or manual_handle is None or not answering._manual_busy() \
+            or answering.state != "speaking" or len(held_audio.jobs) != 1:
+        bad.append("manual owner survives through audio playback")
+    held_audio.jobs[0].callback({"ok": True})
+    if answering.cancel_handle is not None or answering._manual_busy() \
+            or answering.state != "idle":
+        bad.append("manual audio completion releases owner")
+
+    delayed_audio = HeldAudio()
+    delayed = manual_fixture(delayed_audio)
+    with mock.patch.object(smitecoach.cfg, "load", return_value={
+                "voice_coach": True, "llm_provider": "codex", "dragon_volume": 30}), \
+            mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=fake_env), \
+            mock.patch.object(smitecoach.lolcoachtools, "answer",
+                              return_value={"text": "Old answer"}):
+        delayed.ask("Old question?")
+    delayed._cancel_manual_turn()
+    delayed._reserve_manual_turn()
+    delayed.state = "listening"
+    delayed_audio.jobs[0].callback({"ok": True})
+    if delayed.state != "listening" or delayed.cancel_handle is None:
+        bad.append("old manual audio callback cannot overwrite new listening turn")
+
+    failed_audio = HeldAudio()
+    audio_error = manual_fixture(failed_audio)
+    with mock.patch.object(smitecoach.cfg, "load", return_value={
+                "voice_coach": True, "llm_provider": "codex", "dragon_volume": 30}), \
+            mock.patch.object(smitecoach.phasecheck, "phase_detailed", return_value="None"), \
+            mock.patch.object(smitecoach.lolcoachcontext, "capture", return_value=fake_env), \
+            mock.patch.object(smitecoach.lolcoachtools, "answer",
+                              return_value={"text": "Audio may fail"}):
+        audio_error.ask("What now?")
+    failed_audio.jobs[0].callback({"ok": False, "error": "speaker_error"})
+    if audio_error.cancel_handle is not None or audio_error.state != "error":
+        bad.append("manual audio failure releases owner")
+
+    cancelling = manual_fixture(HeldAudio())
+    cancelling_handle = cancelling._reserve_manual_turn()
+    cancelling.state = "speaking"
+    explicit_cancel = cancelling.cancel()
+    if not explicit_cancel.get("cancelled") or cancelling.cancel_handle is not None \
+            or not cancelling_handle.cancelled or cancelling.state != "cancelled":
+        bad.append("explicit manual cancellation releases and invalidates owner")
 
     surface = smitecoach.Coordinator.__new__(smitecoach.Coordinator)
     surface.root = mock.Mock()
@@ -2817,7 +2957,30 @@ def c_coach_proactive():
     if policy.pop_ready() != second:
         bad.append("cooldown release")
     if policy.offer(intent("third", 3), "life") != "max_lifecycle":
-        bad.append("per-game max")
+        bad.append("explicit positive lifecycle cap")
+
+    clock[0] = 0
+    unlimited = proactive.ProactivePolicy(
+        clock=lambda: clock[0], global_cooldown=0, per_kind_cooldown=0)
+    unlimited_reasons = []
+    for number in range(7):
+        row = intent(f"unlimited_{number}", phase="InProgress")
+        unlimited_reasons.append(unlimited.offer(row, "unlimited"))
+        if unlimited.pop_ready() is not row:
+            unlimited_reasons.append("not_ready")
+    if any(reason not in ("queued",) for reason in unlimited_reasons) \
+            or unlimited.calls != 7 or unlimited.phase_calls.get("InProgress") != 7:
+        bad.append("unlimited lifecycle and phase counts")
+
+    phase_cap = proactive.ProactivePolicy(
+        clock=lambda: clock[0], global_cooldown=0, per_kind_cooldown=0,
+        max_per_lifecycle=0, max_per_phase=2)
+    for number in range(2):
+        row = intent(f"phase_cap_{number}", phase="Lobby")
+        phase_cap.offer(row, "phase-cap")
+        phase_cap.pop_ready()
+    if phase_cap.offer(intent("phase_cap_third", phase="Lobby"), "phase-cap") != "max_phase":
+        bad.append("explicit positive phase cap")
 
     clock[0] = 0
     suppressed = proactive.ProactivePolicy(clock=lambda: clock[0])
@@ -2934,14 +3097,26 @@ def c_coach_proactive():
             or runner.proactive_spoken != 1:
         bad.append("provider failure isolation/TTS recovery")
 
-    defaults = cfg.load()
-    if defaults.get("proactive_global_cooldown", 0) < 60 \
-            or defaults.get("proactive_max_per_game", 99) > 6:
-        bad.append("conservative config limits")
+    real_path = cfg.PATH
+    with tempfile.TemporaryDirectory(prefix="smiteless-proactive-config-") as tmp:
+        cfg.PATH = os.path.join(tmp, "settings.json")
+        try:
+            missing = cfg.load()
+            with open(cfg.PATH, "w", encoding="utf-8") as handle:
+                json.dump({"proactive_max_per_game": 6}, handle)
+            legacy = cfg.load()
+            saved = cfg.save({"proactive_max_per_game": 6})
+        finally:
+            cfg.PATH = real_path
+    if missing.get("proactive_global_cooldown") != 60 \
+            or missing.get("proactive_max_per_game") != 0 \
+            or legacy.get("proactive_max_per_game") != 0 \
+            or saved.get("proactive_max_per_game") != 0:
+        bad.append("unlimited config migration/default")
 
     if bad:
         return FAIL, "; ".join(bad)
-    return OK, ("lifecycle intents/reset; injected-clock TTL/cooldown/dedupe/queue/max/backoff; "
+    return OK, ("lifecycle intents/reset; injected-clock TTL/cooldown/dedupe/queue/guards/backoff; "
                 "typed widget bridge; manual/history isolation pass")
 
 
